@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  /* Primary - Teal/Cyan for trust and travel */
+  --primary: oklch(0.65 0.18 190);
+  --primary-foreground: oklch(0.98 0.01 190);
+  
+  /* Background - Clean whites */
+  --background: oklch(0.99 0.005 190);
+  --foreground: oklch(0.15 0.01 250);
+  
+  /* Card and surfaces */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.01 250);
+  
+  /* Muted elements */
+  --muted: oklch(0.96 0.01 250);
+  --muted-foreground: oklch(0.5 0.01 250);
+  
+  /* Border and input */
+  --border: oklch(0.92 0.005 250);
+  --input: oklch(0.92 0.005 250);
+  --ring: oklch(0.65 0.18 190);
+  
+  /* Secondary - Warm accent */
+  --secondary: oklch(0.94 0.02 80);
+  --secondary-foreground: oklch(0.25 0.02 80);
+  
+  /* Accent - For highlights */
+  --accent: oklch(0.95 0.03 190);
+  --accent-foreground: oklch(0.35 0.1 190);
+  
+  /* Destructive */
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 25);
+  
+  /* Radius */
+  --radius: 0.75rem;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  line-height: 1.5;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
