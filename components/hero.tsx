@@ -16,20 +16,20 @@ export function Hero() {
           <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-[var(--primary)]/10 px-4 py-2">
             <Leaf className="h-4 w-4 text-[var(--primary)]" />
             <span className="text-sm font-medium text-[var(--primary)]">
-              Eco-friendly travel
+              Viajes ecológicos
             </span>
           </div>
 
           {/* Headline */}
           <h1 className="mx-auto max-w-4xl text-balance text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl lg:text-6xl">
-            Share your journey,{" "}
-            <span className="text-[var(--primary)]">save together</span>
+            Comparte tu viaje,{" "}
+            <span className="text-[var(--primary)]">ahorra juntos</span>
           </h1>
 
           {/* Subheadline */}
           <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-[var(--muted-foreground)] sm:text-xl">
-            Connect with travelers going your way. Save money, reduce emissions,
-            and make new friends on the road.
+            Conecta con viajeros que van en tu misma dirección. Ahorra dinero, reduce emisiones
+            y haz nuevos amigos en el camino.
           </p>
 
           {/* Stats */}
@@ -40,7 +40,7 @@ export function Hero() {
               </div>
               <div className="text-left">
                 <p className="text-2xl font-bold text-[var(--foreground)]">2M+</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Active users</p>
+                <p className="text-sm text-[var(--muted-foreground)]">Usuarios activos</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -49,7 +49,7 @@ export function Hero() {
               </div>
               <div className="text-left">
                 <p className="text-2xl font-bold text-[var(--foreground)]">50K+</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Daily rides</p>
+                <p className="text-sm text-[var(--muted-foreground)]">Viajes diarios</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -58,7 +58,7 @@ export function Hero() {
               </div>
               <div className="text-left">
                 <p className="text-2xl font-bold text-[var(--foreground)]">10K+</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Tons CO2 saved</p>
+                <p className="text-sm text-[var(--muted-foreground)]">Tons CO2 ahorradas</p>
               </div>
             </div>
           </div>

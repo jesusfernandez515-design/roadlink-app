@@ -2,28 +2,28 @@ import Link from "next/link";
 import { MapPin, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
 
 const footerLinks = {
-  product: [
-    { name: "Find a Ride", href: "/search" },
-    { name: "Offer a Ride", href: "/offer" },
-    { name: "How it Works", href: "#how-it-works" },
-    { name: "Pricing", href: "/pricing" },
+  producto: [
+    { name: "Buscar viaje", href: "/search" },
+    { name: "Ofrecer viaje", href: "/offer" },
+    { name: "Cómo funciona", href: "#how-it-works" },
+    { name: "Precios", href: "/pricing" },
   ],
-  company: [
-    { name: "About Us", href: "/about" },
-    { name: "Careers", href: "/careers" },
-    { name: "Press", href: "/press" },
+  empresa: [
+    { name: "Nosotros", href: "/about" },
+    { name: "Carreras", href: "/careers" },
+    { name: "Prensa", href: "/press" },
     { name: "Blog", href: "/blog" },
   ],
-  support: [
-    { name: "Help Center", href: "/help" },
-    { name: "Safety", href: "/safety" },
-    { name: "Contact Us", href: "/contact" },
-    { name: "FAQs", href: "/faq" },
+  soporte: [
+    { name: "Centro de ayuda", href: "/help" },
+    { name: "Seguridad", href: "/safety" },
+    { name: "Contacto", href: "/contact" },
+    { name: "Preguntas frecuentes", href: "/faq" },
   ],
   legal: [
-    { name: "Privacy Policy", href: "/privacy" },
-    { name: "Terms of Service", href: "/terms" },
-    { name: "Cookie Policy", href: "/cookies" },
+    { name: "Política de privacidad", href: "/privacy" },
+    { name: "Términos de servicio", href: "/terms" },
+    { name: "Política de cookies", href: "/cookies" },
   ],
 };
 
@@ -50,8 +50,8 @@ export function Footer() {
               </span>
             </Link>
             <p className="mt-4 max-w-xs text-[var(--muted-foreground)]">
-              Connecting travelers for safer, cheaper, and more sustainable
-              journeys across the country.
+              Conectando viajeros para trayectos más seguros, económicos y
+              sustentables en todo el país.
             </p>
             {/* Social Links */}
             <div className="mt-6 flex gap-4">
@@ -70,9 +70,9 @@ export function Footer() {
 
           {/* Links */}
           <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Product</h3>
+            <h3 className="font-semibold text-[var(--foreground)]">Producto</h3>
             <ul className="mt-4 space-y-3">
-              {footerLinks.product.map((link) => (
+              {footerLinks.producto.map((link) => (
                 <li key={link.name}>
                   <Link
                     href={link.href}
@@ -86,9 +86,9 @@ export function Footer() {
           </div>
 
           <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Company</h3>
+            <h3 className="font-semibold text-[var(--foreground)]">Empresa</h3>
             <ul className="mt-4 space-y-3">
-              {footerLinks.company.map((link) => (
+              {footerLinks.empresa.map((link) => (
                 <li key={link.name}>
                   <Link
                     href={link.href}
@@ -102,9 +102,9 @@ export function Footer() {
           </div>
 
           <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Support</h3>
+            <h3 className="font-semibold text-[var(--foreground)]">Soporte</h3>
             <ul className="mt-4 space-y-3">
-              {footerLinks.support.map((link) => (
+              {footerLinks.soporte.map((link) => (
                 <li key={link.name}>
                   <Link
                     href={link.href}
@@ -137,7 +137,7 @@ export function Footer() {
         {/* Bottom */}
         <div className="mt-12 border-t border-[var(--border)] pt-8">
           <p className="text-center text-sm text-[var(--muted-foreground)]">
-            &copy; {new Date().getFullYear()} Roadlink. All rights reserved.
+            &copy; {new Date().getFullYear()} Roadlink. Todos los derechos reservados.
           </p>
         </div>
       </div>

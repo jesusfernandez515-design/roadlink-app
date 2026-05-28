@@ -2,24 +2,24 @@ import { Star } from "lucide-react";
 
 const testimonials = [
   {
-    name: "Sarah M.",
-    location: "New York to Boston",
+    name: "María S.",
+    location: "Nueva York a Boston",
     rating: 5,
-    text: "I&apos;ve been using Roadlink for my weekly commute for over a year. The savings are incredible, and I&apos;ve made some great connections along the way.",
-    avatar: "SM",
+    text: "He usado Roadlink para mi viaje semanal durante más de un año. El ahorro es increíble y he hecho grandes conexiones en el camino.",
+    avatar: "MS",
   },
   {
-    name: "James T.",
-    location: "Los Angeles to San Diego",
+    name: "Carlos T.",
+    location: "Los Ángeles a San Francisco",
     rating: 5,
-    text: "As a driver, Roadlink helps me offset my travel costs significantly. The app is easy to use and I&apos;ve met some really interesting people.",
-    avatar: "JT",
+    text: "Como conductor, Roadlink me ayuda a compensar mis gastos de viaje significativamente. La app es fácil de usar y he conocido personas muy interesantes.",
+    avatar: "CT",
   },
   {
-    name: "Emily R.",
-    location: "Chicago to Indianapolis",
+    name: "Elena R.",
+    location: "Chicago a Detroit",
     rating: 5,
-    text: "I was nervous about my first ride, but the verification system and reviews gave me confidence. Now I&apos;m a regular user!",
+    text: "Estaba nerviosa por mi primer viaje, pero el sistema de verificación y las reseñas me dieron confianza. ¡Ahora soy una usuaria frecuente!",
     avatar: "ER",
   },
 ];
@@ -31,10 +31,10 @@ export function Testimonials() {
         {/* Header */}
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">
-            Trusted by travelers
+            La confianza de los viajeros
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-[var(--muted-foreground)]">
-            See what our community has to say about their Roadlink experiences.
+            Descubre lo que nuestra comunidad dice sobre sus experiencias con Roadlink.
           </p>
         </div>
 

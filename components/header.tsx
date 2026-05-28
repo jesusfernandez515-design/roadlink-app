@@ -6,10 +6,10 @@ import { Menu, X, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navigation = [
-  { name: "Find a Ride", href: "/search" },
-  { name: "Offer a Ride", href: "/offer" },
-  { name: "How it Works", href: "#how-it-works" },
-  { name: "About", href: "/about" },
+  { name: "Buscar viaje", href: "/search" },
+  { name: "Ofrecer viaje", href: "/offer" },
+  { name: "Cómo funciona", href: "#how-it-works" },
+  { name: "Nosotros", href: "/about" },
 ];
 
 export function Header() {
@@ -47,13 +47,13 @@ export function Header() {
             href="/login"
             className="text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
           >
-            Log in
+            Iniciar sesión
           </Link>
           <Link
             href="/signup"
             className="rounded-full bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] shadow-sm transition-all hover:opacity-90"
           >
-            Sign up
+            Registrarse
           </Link>
         </div>
 
@@ -63,7 +63,7 @@ export function Header() {
           className="md:hidden"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
         >
-          <span className="sr-only">Toggle menu</span>
+          <span className="sr-only">Abrir menú</span>
           {mobileMenuOpen ? (
             <X className="h-6 w-6 text-[var(--foreground)]" />
           ) : (
@@ -96,13 +96,13 @@ export function Header() {
                 href="/login"
                 className="text-base font-medium text-[var(--foreground)]"
               >
-                Log in
+                Iniciar sesión
               </Link>
               <Link
                 href="/signup"
                 className="w-full rounded-full bg-[var(--primary)] py-3 text-center text-base font-semibold text-[var(--primary-foreground)]"
               >
-                Sign up
+                Registrarse
               </Link>
             </div>
           </div>

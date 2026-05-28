@@ -12,25 +12,25 @@ export function CTA() {
 
           <div className="relative z-10 mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-bold tracking-tight text-[var(--primary-foreground)] sm:text-4xl">
-              Ready to share your journey?
+              ¿Listo para compartir tu viaje?
             </h2>
             <p className="mt-4 text-lg text-[var(--primary-foreground)]/80">
-              Join millions of travelers saving money and reducing their carbon
-              footprint. Start your journey with Roadlink today.
+              Únete a millones de viajeros que ahorran dinero y reducen su huella
+              de carbono. Comienza tu viaje con Roadlink hoy.
             </p>
             <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
               <Link
                 href="/signup"
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-3.5 font-semibold text-[var(--primary)] shadow-lg transition-all hover:bg-white/90"
               >
-                Get started free
+                Comenzar gratis
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
                 href="/offer"
                 className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 px-8 py-3.5 font-semibold text-[var(--primary-foreground)] transition-all hover:bg-white/10"
               >
-                Offer a ride
+                Ofrecer un viaje
               </Link>
             </div>
           </div>

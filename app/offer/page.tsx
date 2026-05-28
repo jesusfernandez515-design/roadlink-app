@@ -18,10 +18,10 @@ export default function OfferPage() {
           {/* Header */}
           <div className="text-center">
             <h1 className="text-3xl font-bold text-[var(--foreground)] sm:text-4xl">
-              Offer a ride
+              Ofrece un viaje
             </h1>
             <p className="mt-4 text-[var(--muted-foreground)]">
-              Share your journey and earn money while helping fellow travelers.
+              Comparte tu viaje y gana dinero mientras ayudas a otros viajeros.
             </p>
           </div>
 
@@ -55,18 +55,18 @@ export default function OfferPage() {
             {step === 1 && (
               <div className="space-y-6">
                 <h2 className="text-xl font-semibold text-[var(--foreground)]">
-                  Route details
+                  Detalles de la ruta
                 </h2>
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Departure city
+                    Ciudad de salida
                   </label>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                     <input
                       type="text"
-                      placeholder="Where are you leaving from?"
+                      placeholder="¿De dónde sales?"
                       className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                     />
                   </div>
@@ -74,13 +74,13 @@ export default function OfferPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Destination city
+                    Ciudad de destino
                   </label>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                     <input
                       type="text"
-                      placeholder="Where are you going?"
+                      placeholder="¿A dónde vas?"
                       className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                     />
                   </div>
@@ -89,7 +89,7 @@ export default function OfferPage() {
                 <div className="grid gap-6 sm:grid-cols-2">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                      Date
+                      Fecha
                     </label>
                     <div className="relative">
                       <Calendar className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
@@ -101,7 +101,7 @@ export default function OfferPage() {
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                      Time
+                      Hora
                     </label>
                     <div className="relative">
                       <Clock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
@@ -118,18 +118,18 @@ export default function OfferPage() {
             {step === 2 && (
               <div className="space-y-6">
                 <h2 className="text-xl font-semibold text-[var(--foreground)]">
-                  Vehicle & capacity
+                  Vehículo y capacidad
                 </h2>
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Vehicle
+                    Vehículo
                   </label>
                   <div className="relative">
                     <Car className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                     <input
                       type="text"
-                      placeholder="e.g., Toyota Camry 2020"
+                      placeholder="ej. Toyota Camry 2020"
                       className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                     />
                   </div>
@@ -137,14 +137,14 @@ export default function OfferPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Available seats
+                    Asientos disponibles
                   </label>
                   <div className="relative">
                     <Users className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                     <select className="w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20">
                       {[1, 2, 3, 4, 5, 6].map((num) => (
                         <option key={num} value={num}>
-                          {num} {num === 1 ? "seat" : "seats"}
+                          {num} {num === 1 ? "asiento" : "asientos"}
                         </option>
                       ))}
                     </select>
@@ -153,10 +153,10 @@ export default function OfferPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Amenities
+                    Comodidades
                   </label>
                   <div className="flex flex-wrap gap-3">
-                    {["WiFi", "AC", "Music", "Pet friendly", "Luggage space"].map(
+                    {["WiFi", "Aire acondicionado", "Música", "Mascotas permitidas", "Espacio para equipaje"].map(
                       (amenity) => (
                         <label
                           key={amenity}
@@ -175,34 +175,34 @@ export default function OfferPage() {
             {step === 3 && (
               <div className="space-y-6">
                 <h2 className="text-xl font-semibold text-[var(--foreground)]">
-                  Price & preferences
+                  Precio y preferencias
                 </h2>
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Price per seat
+                    Precio por asiento
                   </label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                     <input
                       type="number"
-                      placeholder="25"
+                      placeholder="89"
                       className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                     />
                   </div>
                   <p className="mt-2 flex items-center gap-1 text-sm text-[var(--muted-foreground)]">
                     <Info className="h-4 w-4" />
-                    Suggested price: $20-30 based on similar routes
+                    Precio sugerido: $45-$119 según rutas similares
                   </p>
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                    Additional notes
+                    Notas adicionales
                   </label>
                   <textarea
                     rows={4}
-                    placeholder="Any additional information passengers should know..."
+                    placeholder="Información adicional que los pasajeros deben saber..."
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                   />
                 </div>
@@ -217,18 +217,18 @@ export default function OfferPage() {
                   step === 1 ? "invisible" : ""
                 }`}
               >
-                Back
+                Atrás
               </button>
               {step < 3 ? (
                 <button
                   onClick={() => setStep(step + 1)}
                   className="rounded-lg bg-[var(--primary)] px-6 py-2.5 font-medium text-[var(--primary-foreground)] transition-colors hover:opacity-90"
                 >
-                  Continue
+                  Continuar
                 </button>
               ) : (
                 <button className="rounded-lg bg-[var(--primary)] px-6 py-2.5 font-medium text-[var(--primary-foreground)] transition-colors hover:opacity-90">
-                  Publish ride
+                  Publicar viaje
                 </button>
               )}
             </div>
