@@ -3,39 +3,39 @@ import { Wallet, Shield, Leaf, Clock, Star, Users } from "lucide-react";
 const features = [
   {
     icon: Wallet,
-    title: "Save Money",
+    title: "Ahorra dinero",
     description:
-      "Split travel costs with fellow passengers. Save up to 75% compared to traveling alone.",
+      "Divide los costos de viaje con otros pasajeros. Ahorra hasta un 75% comparado con viajar solo.",
   },
   {
     icon: Shield,
-    title: "Safe & Verified",
+    title: "Seguro y verificado",
     description:
-      "All drivers are verified. View ratings, reviews, and complete profiles before booking.",
+      "Todos los conductores están verificados. Revisa calificaciones, reseñas y perfiles completos antes de reservar.",
   },
   {
     icon: Leaf,
-    title: "Eco-Friendly",
+    title: "Ecológico",
     description:
-      "Reduce your carbon footprint by sharing rides. One less car on the road makes a difference.",
+      "Reduce tu huella de carbono compartiendo viajes. Un auto menos en la carretera hace la diferencia.",
   },
   {
     icon: Clock,
-    title: "Flexible Options",
+    title: "Opciones flexibles",
     description:
-      "Find rides any time of day. Filter by departure time, amenities, and more.",
+      "Encuentra viajes a cualquier hora del día. Filtra por hora de salida, comodidades y más.",
   },
   {
     icon: Star,
-    title: "Quality Rides",
+    title: "Viajes de calidad",
     description:
-      "Choose from comfortable vehicles. Many drivers offer amenities like WiFi and snacks.",
+      "Elige entre vehículos cómodos. Muchos conductores ofrecen WiFi, refrigerios y más comodidades.",
   },
   {
     icon: Users,
-    title: "Build Community",
+    title: "Construye comunidad",
     description:
-      "Meet interesting people on your journey. Many passengers become friends for life.",
+      "Conoce personas interesantes en tu viaje. Muchos pasajeros se convierten en amigos para toda la vida.",
   },
 ];
 
@@ -46,10 +46,10 @@ export function Features() {
         {/* Header */}
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">
-            Why choose Roadlink
+            Por qué elegir Roadlink
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-[var(--muted-foreground)]">
-            Join millions of travelers who trust Roadlink for their journeys.
+            Únete a millones de viajeros que confían en Roadlink para sus trayectos.
           </p>
         </div>
 

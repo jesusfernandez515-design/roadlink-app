@@ -3,27 +3,27 @@ import { Search, Car, Handshake, ThumbsUp } from "lucide-react";
 const steps = [
   {
     icon: Search,
-    title: "Search your route",
+    title: "Busca tu ruta",
     description:
-      "Enter your departure and destination cities, select your travel date, and find available rides.",
+      "Ingresa tu ciudad de salida y destino, selecciona la fecha de viaje y encuentra viajes disponibles.",
   },
   {
     icon: Handshake,
-    title: "Book your seat",
+    title: "Reserva tu asiento",
     description:
-      "Choose a ride that fits your schedule. Review driver profiles, ratings, and vehicle details.",
+      "Elige un viaje que se ajuste a tu horario. Revisa perfiles de conductores, calificaciones y detalles del vehículo.",
   },
   {
     icon: Car,
-    title: "Travel together",
+    title: "Viaja juntos",
     description:
-      "Meet your driver at the pickup point and enjoy the journey. Split costs and share stories.",
+      "Encuentra a tu conductor en el punto de encuentro y disfruta el viaje. Comparte gastos e historias.",
   },
   {
     icon: ThumbsUp,
-    title: "Rate your experience",
+    title: "Califica tu experiencia",
     description:
-      "After your trip, leave a review to help build a trusted community of travelers.",
+      "Después de tu viaje, deja una reseña para ayudar a construir una comunidad de viajeros confiable.",
   },
 ];
 
@@ -34,11 +34,11 @@ export function HowItWorks() {
         {/* Header */}
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">
-            How it works
+            Cómo funciona
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-[var(--muted-foreground)]">
-            Getting started with Roadlink is easy. Find your ride in just a few
-            simple steps.
+            Comenzar con Roadlink es fácil. Encuentra tu viaje en solo unos
+            simples pasos.
           </p>
         </div>
 

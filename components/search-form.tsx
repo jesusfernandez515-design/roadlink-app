@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, MapPin, Calendar, Users, ArrowRight } from "lucide-react";
+import { Search, MapPin, Calendar, Users } from "lucide-react";
 
 export function SearchForm() {
   const [from, setFrom] = useState("");
@@ -15,13 +15,13 @@ export function SearchForm() {
         {/* From */}
         <div className="relative">
           <label className="mb-1.5 block text-xs font-medium text-[var(--muted-foreground)]">
-            From
+            Origen
           </label>
           <div className="relative">
             <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
             <input
               type="text"
-              placeholder="City or address"
+              placeholder="Ciudad o dirección"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-10 pr-4 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
@@ -32,13 +32,13 @@ export function SearchForm() {
         {/* To */}
         <div className="relative">
           <label className="mb-1.5 block text-xs font-medium text-[var(--muted-foreground)]">
-            To
+            Destino
           </label>
           <div className="relative">
             <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
             <input
               type="text"
-              placeholder="City or address"
+              placeholder="Ciudad o dirección"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-10 pr-4 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
@@ -49,7 +49,7 @@ export function SearchForm() {
         {/* Date */}
         <div className="relative">
           <label className="mb-1.5 block text-xs font-medium text-[var(--muted-foreground)]">
-            Date
+            Fecha
           </label>
           <div className="relative">
             <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
@@ -65,7 +65,7 @@ export function SearchForm() {
         {/* Passengers */}
         <div className="relative">
           <label className="mb-1.5 block text-xs font-medium text-[var(--muted-foreground)]">
-            Passengers
+            Pasajeros
           </label>
           <div className="relative">
             <Users className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
@@ -90,7 +90,7 @@ export function SearchForm() {
             className="flex h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-6 font-semibold text-[var(--primary-foreground)] transition-all hover:opacity-90 md:w-auto"
           >
             <Search className="h-4 w-4" />
-            <span className="md:hidden lg:inline">Search</span>
+            <span className="md:hidden lg:inline">Buscar</span>
           </button>
         </div>
       </div>

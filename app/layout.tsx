@@ -13,22 +13,22 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Roadlink - Share Your Journey",
+  title: "Roadlink - Comparte tu viaje",
   description:
-    "Connect with travelers going your way. Save money, reduce emissions, and make new friends on the road.",
+    "Conecta con viajeros que van en tu misma dirección. Ahorra dinero, reduce emisiones y haz nuevos amigos en el camino.",
   keywords: [
     "carpooling",
-    "ride sharing",
-    "travel",
-    "commute",
-    "eco-friendly",
+    "compartir viajes",
+    "viajes compartidos",
+    "transporte",
+    "ecológico",
     "road trip",
   ],
   authors: [{ name: "Roadlink" }],
   openGraph: {
-    title: "Roadlink - Share Your Journey",
+    title: "Roadlink - Comparte tu viaje",
     description:
-      "Connect with travelers going your way. Save money, reduce emissions, and make new friends on the road.",
+      "Conecta con viajeros que van en tu misma dirección. Ahorra dinero, reduce emisiones y haz nuevos amigos en el camino.",
     type: "website",
   },
 };
@@ -45,7 +45,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable} bg-[var(--background)]`}>
+    <html lang="es" className={`${inter.variable} ${spaceGrotesk.variable} bg-[var(--background)]`}>
       <body className="font-sans antialiased">{children}</body>
     </html>
   );

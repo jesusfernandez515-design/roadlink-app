@@ -20,21 +20,21 @@ export default function LoginPage() {
 
         {/* Form Card */}
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8">
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Welcome back</h1>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">Bienvenido de vuelta</h1>
           <p className="mt-2 text-[var(--muted-foreground)]">
-            Log in to your account to continue
+            Inicia sesión en tu cuenta para continuar
           </p>
 
           <form className="mt-8 space-y-5">
             <div>
               <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                Email
+                Correo electrónico
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                 <input
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder="tu@ejemplo.com"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                 />
               </div>
@@ -42,13 +42,13 @@ export default function LoginPage() {
 
             <div>
               <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                Password
+                Contraseña
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
+                  placeholder="Ingresa tu contraseña"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-12 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                 />
                 <button
@@ -72,14 +72,14 @@ export default function LoginPage() {
                   className="h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                 />
                 <span className="text-sm text-[var(--muted-foreground)]">
-                  Remember me
+                  Recordarme
                 </span>
               </label>
               <Link
                 href="/forgot-password"
                 className="text-sm font-medium text-[var(--primary)] hover:underline"
               >
-                Forgot password?
+                ¿Olvidaste tu contraseña?
               </Link>
             </div>
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
               type="submit"
               className="w-full rounded-lg bg-[var(--primary)] py-3 font-semibold text-[var(--primary-foreground)] transition-colors hover:opacity-90"
             >
-              Log in
+              Iniciar sesión
             </button>
           </form>
 
@@ -97,7 +97,7 @@ export default function LoginPage() {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="bg-[var(--card)] px-4 text-[var(--muted-foreground)]">
-                Or continue with
+                O continúa con
               </span>
             </div>
           </div>
@@ -134,9 +134,9 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-8 text-center text-[var(--muted-foreground)]">
-          Don&apos;t have an account?{" "}
+          ¿No tienes una cuenta?{" "}
           <Link href="/signup" className="font-medium text-[var(--primary)] hover:underline">
-            Sign up
+            Regístrate
           </Link>
         </p>
       </div>

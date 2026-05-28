@@ -1,12 +1,12 @@
 import { MapPin, ArrowRight } from "lucide-react";
 
 const routes = [
-  { from: "New York", to: "Boston", rides: 234, price: "$25" },
-  { from: "Los Angeles", to: "San Francisco", rides: 189, price: "$35" },
-  { from: "Chicago", to: "Detroit", rides: 156, price: "$20" },
-  { from: "Miami", to: "Orlando", rides: 145, price: "$18" },
-  { from: "Seattle", to: "Portland", rides: 123, price: "$22" },
-  { from: "Austin", to: "Houston", rides: 98, price: "$15" },
+  { from: "Nueva York", to: "Boston", rides: 234, price: "$89" },
+  { from: "Los Ángeles", to: "San Francisco", rides: 189, price: "$119" },
+  { from: "Chicago", to: "Detroit", rides: 156, price: "$69" },
+  { from: "Miami", to: "Orlando", rides: 145, price: "$49" },
+  { from: "Seattle", to: "Portland", rides: 123, price: "$59" },
+  { from: "Austin", to: "Houston", rides: 98, price: "$45" },
 ];
 
 export function PopularRoutes() {
@@ -16,10 +16,10 @@ export function PopularRoutes() {
         {/* Header */}
         <div className="text-center">
           <h2 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">
-            Popular routes
+            Rutas populares
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-[var(--muted-foreground)]">
-            Discover the most traveled routes on Roadlink.
+            Descubre las rutas más viajadas en Roadlink.
           </p>
         </div>
 
@@ -42,13 +42,13 @@ export function PopularRoutes() {
                     <span>{route.to}</span>
                   </div>
                   <p className="text-sm text-[var(--muted-foreground)]">
-                    {route.rides} rides available
+                    {route.rides} viajes disponibles
                   </p>
                 </div>
               </div>
               <div className="text-right">
                 <p className="font-semibold text-[var(--primary)]">
-                  From {route.price}
+                  Desde {route.price}
                 </p>
               </div>
             </a>
@@ -61,7 +61,7 @@ export function PopularRoutes() {
             href="/routes"
             className="inline-flex items-center gap-2 text-[var(--primary)] font-medium hover:underline"
           >
-            View all routes
+            Ver todas las rutas
             <ArrowRight className="h-4 w-4" />
           </a>
         </div>

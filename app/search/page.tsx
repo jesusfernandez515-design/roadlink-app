@@ -1,20 +1,20 @@
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { SearchForm } from "@/components/search-form";
-import { MapPin, Clock, Star, Users, Car, Wifi, Music, Cigarette } from "lucide-react";
+import { MapPin, Clock, Star, Users, Car, Wifi, Music } from "lucide-react";
 
 const mockRides = [
   {
     id: 1,
-    driver: "Michael S.",
+    driver: "Miguel S.",
     avatar: "MS",
     rating: 4.9,
     reviews: 127,
-    from: "New York",
+    from: "Nueva York",
     to: "Boston",
-    date: "Tomorrow",
+    date: "Mañana",
     time: "8:00 AM",
-    price: 25,
+    price: 89,
     seats: 3,
     car: "Tesla Model 3",
     amenities: ["wifi", "music"],
@@ -25,11 +25,11 @@ const mockRides = [
     avatar: "JL",
     rating: 4.8,
     reviews: 89,
-    from: "New York",
+    from: "Nueva York",
     to: "Boston",
-    date: "Tomorrow",
+    date: "Mañana",
     time: "10:30 AM",
-    price: 22,
+    price: 85,
     seats: 2,
     car: "Honda Accord",
     amenities: ["music"],
@@ -40,11 +40,11 @@ const mockRides = [
     avatar: "DK",
     rating: 5.0,
     reviews: 54,
-    from: "New York",
+    from: "Nueva York",
     to: "Boston",
-    date: "Tomorrow",
+    date: "Mañana",
     time: "2:00 PM",
-    price: 28,
+    price: 95,
     seats: 4,
     car: "BMW X5",
     amenities: ["wifi", "music"],
@@ -69,16 +69,16 @@ export default function SearchPage() {
           <div className="mb-8 flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-[var(--foreground)]">
-                Available rides
+                Viajes disponibles
               </h1>
               <p className="mt-1 text-[var(--muted-foreground)]">
-                {mockRides.length} rides found
+                {mockRides.length} viajes encontrados
               </p>
             </div>
             <select className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm text-[var(--foreground)]">
-              <option>Sort by: Earliest departure</option>
-              <option>Sort by: Lowest price</option>
-              <option>Sort by: Highest rated</option>
+              <option>Ordenar por: Salida más temprana</option>
+              <option>Ordenar por: Precio más bajo</option>
+              <option>Ordenar por: Mejor calificación</option>
             </select>
           </div>
 
@@ -102,7 +102,7 @@ export default function SearchPage() {
                         <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
                         <span className="text-[var(--foreground)]">{ride.rating}</span>
                         <span className="text-[var(--muted-foreground)]">
-                          ({ride.reviews} reviews)
+                          ({ride.reviews} reseñas)
                         </span>
                       </div>
                     </div>
@@ -136,7 +136,7 @@ export default function SearchPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Users className="h-4 w-4" />
-                        {ride.seats} seats left
+                        {ride.seats} asientos disponibles
                       </span>
                     </div>
                     {/* Amenities */}
@@ -150,7 +150,7 @@ export default function SearchPage() {
                       {ride.amenities.includes("music") && (
                         <span className="flex items-center gap-1 rounded-full bg-[var(--muted)] px-2.5 py-1 text-xs text-[var(--muted-foreground)]">
                           <Music className="h-3 w-3" />
-                          Music
+                          Música
                         </span>
                       )}
                     </div>
@@ -162,7 +162,7 @@ export default function SearchPage() {
                       ${ride.price}
                     </p>
                     <button className="rounded-full bg-[var(--primary)] px-6 py-2.5 font-semibold text-[var(--primary-foreground)] transition-all hover:opacity-90">
-                      Book now
+                      Reservar
                     </button>
                   </div>
                 </div>

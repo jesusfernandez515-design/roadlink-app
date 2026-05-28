@@ -1,46 +1,46 @@
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
-import { Shield, Users, Leaf, Award, MapPin, Heart } from "lucide-react";
+import { Shield, Users, Leaf, Heart, MapPin } from "lucide-react";
 
 const stats = [
-  { label: "Active Users", value: "2M+" },
-  { label: "Rides Completed", value: "15M+" },
-  { label: "Countries", value: "25+" },
-  { label: "CO2 Saved (tons)", value: "10K+" },
+  { label: "Usuarios activos", value: "2M+" },
+  { label: "Viajes completados", value: "15M+" },
+  { label: "Países", value: "25+" },
+  { label: "CO2 ahorrado (tons)", value: "10K+" },
 ];
 
 const values = [
   {
     icon: Shield,
-    title: "Safety First",
+    title: "Seguridad primero",
     description:
-      "We verify all drivers and provide safety features like ride tracking, emergency contacts, and 24/7 support.",
+      "Verificamos a todos los conductores y ofrecemos funciones de seguridad como seguimiento de viaje, contactos de emergencia y soporte 24/7.",
   },
   {
     icon: Users,
-    title: "Community Driven",
+    title: "Impulsado por la comunidad",
     description:
-      "Our platform is built on trust and community. Ratings and reviews help everyone make informed decisions.",
+      "Nuestra plataforma está construida sobre la confianza y la comunidad. Las calificaciones y reseñas ayudan a todos a tomar decisiones informadas.",
   },
   {
     icon: Leaf,
-    title: "Sustainability",
+    title: "Sustentabilidad",
     description:
-      "Every shared ride reduces carbon emissions. Together, we are making transportation more sustainable.",
+      "Cada viaje compartido reduce las emisiones de carbono. Juntos estamos haciendo el transporte más sustentable.",
   },
   {
     icon: Heart,
-    title: "Accessibility",
+    title: "Accesibilidad",
     description:
-      "Affordable travel for everyone. We believe getting from A to B should not break the bank.",
+      "Viajes accesibles para todos. Creemos que ir del punto A al B no debería vaciar tu bolsillo.",
   },
 ];
 
 const team = [
-  { name: "Alex Chen", role: "CEO & Co-founder", avatar: "AC" },
-  { name: "Maria Garcia", role: "CTO & Co-founder", avatar: "MG" },
-  { name: "James Wilson", role: "Head of Operations", avatar: "JW" },
-  { name: "Sarah Johnson", role: "Head of Trust & Safety", avatar: "SJ" },
+  { name: "Alex Chen", role: "CEO y Cofundador", avatar: "AC" },
+  { name: "María García", role: "CTO y Cofundadora", avatar: "MG" },
+  { name: "James Wilson", role: "Director de Operaciones", avatar: "JW" },
+  { name: "Sara Johnson", role: "Directora de Confianza y Seguridad", avatar: "SJ" },
 ];
 
 export default function AboutPage() {
@@ -53,11 +53,11 @@ export default function AboutPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
-              About Roadlink
+              Sobre Roadlink
             </h1>
             <p className="mt-6 text-lg text-[var(--muted-foreground)]">
-              We are on a mission to make travel more accessible, affordable, and
-              sustainable by connecting travelers going the same way.
+              Nuestra misión es hacer los viajes más accesibles, económicos y
+              sustentables conectando viajeros que van en la misma dirección.
             </p>
           </div>
         </div>
@@ -85,24 +85,24 @@ export default function AboutPage() {
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
             <div>
               <h2 className="text-3xl font-bold text-[var(--foreground)]">
-                Our Story
+                Nuestra historia
               </h2>
               <div className="mt-6 space-y-4 text-[var(--muted-foreground)]">
                 <p>
-                  Roadlink was born from a simple idea: empty seats in cars traveling
-                  the same routes represent a massive untapped opportunity for
-                  connection and sustainability.
+                  Roadlink nació de una idea simple: los asientos vacíos en autos
+                  que viajan las mismas rutas representan una gran oportunidad sin
+                  explotar para la conexión y la sustentabilidad.
                 </p>
                 <p>
-                  Founded in 2020, we set out to build a platform that makes
-                  carpooling easy, safe, and enjoyable. Today, we connect millions
-                  of travelers across 25+ countries, helping them save money while
-                  reducing their carbon footprint.
+                  Fundada en 2020, nos propusimos construir una plataforma que haga
+                  el carpooling fácil, seguro y agradable. Hoy conectamos millones
+                  de viajeros en más de 25 países, ayudándoles a ahorrar dinero
+                  mientras reducen su huella de carbono.
                 </p>
                 <p>
-                  Our vision goes beyond just rides. We are building a community of
-                  travelers who share not just their journeys, but their stories,
-                  experiences, and perspectives.
+                  Nuestra visión va más allá de solo viajes. Estamos construyendo
+                  una comunidad de viajeros que comparten no solo sus trayectos,
+                  sino sus historias, experiencias y perspectivas.
                 </p>
               </div>
             </div>
@@ -122,10 +122,10 @@ export default function AboutPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h2 className="text-3xl font-bold text-[var(--foreground)]">
-              Our Values
+              Nuestros valores
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-[var(--muted-foreground)]">
-              These core principles guide everything we do at Roadlink.
+              Estos principios fundamentales guían todo lo que hacemos en Roadlink.
             </p>
           </div>
 
@@ -155,10 +155,10 @@ export default function AboutPage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h2 className="text-3xl font-bold text-[var(--foreground)]">
-              Our Team
+              Nuestro equipo
             </h2>
             <p className="mx-auto mt-4 max-w-2xl text-[var(--muted-foreground)]">
-              Meet the people behind Roadlink.
+              Conoce a las personas detrás de Roadlink.
             </p>
           </div>
 

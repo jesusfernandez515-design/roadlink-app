@@ -20,35 +20,35 @@ export default function SignupPage() {
 
         {/* Form Card */}
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8">
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Create an account</h1>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">Crea una cuenta</h1>
           <p className="mt-2 text-[var(--muted-foreground)]">
-            Join Roadlink and start sharing rides
+            Únete a Roadlink y comienza a compartir viajes
           </p>
 
           <form className="mt-8 space-y-5">
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                  First name
+                  Nombre
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                   <input
                     type="text"
-                    placeholder="John"
+                    placeholder="Juan"
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                   />
                 </div>
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                  Last name
+                  Apellido
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                   <input
                     type="text"
-                    placeholder="Doe"
+                    placeholder="Pérez"
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                   />
                 </div>
@@ -57,13 +57,13 @@ export default function SignupPage() {
 
             <div>
               <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                Email
+                Correo electrónico
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                 <input
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder="tu@ejemplo.com"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-4 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                 />
               </div>
@@ -71,13 +71,13 @@ export default function SignupPage() {
 
             <div>
               <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                Password
+                Contraseña
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--muted-foreground)]" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Create a strong password"
+                  placeholder="Crea una contraseña segura"
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-11 pr-12 text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                 />
                 <button
@@ -93,7 +93,7 @@ export default function SignupPage() {
                 </button>
               </div>
               <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-                Must be at least 8 characters with a number and symbol
+                Debe tener al menos 8 caracteres con un número y un símbolo
               </p>
             </div>
 
@@ -103,13 +103,13 @@ export default function SignupPage() {
                 className="mt-1 h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
               />
               <span className="text-sm text-[var(--muted-foreground)]">
-                I agree to the{" "}
+                Acepto los{" "}
                 <Link href="/terms" className="text-[var(--primary)] hover:underline">
-                  Terms of Service
+                  Términos de servicio
                 </Link>{" "}
-                and{" "}
+                y la{" "}
                 <Link href="/privacy" className="text-[var(--primary)] hover:underline">
-                  Privacy Policy
+                  Política de privacidad
                 </Link>
               </span>
             </label>
@@ -118,7 +118,7 @@ export default function SignupPage() {
               type="submit"
               className="w-full rounded-lg bg-[var(--primary)] py-3 font-semibold text-[var(--primary-foreground)] transition-colors hover:opacity-90"
             >
-              Create account
+              Crear cuenta
             </button>
           </form>
 
@@ -128,7 +128,7 @@ export default function SignupPage() {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="bg-[var(--card)] px-4 text-[var(--muted-foreground)]">
-                Or continue with
+                O continúa con
               </span>
             </div>
           </div>
@@ -165,9 +165,9 @@ export default function SignupPage() {
         </div>
 
         <p className="mt-8 text-center text-[var(--muted-foreground)]">
-          Already have an account?{" "}
+          ¿Ya tienes una cuenta?{" "}
           <Link href="/login" className="font-medium text-[var(--primary)] hover:underline">
-            Log in
+            Inicia sesión
           </Link>
         </p>
       </div>
