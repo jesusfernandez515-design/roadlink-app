@@ -1,162 +1,56 @@
-"use client";
+import { Leaf, Users, Car, Route } from "lucide-react";
+import { SearchForm } from "./search-form";
 
-import { useState } from "react";
-import { Search, MapPin, Calendar, Users } from "lucide-react";
-
-export function SearchForm() {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [date, setDate] = useState("");
-  const [passengers, setPassengers] = useState("1");
-
+export function Hero() {
   return (
-    <section className="w-full px-5 sm:px-6 lg:px-8 mt-14 mb-16">
-      <div className="mx-auto max-w-5xl rounded-[28px] border border-gray-100 bg-white p-5 shadow-2xl sm:p-7">
-        <div className="mb-6 text-center">
-          <h2 className="text-2xl font-black text-gray-950">
-            Encuentra tu próximo viaje
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-gray-600">
-            Busca rutas compartidas seguras, económicas y verificadas.
+    <section className="w-full bg-gradient-to-b from-teal-50 to-white">
+      <div className="mx-auto max-w-7xl px-6 pt-10 pb-16 sm:px-8 lg:px-12">
+        <div className="mx-auto max-w-4xl text-center">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-teal-100 px-4 py-2 text-sm font-bold text-teal-700">
+            <Leaf className="h-4 w-4" />
+            Viajes compartidos seguros
+          </div>
+
+          <h1 className="text-4xl font-black leading-tight tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
+            Comparte tu viaje,
+            <span className="block text-teal-600">ahorra en el camino</span>
+          </h1>
+
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-gray-600 sm:text-xl">
+            Roadlink conecta pasajeros con conductores verificados para viajes
+            largos entre ciudades. Ahorra dinero, viaja acompañado y llega con
+            más tranquilidad.
           </p>
         </div>
 
-        <form className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <label className="mb-2 block text-sm font-bold text-gray-800">
-              Origen
-            </label>
-            <div className="relative">
-              <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <input
-                type="text"
-                placeholder="Ciudad o dirección"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="h-13 min-h-[52px] w-full rounded-2xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 shadow-sm outline-none placeholder:text-gray-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-100"
-              />
-            </div>
+        <div className="mx-auto mt-10 grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="rounded-3xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-gray-100">
+            <Users className="mx-auto mb-3 h-8 w-8 text-teal-600" />
+            <p className="text-3xl font-black text-gray-950">Beta</p>
+            <p className="mt-1 text-sm font-medium text-gray-600">
+              Comunidad en crecimiento
+            </p>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-bold text-gray-800">
-              Destino
-            </label>
-            <div className="relative">
-              <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <input
-                type="text"
-                placeholder="Ciudad o dirección"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="h-13 min-h-[52px] w-full rounded-2xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 shadow-sm outline-none placeholder:text-gray-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-100"
-              />
-            </div>
+          <div className="rounded-3xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-gray-100">
+            <Car className="mx-auto mb-3 h-8 w-8 text-teal-600" />
+            <p className="text-3xl font-black text-gray-950">75+</p>
+            <p className="mt-1 text-sm font-medium text-gray-600">
+              Rutas proyectadas
+            </p>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-bold text-gray-800">
-              Fecha
-            </label>
-            <div className="relative">
-              <Calendar className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="min-h-[52px] w-full rounded-2xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 shadow-sm outline-none focus:border-teal-600 focus:ring-4 focus:ring-teal-100"
-              />
-            </div>
+          <div className="rounded-3xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-gray-100">
+            <Route className="mx-auto mb-3 h-8 w-8 text-teal-600" />
+            <p className="text-3xl font-black text-gray-950">EE. UU.</p>
+            <p className="mt-1 text-sm font-medium text-gray-600">
+              Viajes entre ciudades
+            </p>
           </div>
+        </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-bold text-gray-800">
-              Pasajeros
-            </label>
-            <div className="relative">
-              <Users className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <select
-                value={passengers}
-                onChange={(e) => setPassengers(e.target.value)}
-                className="min-h-[52px] w-full appearance-none rounded-2xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 shadow-sm outline-none focus:border-teal-600 focus:ring-4 focus:ring-teal-100"
-              >
-                {[1, 2, 3, 4, 5, 6].map((num) => (
-                  <option key={num} value={num}>
-                    {num} pasajero{num > 1 ? "s" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="md:col-span-2 lg:col-span-4">
-            <button
-              type="submit"
-              className="mt-2 flex min-h-[58px] w-full items-center justify-center gap-3 rounded-2xl bg-teal-600 px-6 text-lg font-black text-white shadow-xl transition hover:bg-teal-700"
-            >
-              <Search className="h-5 w-5" />
-              Buscar viaje
-            </button>
-          </div>
-        </form>
-      </div>
-    </section>
-  );
-}              <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <input
-                type="text"
-                placeholder="Ciudad o dirección"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="h-12 w-full rounded-xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-gray-700">
-              Fecha
-            </label>
-            <div className="relative">
-              <Calendar className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="h-12 w-full rounded-xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-gray-700">
-              Pasajeros
-            </label>
-            <div className="relative">
-              <Users className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-              <select
-                value={passengers}
-                onChange={(e) => setPassengers(e.target.value)}
-                className="h-12 w-full appearance-none rounded-xl border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-              >
-                {[1, 2, 3, 4, 5, 6].map((num) => (
-                  <option key={num} value={num}>
-                    {num}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="md:col-span-2 lg:col-span-4">
-            <button
-              type="submit"
-              className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-teal-600 text-lg font-bold text-white shadow-lg transition hover:bg-teal-700"
-            >
-              <Search className="h-5 w-5" />
-              Buscar viaje
-            </button>
-          </div>
+        <div className="mt-12">
+          <SearchForm />
         </div>
       </div>
     </section>
