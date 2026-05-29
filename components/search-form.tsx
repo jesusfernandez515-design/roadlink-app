@@ -23,8 +23,7 @@ export function SearchForm() {
               placeholder="Ciudad o dirección"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="w-full h-12 pl-12 rounded-lg border ..."
-          </div>
+     className="w-full h-12 pl-12 rounded-lg border ..."     </div>
         </div>
 
         {/* To */}
