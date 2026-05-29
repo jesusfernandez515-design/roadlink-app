@@ -10,9 +10,8 @@ export function SearchForm() {
   const [passengers, setPassengers] = useState("1");
 
   return (
-    <div className="w-full max-w-4xl rounded-2xl bg-[var(--card)] p-6 shadow-xl shadow-[var(--primary)]/5 border border-[var(--border)]">
-      <div className="grid gap-4 md:grid-cols-[1fr,1fr,1fr,auto,auto]">
-        {/* From */}
+<div className="w-full max-w-6xl mx-auto px-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="relative">
           <label className="mb-1.5 block text-xs font-medium text-[var(--muted-foreground)]">
             Origen
