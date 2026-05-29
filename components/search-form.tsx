@@ -1,83 +1,3 @@
-""use client";
-
-import { useState } from "react";
-import { Search, MapPin, Calendar, Users } from "lucide-react";
-
-export function SearchForm() {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [date, setDate] = useState("");
-  const [passengers, setPassengers] = useState("1");
-
-  return (
-    <div className="w-full max-w-6xl mx-auto px-4 mt-10">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-gray-700">
-            Origen
-          </label>
-          <div className="relative">
-            <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-            <input
-              type="text"
-              placeholder="Ciudad o dirección"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="w-full h-12 rounded-lg border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-gray-700">
-            Destino
-          </label>
-          <div className="relative">
-            <MapPin className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-            <input
-              type="text"
-              placeholder="Ciudad o dirección"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="w-full h-12 rounded-lg border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-gray-700">
-            Fecha
-          </label>
-          <div className="relative">
-            <Calendar className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full h-12 rounded-lg border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-gray-700">
-            Pasajeros
-          </label>
-          <div className="relative">
-            <Users className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600" />
-            <select
-              value={passengers}
-              onChange={(e) => setPassengers(e.target.value)}
-              className="w-full h-12 appearance-none rounded-lg border border-gray-300 bg-white pl-14 pr-4 text-base text-gray-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-            >
-              {[1, 2, 3, 4, 5, 6].map((num) => (
-                <option key={num} value={num}>
-                  {num}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 "use client";
 
 import { useState } from "react";
@@ -173,4 +93,4 @@ export function SearchForm() {
       </div>
     </section>
   );
-        }
+}
