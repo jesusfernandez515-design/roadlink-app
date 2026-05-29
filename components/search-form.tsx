@@ -17,8 +17,7 @@ export function SearchForm() {
             Origen
           </label>
           <div className="relative">
-            <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
-            <input
+<MapPin className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600 pointer-events-none" />            <input
               type="text"
               placeholder="Ciudad o dirección"
               value={from}
@@ -35,7 +34,7 @@ export function SearchForm() {
             <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
             <input
               type="text"
-              placeholder="Ciudad o dirección"
+              placeholder="<MapPin className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-teal-600 pointer-events-none" />Ciudad o dirección"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-3 pl-10 pr-4 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20
