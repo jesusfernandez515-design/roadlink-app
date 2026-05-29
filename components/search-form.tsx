@@ -1,57 +1,68 @@
 import { Leaf, Users, Car, Route } from "lucide-react";
 import { SearchForm } from "./search-form";
 
-export function Hero() {
+export default function Hero() {
   return (
     <section className="w-full bg-gradient-to-b from-teal-50 to-white">
-      <div className="mx-auto max-w-7xl px-6 pt-10 pb-16 sm:px-8 lg:px-12">
-        <div className="mx-auto max-w-4xl text-center">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-teal-100 px-4 py-2 text-sm font-bold text-teal-700">
-            <Leaf className="h-4 w-4" />
+      <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-16">
+
+        {/* Badge */}
+        <div className="flex justify-center mb-6">
+          <div className="flex items-center gap-2 bg-teal-100 text-teal-700 px-4 py-2 rounded-full font-semibold">
+            <Leaf className="w-4 h-4" />
             Viajes compartidos seguros
           </div>
+        </div>
 
-          <h1 className="text-4xl font-black leading-tight tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
+        {/* Título */}
+        <div className="text-center max-w-4xl mx-auto">
+          <h1 className="text-4xl md:text-6xl font-bold text-gray-900 leading-tight">
             Comparte tu viaje,
-            <span className="block text-teal-600">ahorra en el camino</span>
+            <span className="block text-teal-600">
+              ahorra en el camino
+            </span>
           </h1>
 
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-gray-600 sm:text-xl">
-            Roadlink conecta pasajeros con conductores verificados para viajes
-            largos entre ciudades. Ahorra dinero, viaja acompañado y llega con
-            más tranquilidad.
+          <p className="mt-6 text-lg md:text-xl text-gray-600 leading-relaxed">
+            Conecta con pasajeros y conductores que viajan en tu misma dirección.
+            Comparte gastos, reduce costos y viaja acompañado.
           </p>
         </div>
 
-        <div className="mx-auto mt-10 grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-3xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-gray-100">
-            <Users className="mx-auto mb-3 h-8 w-8 text-teal-600" />
-            <p className="text-3xl font-black text-gray-950">Beta</p>
-            <p className="mt-1 text-sm font-medium text-gray-600">
+        {/* Estadísticas */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
+
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+            <Users className="w-8 h-8 mx-auto text-teal-600 mb-3" />
+            <h3 className="text-3xl font-bold text-gray-900">Beta</h3>
+            <p className="text-gray-600 mt-2">
               Comunidad en crecimiento
             </p>
           </div>
 
-          <div className="rounded-3xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-gray-100">
-            <Car className="mx-auto mb-3 h-8 w-8 text-teal-600" />
-            <p className="text-3xl font-black text-gray-950">75+</p>
-            <p className="mt-1 text-sm font-medium text-gray-600">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+            <Car className="w-8 h-8 mx-auto text-teal-600 mb-3" />
+            <h3 className="text-3xl font-bold text-gray-900">75+</h3>
+            <p className="text-gray-600 mt-2">
               Rutas proyectadas
             </p>
           </div>
 
-          <div className="rounded-3xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-gray-100">
-            <Route className="mx-auto mb-3 h-8 w-8 text-teal-600" />
-            <p className="text-3xl font-black text-gray-950">EE. UU.</p>
-            <p className="mt-1 text-sm font-medium text-gray-600">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+            <Route className="w-8 h-8 mx-auto text-teal-600 mb-3" />
+            <h3 className="text-3xl font-bold text-gray-900">EE. UU.</h3>
+            <p className="text-gray-600 mt-2">
               Viajes entre ciudades
             </p>
           </div>
+
         </div>
 
-        <div className="mt-12">
+        {/* Formulario */}
+        <div className="mt-14">
           <SearchForm />
         </div>
+
       </div>
     </section>
   );
