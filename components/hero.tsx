@@ -1,73 +1,67 @@
-import { SearchForm } from "./search-form";
-import { Car, Users, Leaf } from "lucide-react";
+"use client";
+
+import SearchForm from "./search-form";
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-[var(--accent)] to-[var(--background)] py-20 lg:py-32">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -right-40 -top-40 h-[500px] w-[500px] rounded-full bg-[var(--primary)]/5 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 h-[500px] w-[500px] rounded-full bg-[var(--primary)]/5 blur-3xl" />
-      </div>
+    <section className="w-full bg-gradient-to-b from-cyan-50 to-white py-12 px-5">
+      <div className="max-w-6xl mx-auto">
 
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="text-center">
-          {/* Badge */}
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-[var(--primary)]/10 px-4 py-2">
-            <Leaf className="h-4 w-4 text-[var(--primary)]" />
-            <span className="text-sm font-medium text-[var(--primary)]">
-              Viajes ecológicos
-            </span>
+        <div className="text-center mb-10">
+
+          <div className="inline-flex items-center gap-2 bg-cyan-100 text-cyan-700 px-4 py-2 rounded-full text-sm font-medium">
+            🌱 Viajes ecológicos
           </div>
 
-          {/* Headline */}
-          <h1 className="mx-auto max-w-4xl text-balance text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl lg:text-6xl">
-            Comparte tu viaje,{" "}
-            <span className="text-[var(--primary)]">ahorra juntos</span>
+          <h1 className="mt-6 text-4xl md:text-6xl font-bold leading-tight text-gray-900">
+            Comparte tu viaje,
+            <span className="block text-cyan-600">
+              ahorra juntos
+            </span>
           </h1>
 
-          {/* Subheadline */}
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-[var(--muted-foreground)] sm:text-xl">
-            Conecta con viajeros que van en tu misma dirección. Ahorra dinero, reduce emisiones
-            y haz nuevos amigos en el camino.
+          <p className="max-w-3xl mx-auto mt-5 text-lg text-gray-600 leading-relaxed">
+            Conecta con viajeros que van en tu misma dirección.
+            Comparte gastos, reduce emisiones y viaja de forma
+            más económica y segura.
           </p>
-
-          {/* Stats */}
-          <div className="mt-10 flex flex-wrap justify-center gap-8 sm:gap-12">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary)]/10">
-                <Users className="h-6 w-6 text-[var(--primary)]" />
-              </div>
-              <div className="text-left">
-                <p className="text-2xl font-bold text-[var(--foreground)]">2M+</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Usuarios activos</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary)]/10">
-                <Car className="h-6 w-6 text-[var(--primary)]" />
-              </div>
-              <div className="text-left">
-                <p className="text-2xl font-bold text-[var(--foreground)]">50K+</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Viajes diarios</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary)]/10">
-                <Leaf className="h-6 w-6 text-[var(--primary)]" />
-              </div>
-              <div className="text-left">
-                <p className="text-2xl font-bold text-[var(--foreground)]">10K+</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Tons CO2 ahorradas</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Search Form */}
-          <div className="mt-12 flex justify-center">
-            <SearchForm />
-          </div>
         </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-10">
+
+          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+            <div className="text-4xl font-bold text-cyan-600">
+              2M+
+            </div>
+            <p className="text-gray-600 mt-2">
+              Usuarios activos
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+            <div className="text-4xl font-bold text-cyan-600">
+              50K+
+            </div>
+            <p className="text-gray-600 mt-2">
+              Viajes diarios
+            </p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
+            <div className="text-4xl font-bold text-cyan-600">
+              10K+
+            </div>
+            <p className="text-gray-600 mt-2">
+              Toneladas de CO₂ ahorradas
+            </p>
+          </div>
+
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-lg p-6 md:p-8">
+          <SearchForm />
+        </div>
+
       </div>
     </section>
   );
