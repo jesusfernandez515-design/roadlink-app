@@ -1,4 +1,4 @@
-import { Encabezado } from "@/components/header";
+import Header from "@/components/header";
 import Hero from "@/components/hero";
 import { ComoFunciona } from "@/components/how-it-works";
 import { Características } from "@/components/features";
@@ -10,7 +10,7 @@ import { PieDePágina } from "@/components/footer";
 export default function Home() {
   return (
     <main className="min-h-screen bg-white text-gray-900">
-      <Encabezado />
+      <Header />
       <Hero />
       <ComoFunciona />
       <Características />
