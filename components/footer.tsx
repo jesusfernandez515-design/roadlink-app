@@ -1,6 +1,6 @@
 import { MapPin } from "lucide-react";
 
-export function PieDePágina() {
+export function Footer() {
   return (
     <footer className="bg-gray-950 px-6 py-12 text-white sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
@@ -10,7 +10,8 @@ export function PieDePágina() {
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-600">
                 <MapPin className="h-6 w-6" />
               </div>
-              <h2 className="text-2xl font-black">Roadlink</h2>
+
+              <h2 className="text-2xl font-black">RoadLink</h2>
             </div>
 
             <p className="mt-4 max-w-md leading-relaxed text-gray-400">
@@ -20,18 +21,20 @@ export function PieDePágina() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
-            <a href="#" className="hover:text-white">Inicio</a>
-            <a href="#" className="hover:text-white">Cómo funciona</a>
-            <a href="#" className="hover:text-white">Rutas</a>
-            <a href="#" className="hover:text-white">Contacto</a>
-            <a href="#" className="hover:text-white">Privacidad</a>
-            <a href="#" className="hover:text-white">Términos</a>
+            <a href="/" className="hover:text-white">Inicio</a>
+            <a href="/search" className="hover:text-white">Buscar</a>
+            <a href="/about" className="hover:text-white">Acerca de</a>
+            <a href="/offer" className="hover:text-white">Ofrecer viaje</a>
+            <a href="/login" className="hover:text-white">Acceso</a>
+            <a href="/signup" className="hover:text-white">Inscribirse</a>
           </div>
         </div>
 
         <div className="mt-10 border-t border-white/10 pt-6 text-sm text-gray-500">
           <p>Founder & CEO: Jesús Fernández Rosario</p>
-          <p className="mt-2">© 2026 Roadlink. Todos los derechos reservados.</p>
+          <p className="mt-2">
+            © 2026 RoadLink. Todos los derechos reservados.
+          </p>
         </div>
       </div>
     </footer>
