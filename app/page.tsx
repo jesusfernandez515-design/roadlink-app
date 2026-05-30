@@ -226,3 +226,11 @@ export default function HomePage() {
     </main>
   );
 }
+export default function Page() {
+  return (
+    <main className="min-h-screen bg-white p-8 text-slate-900">
+      <h1 className="text-3xl font-black">RoadLink</h1>
+      <p className="mt-4 text-slate-600">This page is under construction.</p>
+    </main>
+  );
+}
