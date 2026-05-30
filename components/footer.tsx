@@ -1,144 +1,37 @@
-import Link from "next/link";
-import { MapPin, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
+import { MapPin } from "lucide-react";
 
-const footerLinks = {
-  producto: [
-    { name: "Buscar viaje", href: "/search" },
-    { name: "Ofrecer viaje", href: "/offer" },
-    { name: "Cómo funciona", href: "#how-it-works" },
-    { name: "Precios", href: "/pricing" },
-  ],
-  empresa: [
-    { name: "Nosotros", href: "/about" },
-    { name: "Carreras", href: "/careers" },
-    { name: "Prensa", href: "/press" },
-    { name: "Blog", href: "/blog" },
-  ],
-  soporte: [
-    { name: "Centro de ayuda", href: "/help" },
-    { name: "Seguridad", href: "/safety" },
-    { name: "Contacto", href: "/contact" },
-    { name: "Preguntas frecuentes", href: "/faq" },
-  ],
-  legal: [
-    { name: "Política de privacidad", href: "/privacy" },
-    { name: "Términos de servicio", href: "/terms" },
-    { name: "Política de cookies", href: "/cookies" },
-  ],
-};
-
-const socialLinks = [
-  { name: "Facebook", href: "#", icon: Facebook },
-  { name: "Twitter", href: "#", icon: Twitter },
-  { name: "Instagram", href: "#", icon: Instagram },
-  { name: "LinkedIn", href: "#", icon: Linkedin },
-];
-
-export function Footer() {
+export function PieDePágina() {
   return (
-    <footer className="border-t border-[var(--border)] bg-[var(--card)]">
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
-        <div className="grid gap-8 lg:grid-cols-6">
-          {/* Brand */}
-          <div className="lg:col-span-2">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--primary)]">
-                <MapPin className="h-5 w-5 text-[var(--primary-foreground)]" />
+    <footer className="bg-gray-950 px-6 py-12 text-white sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-7xl">
+        <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-600">
+                <MapPin className="h-6 w-6" />
               </div>
-              <span className="text-xl font-bold text-[var(--foreground)]">
-                Roadlink
-              </span>
-            </Link>
-            <p className="mt-4 max-w-xs text-[var(--muted-foreground)]">
-              Conectando viajeros para trayectos más seguros, económicos y
-              sustentables en todo el país.
-            </p>
-            {/* Social Links */}
-            <div className="mt-6 flex gap-4">
-              {socialLinks.map((social) => (
-                <a
-                  key={social.name}
-                  href={social.href}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)]"
-                >
-                  <span className="sr-only">{social.name}</span>
-                  <social.icon className="h-5 w-5" />
-                </a>
-              ))}
+              <h2 className="text-2xl font-black">Roadlink</h2>
             </div>
+
+            <p className="mt-4 max-w-md leading-relaxed text-gray-400">
+              Viajes compartidos entre ciudades. Ahorra dinero, viaja acompañado
+              y conecta con personas en tu ruta.
+            </p>
           </div>
 
-          {/* Links */}
-          <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Producto</h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.producto.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Empresa</h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.empresa.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Soporte</h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.soporte.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold text-[var(--foreground)]">Legal</h3>
-            <ul className="mt-4 space-y-3">
-              {footerLinks.legal.map((link) => (
-                <li key={link.name}>
-                  <Link
-                    href={link.href}
-                    className="text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
+          <div className="grid grid-cols-2 gap-4 text-sm text-gray-400">
+            <a href="#" className="hover:text-white">Inicio</a>
+            <a href="#" className="hover:text-white">Cómo funciona</a>
+            <a href="#" className="hover:text-white">Rutas</a>
+            <a href="#" className="hover:text-white">Contacto</a>
+            <a href="#" className="hover:text-white">Privacidad</a>
+            <a href="#" className="hover:text-white">Términos</a>
           </div>
         </div>
 
-        {/* Bottom */}
-        <div className="mt-12 border-t border-[var(--border)] pt-8">
-          <p className="text-center text-sm text-[var(--muted-foreground)]">
-            &copy; {new Date().getFullYear()} Roadlink. Todos los derechos reservados.
-          </p>
+        <div className="mt-10 border-t border-white/10 pt-6 text-sm text-gray-500">
+          <p>Founder & CEO: Jesús Fernández Rosario</p>
+          <p className="mt-2">© 2026 Roadlink. Todos los derechos reservados.</p>
         </div>
       </div>
     </footer>
