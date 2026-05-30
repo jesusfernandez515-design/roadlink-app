@@ -1,69 +1,55 @@
 import { MapPin, ArrowRight } from "lucide-react";
 
-const routes = [
-  { from: "Nueva York", to: "Boston", rides: 234, price: "$89" },
-  { from: "Los Ángeles", to: "San Francisco", rides: 189, price: "$119" },
-  { from: "Chicago", to: "Detroit", rides: 156, price: "$69" },
-  { from: "Miami", to: "Orlando", rides: 145, price: "$49" },
-  { from: "Seattle", to: "Portland", rides: 123, price: "$59" },
-  { from: "Austin", to: "Houston", rides: 98, price: "$45" },
-];
+export function RutasPopulares() {
+  const routes = [
+    ["Miami", "Orlando", "$49"],
+    ["Nueva York", "Boston", "$89"],
+    ["Los Ángeles", "San Francisco", "$95"],
+    ["Chicago", "Detroit", "$65"],
+    ["Austin", "Houston", "$55"],
+  ];
 
-export function PopularRoutes() {
   return (
-    <section className="bg-[var(--muted)] py-20 lg:py-28">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">
+    <section className="bg-white px-5 py-16 sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-10 text-center">
+          <h2 className="text-3xl font-black text-gray-900 sm:text-4xl">
             Rutas populares
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-[var(--muted-foreground)]">
-            Descubre las rutas más viajadas en Roadlink.
+
+          <p className="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-gray-600">
+            Explora rutas frecuentes para viajes largos entre ciudades.
           </p>
         </div>
 
-        {/* Routes Grid */}
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {routes.map((route) => (
-            <a
-              key={`${route.from}-${route.to}`}
-              href={`/search?from=${route.from}&to=${route.to}`}
-              className="group flex items-center justify-between rounded-xl bg-[var(--card)] p-5 shadow-sm transition-all hover:shadow-md border border-[var(--border)]"
+        <div className="grid gap-4">
+          {routes.map(([from, to, price]) => (
+            <div
+              key={`${from}-${to}`}
+              className="flex items-center justify-between gap-4 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm"
             >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--primary)]/10">
-                  <MapPin className="h-5 w-5 text-[var(--primary)]" />
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-teal-100 text-teal-600">
+                  <MapPin className="h-6 w-6" />
                 </div>
+
                 <div>
-                  <div className="flex items-center gap-2 font-medium text-[var(--foreground)]">
-                    <span>{route.from}</span>
-                    <ArrowRight className="h-4 w-4 text-[var(--muted-foreground)]" />
-                    <span>{route.to}</span>
-                  </div>
-                  <p className="text-sm text-[var(--muted-foreground)]">
-                    {route.rides} viajes disponibles
+                  <p className="text-lg font-black text-gray-900">
+                    {from} <ArrowRight className="inline h-4 w-4" /> {to}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Viajes compartidos
                   </p>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="font-semibold text-[var(--primary)]">
-                  Desde {route.price}
+
+              <div className="shrink-0 text-right">
+                <p className="text-lg font-black text-teal-600">
+                  Desde {price}
                 </p>
               </div>
-            </a>
+            </div>
           ))}
-        </div>
-
-        {/* View All Link */}
-        <div className="mt-10 text-center">
-          <a
-            href="/routes"
-            className="inline-flex items-center gap-2 text-[var(--primary)] font-medium hover:underline"
-          >
-            Ver todas las rutas
-            <ArrowRight className="h-4 w-4" />
-          </a>
         </div>
       </div>
     </section>
