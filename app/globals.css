@@ -64,7 +64,60 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: var(--radius);
+  /* Roadlink mobile spacing fixes */
+
+main {
+  overflow-x: hidden;
 }
+
+section {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  section {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+section > div {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+h1,
+h2,
+h3,
+p {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+input,
+select,
+button {
+  font-size: 16px;
+}
+
+.card,
+.rounded-2xl,
+.rounded-3xl {
+  overflow: hidden;
+}
+
+form {
+  width: 100%;
+}
+
+footer {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+}
+
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
