@@ -1,196 +1,197 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth } from "../../lib/firebase";
-import {
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-} from "firebase/auth";
+import { auth, db } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
-export default function LoginPage() {
+type Booking = {
+  id: string;
+  rideId: string;
+  passengerId: string;
+  passengerEmail: string;
+  driverEmail: string;
+  from: string;
+  to: string;
+  date: string;
+  time: string;
+  price: number;
+  status: string;
+  createdAt: string;
+};
+
+export default function MyBookingsPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [message, setMessage] = useState("Loading your bookings...");
 
-  async function signIn() {
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      setMessage("Signed in successfully.");
-      router.push("/dashboard");
-    } catch (error: any) {
-      setMessage(error.message);
-    }
-  }
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setMessage("Please sign in to view your bookings.");
+        router.push("/login");
+        return;
+      }
 
-  async function continueWithGoogle() {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      setMessage("Signed in with Google.");
-      router.push("/dashboard");
-    } catch (error: any) {
-      setMessage(error.message);
-    }
-  }
+      try {
+        const q = query(
+          collection(db, "bookings"),
+          where("passengerId", "==", user.uid)
+        );
+
+        const snapshot = await getDocs(q);
+
+        const bookingsData = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Booking[];
+
+        setBookings(bookingsData);
+        setMessage(bookingsData.length ? "" : "You do not have bookings yet.");
+      } catch (error: any) {
+        setMessage(error.message);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [router]);
 
   return (
-    <main style={page}>
-      <section style={card}>
-        <div style={logo}>
-          Road<span style={{ color: "#22c55e" }}>Link</span>
+    <main className="page">
+      <section className="header">
+        <div className="logo">
+          Road<span>Link</span>
         </div>
 
-        <h1 style={title}>Welcome Back</h1>
-        <p style={subtitle}>Sign in to continue your journey.</p>
-
-        <button style={socialButton} onClick={continueWithGoogle}>
-          Continue with Google
-        </button>
-
-        <div style={divider}>
-          <span style={line}></span>
-          <span style={dividerText}>or</span>
-          <span style={line}></span>
-        </div>
-
-        <input
-          type="email"
-          placeholder="Email Address"
-          style={input}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-
-        <input
-          type="password"
-          placeholder="Password"
-          style={input}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-
-        <button style={primaryButton} onClick={signIn}>
-          Sign In
-        </button>
-
-        {message && <p style={messageStyle}>{message}</p>}
-
-        <p style={footerText}>
-          Don't have an account?{" "}
-          <a href="/register" style={link}>
-            Create one
-          </a>
-        </p>
+        <h1>My Bookings</h1>
+        <p>Your reserved rides will appear here.</p>
       </section>
+
+      <section className="list">
+        {message && <p className="message">{message}</p>}
+
+        {bookings.map((booking) => (
+          <div key={booking.id} className="card">
+            <h2>
+              {booking.from} → {booking.to}
+            </h2>
+
+            <p>
+              <strong>Date:</strong> {booking.date}
+            </p>
+
+            <p>
+              <strong>Time:</strong> {booking.time}
+            </p>
+
+            <p>
+              <strong>Price:</strong> ${booking.price}
+            </p>
+
+            <p>
+              <strong>Driver:</strong>{" "}
+              {booking.driverEmail || "RoadLink Driver"}
+            </p>
+
+            <p>
+              <strong>Status:</strong>{" "}
+              <span className="status">{booking.status}</span>
+            </p>
+          </div>
+        ))}
+      </section>
+
+      <style>{`
+        * {
+          box-sizing: border-box;
+        }
+
+        .page {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #000, #0f172a, #111827);
+          color: white;
+          padding: 20px;
+          font-family: Arial, sans-serif;
+        }
+
+        .header {
+          max-width: 700px;
+          margin: 0 auto 30px;
+          background: #0b0b0b;
+          border: 1px solid #222;
+          border-radius: 24px;
+          padding: 28px;
+        }
+
+        .logo {
+          font-size: 30px;
+          font-weight: 900;
+          margin-bottom: 22px;
+        }
+
+        .logo span {
+          color: #22c55e;
+        }
+
+        h1 {
+          font-size: 38px;
+          margin: 0 0 10px;
+        }
+
+        h2 {
+          margin-top: 0;
+        }
+
+        p {
+          color: #a1a1aa;
+          line-height: 1.5;
+        }
+
+        .list {
+          max-width: 700px;
+          margin: 0 auto;
+        }
+
+        .message {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 800;
+        }
+
+        .card {
+          background: #0b0b0b;
+          border: 1px solid #222;
+          border-radius: 22px;
+          padding: 24px;
+          margin-bottom: 16px;
+        }
+
+        strong {
+          color: white;
+        }
+
+        .status {
+          color: #22c55e;
+          font-weight: 800;
+          text-transform: capitalize;
+        }
+
+        @media (max-width: 480px) {
+          .page {
+            padding: 12px;
+          }
+
+          .header,
+          .card {
+            border-radius: 22px;
+          }
+
+          h1 {
+            font-size: 34px;
+          }
+        }
+      `}</style>
     </main>
   );
 }
-
-const page = {
-  minHeight: "100vh",
-  background: "linear-gradient(135deg, #000000, #0f172a, #111827)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  padding: "24px",
-  fontFamily: "Arial, sans-serif",
-};
-
-const card = {
-  width: "100%",
-  maxWidth: "430px",
-  background: "#0b0b0b",
-  borderRadius: "24px",
-  padding: "34px",
-  border: "1px solid #222",
-  color: "white",
-  boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
-};
-
-const logo = {
-  fontSize: "28px",
-  fontWeight: "800",
-  marginBottom: "24px",
-};
-
-const title = {
-  fontSize: "36px",
-  marginBottom: "10px",
-};
-
-const subtitle = {
-  color: "#a1a1aa",
-  marginBottom: "24px",
-};
-
-const socialButton = {
-  width: "100%",
-  padding: "15px",
-  marginTop: "12px",
-  borderRadius: "999px",
-  border: "1px solid #333",
-  background: "#18181b",
-  color: "white",
-  fontSize: "16px",
-};
-
-const divider = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  margin: "26px 0",
-};
-
-const line = {
-  flex: 1,
-  height: "1px",
-  background: "#333",
-};
-
-const dividerText = {
-  color: "#71717a",
-};
-
-const input = {
-  width: "100%",
-  padding: "15px",
-  marginTop: "12px",
-  borderRadius: "14px",
-  border: "1px solid #333",
-  background: "#111",
-  color: "white",
-  fontSize: "16px",
-};
-
-const primaryButton = {
-  width: "100%",
-  padding: "16px",
-  marginTop: "20px",
-  borderRadius: "999px",
-  border: "none",
-  background: "#22c55e",
-  color: "white",
-  fontSize: "16px",
-  fontWeight: "700",
-};
-
-const messageStyle = {
-  color: "#22c55e",
-  textAlign: "center" as const,
-  marginTop: "18px",
-};
-
-const footerText = {
-  color: "#a1a1aa",
-  textAlign: "center" as const,
-  marginTop: "22px",
-};
-
-const link = {
-  color: "white",
-  fontWeight: "700",
-  textDecoration: "none",
-};
