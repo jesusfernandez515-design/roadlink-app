@@ -14,9 +14,12 @@ export default function Home() {
         </div>
 
         <div className="navLinks">
-          <a>Inicio</a>
-          <a>Cómo funciona</a>
-          <a>Seguridad</a>
+          <a href="/">Inicio</a>
+          <a href="#features">Cómo funciona</a>
+          <a href="#safety">Seguridad</a>
+          <Link href="/login" className="loginLink">
+            Iniciar sesión
+          </Link>
           <Link href="/register" className="navButton">
             Registrarse
           </Link>
@@ -36,13 +39,16 @@ export default function Home() {
           </p>
 
           <div className="buttons">
-            <button className="primary">Buscar viaje</button>
-            <Link href="/register" className="secondary">
+            <Link href="/find-ride" className="primary">
+              Buscar viaje
+            </Link>
+
+            <Link href="/offer-ride" className="secondary">
               Conviértete en conductor
             </Link>
           </div>
 
-          <div className="features">
+          <div id="features" className="features">
             <Feature icon="🛡️" title="Seguro" text="Conductores verificados y seguimiento en tiempo real." />
             <Feature icon="💵" title="Económico" text="Comparte gastos y ahorra dinero en cada viaje." />
             <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes y viajes entre estados." />
@@ -63,12 +69,15 @@ export default function Home() {
           </Link>
 
           <p className="smallText">
-            ¿Ya tienes cuenta? <span>Inicia sesión</span>
+            ¿Ya tienes cuenta?{" "}
+            <Link href="/login" className="inlineLink">
+              Inicia sesión
+            </Link>
           </p>
         </div>
       </section>
 
-      <section className="stats">
+      <section id="safety" className="stats">
         <Stat number="50K+" label="Rutas disponibles" />
         <Stat number="100K+" label="Viajeros activos" />
         <Stat number="4.8" label="Calificación promedio" />
@@ -76,6 +85,10 @@ export default function Home() {
       </section>
 
       <style>{`
+        * {
+          box-sizing: border-box;
+        }
+
         .page {
           min-height: 100vh;
           background: radial-gradient(circle at center, #0f172a 0%, #020617 45%, #000 100%);
@@ -98,8 +111,7 @@ export default function Home() {
 
         .logo span,
         .title span,
-        .cardTitle span,
-        .smallText span {
+        .cardTitle span {
           color: #22c55e;
         }
 
@@ -112,6 +124,13 @@ export default function Home() {
           display: flex;
           gap: 24px;
           align-items: center;
+        }
+
+        .navLinks a,
+        .loginLink {
+          color: white;
+          text-decoration: none;
+          font-weight: 700;
         }
 
         .navButton {
@@ -151,21 +170,26 @@ export default function Home() {
         }
 
         .primary {
+          display: inline-block;
           background: #22c55e;
           color: white;
           padding: 16px 26px;
           border-radius: 14px;
-          border: none;
+          text-decoration: none;
           font-size: 16px;
-          font-weight: 700;
+          font-weight: 800;
+          text-align: center;
         }
 
         .secondary {
+          display: inline-block;
           color: white;
           padding: 16px 26px;
           border-radius: 14px;
           border: 1px solid #3f3f46;
           text-decoration: none;
+          font-weight: 700;
+          text-align: center;
         }
 
         .features {
@@ -225,6 +249,12 @@ export default function Home() {
           color: #a1a1aa;
           text-align: center;
           margin-top: 22px;
+        }
+
+        .inlineLink {
+          color: #22c55e;
+          font-weight: 800;
+          text-decoration: none;
         }
 
         .stats {
@@ -287,7 +317,6 @@ export default function Home() {
           .primary,
           .secondary {
             width: 100%;
-            text-align: center;
           }
 
           .features {
