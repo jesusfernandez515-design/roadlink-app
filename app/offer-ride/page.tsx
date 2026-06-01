@@ -14,9 +14,18 @@ export default function OfferRidePage() {
   const [vehicle, setVehicle] = useState("");
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function publishRide() {
+    setMessage("");
+
+    if (!from || !to || !date || !time || !price || !vehicle) {
+      setMessage("Please complete all required fields.");
+      return;
+    }
+
     try {
+      setLoading(true);
       const user = auth.currentUser;
 
       await addDoc(collection(db, "rides"), {
@@ -45,28 +54,50 @@ export default function OfferRidePage() {
       setNotes("");
     } catch (error: any) {
       setMessage(error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
     <main className="page">
       <section className="card">
-        <div className="logo">Road<span>Link</span></div>
+        <div className="logo">
+          Road<span>Link</span>
+        </div>
 
         <h1>Offer a Ride</h1>
-        <p className="subtitle">Publish your route and let passengers join your trip.</p>
+        <p className="subtitle">
+          Publish your route and let passengers join your trip.
+        </p>
 
         <label>From</label>
-        <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="City or address" />
+        <input
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          placeholder="City or address"
+        />
 
         <label>To</label>
-        <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="City or address" />
+        <input
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="City or address"
+        />
 
         <label>Date</label>
-        <input value={date} onChange={(e) => setDate(e.target.value)} type="date" />
+        <input
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          type="date"
+        />
 
         <label>Departure Time</label>
-        <input value={time} onChange={(e) => setTime(e.target.value)} type="time" />
+        <input
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          type="time"
+        />
 
         <label>Available Seats</label>
         <select value={seats} onChange={(e) => setSeats(e.target.value)}>
@@ -74,24 +105,44 @@ export default function OfferRidePage() {
           <option value="2">2 seats</option>
           <option value="3">3 seats</option>
           <option value="4">4 seats</option>
+          <option value="5">5 seats</option>
+          <option value="6">6 seats</option>
         </select>
 
         <label>Price per Seat</label>
-        <input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="45" />
+        <input
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          type="number"
+          min="1"
+          placeholder="45"
+        />
 
         <label>Vehicle</label>
-        <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder="Toyota Camry, Honda CR-V, etc." />
+        <input
+          value={vehicle}
+          onChange={(e) => setVehicle(e.target.value)}
+          placeholder="Toyota Camry, Honda CR-V, etc."
+        />
 
         <label>Trip Notes</label>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="No smoking, small luggage allowed, pickup location..." />
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="No smoking, small luggage allowed, pickup location..."
+        />
 
-        <button onClick={publishRide}>Publish Ride</button>
+        <button onClick={publishRide} disabled={loading}>
+          {loading ? "Publishing..." : "Publish Ride"}
+        </button>
 
         {message && <p className="message">{message}</p>}
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .page {
           min-height: 100vh;
@@ -111,7 +162,7 @@ export default function OfferRidePage() {
           border: 1px solid #222;
           border-radius: 26px;
           padding: 28px;
-          box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+          box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
         }
 
         .logo {
@@ -120,7 +171,9 @@ export default function OfferRidePage() {
           margin-bottom: 26px;
         }
 
-        .logo span { color: #22c55e; }
+        .logo span {
+          color: #22c55e;
+        }
 
         h1 {
           font-size: 38px;
@@ -141,9 +194,10 @@ export default function OfferRidePage() {
           font-weight: 700;
         }
 
-        input, select, textarea {
+        input,
+        select,
+        textarea {
           width: 100%;
-          max-width: 100%;
           display: block;
           padding: 15px;
           border-radius: 14px;
@@ -151,6 +205,13 @@ export default function OfferRidePage() {
           background: #111;
           color: white;
           font-size: 16px;
+          outline: none;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+          border-color: #22c55e;
         }
 
         textarea {
@@ -168,21 +229,34 @@ export default function OfferRidePage() {
           color: white;
           font-size: 17px;
           font-weight: 800;
+          cursor: pointer;
+        }
+
+        button:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
         }
 
         .message {
           color: #22c55e;
           text-align: center;
           margin-top: 18px;
+          font-weight: 700;
         }
 
         @media (max-width: 480px) {
-          .page { padding: 12px; }
+          .page {
+            padding: 12px;
+          }
+
           .card {
             padding: 22px;
             border-radius: 22px;
           }
-          h1 { font-size: 34px; }
+
+          h1 {
+            font-size: 34px;
+          }
         }
       `}</style>
     </main>
