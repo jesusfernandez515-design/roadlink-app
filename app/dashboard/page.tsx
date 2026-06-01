@@ -24,7 +24,9 @@ export default function DashboardPage() {
             <h3>Mobile, AL → Pensacola, FL</h3>
             <p>Tomorrow · 9:30 AM</p>
             <p>Driver: Michael T. · ⭐ 4.8</p>
-            <button>View Details</button>
+            <a className="mainButton" href="/my-bookings">
+              View Details
+            </a>
           </div>
         </section>
 
@@ -33,15 +35,14 @@ export default function DashboardPage() {
           <div className="actions">
             <a href="/find-ride">Find a Ride</a>
             <a href="/offer-ride">Offer a Ride</a>
+            <a href="/my-bookings">My Bookings</a>
             <a href="/profile">Profile</a>
           </div>
         </section>
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -132,20 +133,22 @@ export default function DashboardPage() {
           margin-top: 0;
         }
 
-        button {
+        .mainButton {
+          display: block;
           width: 100%;
           margin-top: 16px;
           padding: 15px;
           border-radius: 999px;
-          border: none;
           background: #22c55e;
           color: white;
           font-weight: 800;
+          text-align: center;
+          text-decoration: none;
         }
 
         .actions {
           display: grid;
-          grid-template-columns: repeat(3,1fr);
+          grid-template-columns: repeat(4,1fr);
           gap: 14px;
         }
 
