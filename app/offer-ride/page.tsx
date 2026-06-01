@@ -1,4 +1,53 @@
+"use client";
+
+import { useState } from "react";
+import { auth, db } from "../../lib/firebase";
+import { addDoc, collection } from "firebase/firestore";
+
 export default function OfferRidePage() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [seats, setSeats] = useState("1");
+  const [price, setPrice] = useState("");
+  const [vehicle, setVehicle] = useState("");
+  const [notes, setNotes] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function publishRide() {
+    try {
+      const user = auth.currentUser;
+
+      await addDoc(collection(db, "rides"), {
+        driverId: user?.uid || "guest",
+        driverEmail: user?.email || "",
+        from,
+        to,
+        date,
+        time,
+        seats: Number(seats),
+        price: Number(price),
+        vehicle,
+        notes,
+        status: "active",
+        createdAt: new Date().toISOString(),
+      });
+
+      setMessage("Ride published successfully.");
+      setFrom("");
+      setTo("");
+      setDate("");
+      setTime("");
+      setSeats("1");
+      setPrice("");
+      setVehicle("");
+      setNotes("");
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  }
+
   return (
     <main className="page">
       <section className="card">
@@ -8,41 +57,41 @@ export default function OfferRidePage() {
         <p className="subtitle">Publish your route and let passengers join your trip.</p>
 
         <label>From</label>
-        <input placeholder="City or address" />
+        <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="City or address" />
 
         <label>To</label>
-        <input placeholder="City or address" />
+        <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="City or address" />
 
         <label>Date</label>
-        <input type="date" />
+        <input value={date} onChange={(e) => setDate(e.target.value)} type="date" />
 
         <label>Departure Time</label>
-        <input type="time" />
+        <input value={time} onChange={(e) => setTime(e.target.value)} type="time" />
 
         <label>Available Seats</label>
-        <select>
-          <option>1 seat</option>
-          <option>2 seats</option>
-          <option>3 seats</option>
-          <option>4 seats</option>
+        <select value={seats} onChange={(e) => setSeats(e.target.value)}>
+          <option value="1">1 seat</option>
+          <option value="2">2 seats</option>
+          <option value="3">3 seats</option>
+          <option value="4">4 seats</option>
         </select>
 
         <label>Price per Seat</label>
-        <input placeholder="$45" />
+        <input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="45" />
 
         <label>Vehicle</label>
-        <input placeholder="Toyota Camry, Honda CR-V, etc." />
+        <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder="Toyota Camry, Honda CR-V, etc." />
 
         <label>Trip Notes</label>
-        <textarea placeholder="No smoking, small luggage allowed, pickup location..." />
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="No smoking, small luggage allowed, pickup location..." />
 
-        <button>Publish Ride</button>
+        <button onClick={publishRide}>Publish Ride</button>
+
+        {message && <p className="message">{message}</p>}
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -71,9 +120,7 @@ export default function OfferRidePage() {
           margin-bottom: 26px;
         }
 
-        .logo span {
-          color: #22c55e;
-        }
+        .logo span { color: #22c55e; }
 
         h1 {
           font-size: 38px;
@@ -94,9 +141,7 @@ export default function OfferRidePage() {
           font-weight: 700;
         }
 
-        input,
-        select,
-        textarea {
+        input, select, textarea {
           width: 100%;
           max-width: 100%;
           display: block;
@@ -125,67 +170,21 @@ export default function OfferRidePage() {
           font-weight: 800;
         }
 
-        @media (max-width: 480px) {
-          .page {
-            padding: 12px;
-          }
+        .message {
+          color: #22c55e;
+          text-align: center;
+          margin-top: 18px;
+        }
 
+        @media (max-width: 480px) {
+          .page { padding: 12px; }
           .card {
             padding: 22px;
             border-radius: 22px;
           }
-
-          h1 {
-            font-size: 34px;
-          }
+          h1 { font-size: 34px; }
         }
       `}</style>
     </main>
   );
 }
-
-const title = {
-  fontSize: "40px",
-  marginBottom: "10px",
-};
-
-const subtitle = {
-  color: "#a1a1aa",
-  marginBottom: "30px",
-};
-
-const label = {
-  display: "block",
-  marginTop: "16px",
-  marginBottom: "8px",
-  color: "#d4d4d8",
-  fontWeight: "700",
-};
-
-const input = {
-  width: "100%",
-  padding: "15px",
-  borderRadius: "14px",
-  border: "1px solid #333",
-  background: "#111",
-  color: "white",
-  fontSize: "16px",
-};
-
-const textarea = {
-  ...input,
-  minHeight: "120px",
-  resize: "vertical" as const,
-};
-
-const primaryButton = {
-  width: "100%",
-  padding: "17px",
-  marginTop: "26px",
-  borderRadius: "999px",
-  border: "none",
-  background: "#22c55e",
-  color: "white",
-  fontSize: "17px",
-  fontWeight: "800",
-};
