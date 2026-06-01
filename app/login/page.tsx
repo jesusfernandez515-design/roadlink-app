@@ -1,4 +1,41 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { auth } from "../../lib/firebase";
+import {
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from "firebase/auth";
+
 export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function signIn() {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setMessage("Signed in successfully.");
+      router.push("/dashboard");
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  }
+
+  async function continueWithGoogle() {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      setMessage("Signed in with Google.");
+      router.push("/dashboard");
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  }
+
   return (
     <main style={page}>
       <section style={card}>
@@ -7,20 +44,10 @@ export default function LoginPage() {
         </div>
 
         <h1 style={title}>Welcome Back</h1>
-        <p style={subtitle}>
-          Sign in to continue your journey.
-        </p>
+        <p style={subtitle}>Sign in to continue your journey.</p>
 
-        <button style={socialButton}>
+        <button style={socialButton} onClick={continueWithGoogle}>
           Continue with Google
-        </button>
-
-        <button style={socialButton}>
-          Continue with Facebook
-        </button>
-
-        <button style={socialButton}>
-          Continue with Apple
         </button>
 
         <div style={divider}>
@@ -33,27 +60,29 @@ export default function LoginPage() {
           type="email"
           placeholder="Email Address"
           style={input}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
         />
 
         <input
           type="password"
           placeholder="Password"
           style={input}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
         />
 
-        <button style={primaryButton}>
+        <button style={primaryButton} onClick={signIn}>
           Sign In
         </button>
 
-        <p style={forgotPassword}>
-          Forgot your password?
-        </p>
+        {message && <p style={messageStyle}>{message}</p>}
 
         <p style={footerText}>
           Don't have an account?{" "}
-          <span style={link}>
+          <a href="/register" style={link}>
             Create one
-          </span>
+          </a>
         </p>
       </section>
     </main>
@@ -62,8 +91,7 @@ export default function LoginPage() {
 
 const page = {
   minHeight: "100vh",
-  background:
-    "linear-gradient(135deg, #000000, #0f172a, #111827)",
+  background: "linear-gradient(135deg, #000000, #0f172a, #111827)",
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
@@ -149,11 +177,10 @@ const primaryButton = {
   fontWeight: "700",
 };
 
-const forgotPassword = {
+const messageStyle = {
   color: "#22c55e",
   textAlign: "center" as const,
   marginTop: "18px",
-  cursor: "pointer",
 };
 
 const footerText = {
@@ -165,4 +192,5 @@ const footerText = {
 const link = {
   color: "white",
   fontWeight: "700",
+  textDecoration: "none",
 };
