@@ -4,45 +4,45 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main style={page}>
-      <nav style={nav}>
+    <main className="page">
+      <nav className="nav">
         <div>
-          <div style={logo}>
-            Road<span style={{ color: "#22c55e" }}>Link</span>
+          <div className="logo">
+            Road<span>Link</span>
           </div>
-          <p style={tagline}>Long distance rides made simple.</p>
+          <p className="tagline">Long distance rides made simple.</p>
         </div>
 
-        <div style={navLinks}>
+        <div className="navLinks">
           <a>Inicio</a>
           <a>Cómo funciona</a>
           <a>Seguridad</a>
-          <Link href="/register" style={navButton}>
+          <Link href="/register" className="navButton">
             Registrarse
           </Link>
         </div>
       </nav>
 
-      <section style={hero}>
-        <div style={left}>
-          <h1 style={title}>
+      <section className="hero">
+        <div>
+          <h1 className="title">
             Viaja más lejos <br />
-            por <span style={{ color: "#22c55e" }}>menos.</span>
+            por <span>menos.</span>
           </h1>
 
-          <p style={subtitle}>
+          <p className="subtitle">
             La plataforma de viajes largos por carretera entre estados.
             Segura, económica y confiable.
           </p>
 
-          <div style={buttons}>
-            <button style={primary}>Buscar viaje</button>
-            <Link href="/register" style={secondary}>
+          <div className="buttons">
+            <button className="primary">Buscar viaje</button>
+            <Link href="/register" className="secondary">
               Conviértete en conductor
             </Link>
           </div>
 
-          <div style={features}>
+          <div className="features">
             <Feature icon="🛡️" title="Seguro" text="Conductores verificados y seguimiento en tiempo real." />
             <Feature icon="💵" title="Económico" text="Comparte gastos y ahorra dinero en cada viaje." />
             <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes y viajes entre estados." />
@@ -50,220 +50,282 @@ export default function Home() {
           </div>
         </div>
 
-        <div style={card}>
-          <h2 style={cardTitle}>
+        <div className="card">
+          <h2 className="cardTitle">
             Crea tu cuenta <br />
-            en <span style={{ color: "#22c55e" }}>RoadLink</span>
+            en <span>RoadLink</span>
           </h2>
 
-          <p style={cardSub}>Únete como pasajero o conductor.</p>
+          <p className="cardSub">Únete como pasajero o conductor.</p>
 
-          <Link href="/register" style={greenButton}>
+          <Link href="/register" className="greenButton">
             Crear cuenta
           </Link>
 
-          <p style={smallText}>
-            ¿Ya tienes cuenta? <span style={{ color: "#22c55e" }}>Inicia sesión</span>
+          <p className="smallText">
+            ¿Ya tienes cuenta? <span>Inicia sesión</span>
           </p>
         </div>
       </section>
 
-      <section style={stats}>
+      <section className="stats">
         <Stat number="50K+" label="Rutas disponibles" />
         <Stat number="100K+" label="Viajeros activos" />
         <Stat number="4.8" label="Calificación promedio" />
         <Stat number="100%" label="Viajes seguros" />
       </section>
+
+      <style>{`
+        .page {
+          min-height: 100vh;
+          background: radial-gradient(circle at center, #0f172a 0%, #020617 45%, #000 100%);
+          color: white;
+          font-family: Arial, sans-serif;
+          padding: 28px;
+        }
+
+        .nav {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 60px;
+        }
+
+        .logo {
+          font-size: 34px;
+          font-weight: 900;
+        }
+
+        .logo span,
+        .title span,
+        .cardTitle span,
+        .smallText span {
+          color: #22c55e;
+        }
+
+        .tagline {
+          color: #a1a1aa;
+          margin-top: 4px;
+        }
+
+        .navLinks {
+          display: flex;
+          gap: 24px;
+          align-items: center;
+        }
+
+        .navButton {
+          background: #22c55e;
+          color: white;
+          padding: 12px 18px;
+          border-radius: 999px;
+          text-decoration: none;
+          font-weight: 700;
+        }
+
+        .hero {
+          display: grid;
+          grid-template-columns: 1.2fr 0.8fr;
+          gap: 40px;
+          align-items: center;
+        }
+
+        .title {
+          font-size: 72px;
+          line-height: 1.05;
+          margin-bottom: 24px;
+        }
+
+        .subtitle {
+          font-size: 22px;
+          color: #d4d4d8;
+          max-width: 600px;
+          line-height: 1.6;
+        }
+
+        .buttons {
+          display: flex;
+          gap: 18px;
+          margin-top: 30px;
+          margin-bottom: 50px;
+        }
+
+        .primary {
+          background: #22c55e;
+          color: white;
+          padding: 16px 26px;
+          border-radius: 14px;
+          border: none;
+          font-size: 16px;
+          font-weight: 700;
+        }
+
+        .secondary {
+          color: white;
+          padding: 16px 26px;
+          border-radius: 14px;
+          border: 1px solid #3f3f46;
+          text-decoration: none;
+        }
+
+        .features {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 20px;
+        }
+
+        .feature {
+          background: rgba(255,255,255,0.04);
+          border: 1px solid #27272a;
+          border-radius: 18px;
+          padding: 20px;
+        }
+
+        .featureIcon {
+          font-size: 30px;
+          margin-bottom: 12px;
+        }
+
+        .featureText {
+          color: #a1a1aa;
+          font-size: 14px;
+        }
+
+        .card {
+          background: rgba(10,10,10,0.85);
+          border: 1px solid #27272a;
+          border-radius: 28px;
+          padding: 40px;
+          box-shadow: 0 30px 90px rgba(0,0,0,0.7);
+        }
+
+        .cardTitle {
+          font-size: 42px;
+          line-height: 1.15;
+        }
+
+        .cardSub {
+          color: #a1a1aa;
+          margin-bottom: 30px;
+        }
+
+        .greenButton {
+          display: block;
+          background: #22c55e;
+          color: white;
+          padding: 16px;
+          border-radius: 999px;
+          text-align: center;
+          text-decoration: none;
+          font-weight: 800;
+          margin-top: 20px;
+        }
+
+        .smallText {
+          color: #a1a1aa;
+          text-align: center;
+          margin-top: 22px;
+        }
+
+        .stats {
+          border-top: 1px solid #27272a;
+          margin-top: 70px;
+          padding-top: 30px;
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 20px;
+        }
+
+        .stat {
+          text-align: center;
+        }
+
+        .statNumber {
+          color: #22c55e;
+          font-size: 32px;
+          margin-bottom: 6px;
+        }
+
+        .statLabel {
+          color: #a1a1aa;
+        }
+
+        @media (max-width: 768px) {
+          .page {
+            padding: 20px;
+          }
+
+          .nav {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 20px;
+            margin-bottom: 38px;
+          }
+
+          .navLinks {
+            display: none;
+          }
+
+          .hero {
+            grid-template-columns: 1fr;
+            gap: 28px;
+          }
+
+          .title {
+            font-size: 44px;
+          }
+
+          .subtitle {
+            font-size: 17px;
+          }
+
+          .buttons {
+            flex-direction: column;
+            margin-bottom: 34px;
+          }
+
+          .primary,
+          .secondary {
+            width: 100%;
+            text-align: center;
+          }
+
+          .features {
+            grid-template-columns: 1fr;
+          }
+
+          .card {
+            padding: 28px;
+          }
+
+          .cardTitle {
+            font-size: 32px;
+          }
+
+          .stats {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+      `}</style>
     </main>
   );
 }
 
 function Feature({ icon, title, text }: any) {
   return (
-    <div style={feature}>
-      <div style={featureIcon}>{icon}</div>
+    <div className="feature">
+      <div className="featureIcon">{icon}</div>
       <h3>{title}</h3>
-      <p style={featureText}>{text}</p>
+      <p className="featureText">{text}</p>
     </div>
   );
 }
 
 function Stat({ number, label }: any) {
   return (
-    <div style={stat}>
-      <h3 style={statNumber}>{number}</h3>
-      <p style={statLabel}>{label}</p>
+    <div className="stat">
+      <h3 className="statNumber">{number}</h3>
+      <p className="statLabel">{label}</p>
     </div>
   );
 }
-
-const page = {
-  minHeight: "100vh",
-  background: "radial-gradient(circle at center, #0f172a 0%, #020617 45%, #000 100%)",
-  color: "white",
-  fontFamily: "Arial, sans-serif",
-  padding: "28px",
-};
-
-const nav = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: "60px",
-};
-
-const logo = {
-  fontSize: "34px",
-  fontWeight: "900",
-};
-
-const tagline = {
-  color: "#a1a1aa",
-  marginTop: "4px",
-};
-
-const navLinks = {
-  display: "flex",
-  gap: "24px",
-  alignItems: "center",
-};
-
-const navButton = {
-  background: "#22c55e",
-  color: "white",
-  padding: "12px 18px",
-  borderRadius: "999px",
-  textDecoration: "none",
-  fontWeight: "700",
-};
-
-const hero = {
-  display: "grid",
-  gridTemplateColumns: "1.2fr 0.8fr",
-  gap: "40px",
-  alignItems: "center",
-};
-
-const left = {
-  maxWidth: "850px",
-};
-
-const title = {
-  fontSize: "72px",
-  lineHeight: "1.05",
-  marginBottom: "24px",
-};
-
-const subtitle = {
-  fontSize: "22px",
-  color: "#d4d4d8",
-  maxWidth: "600px",
-  lineHeight: "1.6",
-};
-
-const buttons = {
-  display: "flex",
-  gap: "18px",
-  marginTop: "30px",
-  marginBottom: "50px",
-};
-
-const primary = {
-  background: "#22c55e",
-  color: "white",
-  padding: "16px 26px",
-  borderRadius: "14px",
-  border: "none",
-  fontSize: "16px",
-  fontWeight: "700",
-};
-
-const secondary = {
-  color: "white",
-  padding: "16px 26px",
-  borderRadius: "14px",
-  border: "1px solid #3f3f46",
-  textDecoration: "none",
-};
-
-const features = {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: "20px",
-};
-
-const feature = {
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid #27272a",
-  borderRadius: "18px",
-  padding: "20px",
-};
-
-const featureIcon = {
-  fontSize: "30px",
-  marginBottom: "12px",
-};
-
-const featureText = {
-  color: "#a1a1aa",
-  fontSize: "14px",
-};
-
-const card = {
-  background: "rgba(10,10,10,0.85)",
-  border: "1px solid #27272a",
-  borderRadius: "28px",
-  padding: "40px",
-  boxShadow: "0 30px 90px rgba(0,0,0,0.7)",
-};
-
-const cardTitle = {
-  fontSize: "42px",
-  lineHeight: "1.15",
-};
-
-const cardSub = {
-  color: "#a1a1aa",
-  marginBottom: "30px",
-};
-
-const greenButton = {
-  display: "block",
-  background: "#22c55e",
-  color: "white",
-  padding: "16px",
-  borderRadius: "999px",
-  textAlign: "center" as const,
-  textDecoration: "none",
-  fontWeight: "800",
-  marginTop: "20px",
-};
-
-const smallText = {
-  color: "#a1a1aa",
-  textAlign: "center" as const,
-  marginTop: "22px",
-};
-
-const stats = {
-  borderTop: "1px solid #27272a",
-  marginTop: "70px",
-  paddingTop: "30px",
-  display: "grid",
-  gridTemplateColumns: "repeat(4, 1fr)",
-  gap: "20px",
-};
-
-const stat = {
-  textAlign: "center" as const,
-};
-
-const statNumber = {
-  color: "#22c55e",
-  fontSize: "32px",
-  marginBottom: "6px",
-};
-
-const statLabel = {
-  color: "#a1a1aa",
-};
