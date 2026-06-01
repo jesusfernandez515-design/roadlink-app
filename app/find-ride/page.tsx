@@ -1,141 +1,193 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { db } from "../../lib/firebase";
+import { collection, getDocs, query, where } from "firebase/firestore";
+
+type Ride = {
+  id: string;
+  from: string;
+  to: string;
+  date: string;
+  time: string;
+  seats: number;
+  price: number;
+  vehicle: string;
+  notes: string;
+  status: string;
+  driverEmail: string;
+};
+
 export default function FindRidePage() {
-  const rides = [
-    {
-      driver: "John D.",
-      rating: "4.9",
-      route: "Clarksdale, MS → Danville, AR",
-      date: "May 20",
-      price: "$45",
-      seats: "3 seats left",
-    },
-    {
-      driver: "Sarah M.",
-      rating: "4.8",
-      route: "Memphis, TN → Little Rock, AR",
-      date: "May 21",
-      price: "$38",
-      seats: "2 seats left",
-    },
-    {
-      driver: "Mike T.",
-      rating: "4.7",
-      route: "Mobile, AL → Pensacola, FL",
-      date: "May 22",
-      price: "$25",
-      seats: "4 seats left",
-    },
-  ];
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [message, setMessage] = useState("Loading rides...");
+
+  async function loadRides() {
+    try {
+      const q = query(collection(db, "rides"), where("status", "==", "active"));
+      const snapshot = await getDocs(q);
+
+      const ridesData = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Ride[];
+
+      setRides(ridesData);
+      setMessage(ridesData.length ? "" : "No rides available yet.");
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  }
+
+  useEffect(() => {
+    loadRides();
+  }, []);
 
   return (
     <main className="page">
       <section className="searchCard">
+        <div className="logo">
+          Road<span>Link</span>
+        </div>
+
         <h1>Find a Ride</h1>
-
-        <input placeholder="Origin" />
-        <input placeholder="Destination" />
-        <input type="date" />
-
-        <button>Search Rides</button>
+        <p>Available rides published by drivers.</p>
       </section>
 
       <section className="results">
-        {rides.map((ride, index) => (
-          <div key={index} className="rideCard">
+        {message && <p className="message">{message}</p>}
+
+        {rides.map((ride) => (
+          <div key={ride.id} className="rideCard">
             <div className="topRow">
               <div>
-                <h3>{ride.driver}</h3>
-                <p>⭐ {ride.rating}</p>
+                <h3>
+                  {ride.from} → {ride.to}
+                </h3>
+                <p>{ride.date} • {ride.time}</p>
               </div>
 
-              <div className="price">
-                {ride.price}
-              </div>
+              <div className="price">${ride.price}</div>
             </div>
 
-            <p>{ride.route}</p>
-            <p>{ride.date}</p>
-            <p>{ride.seats}</p>
+            <p><strong>Seats:</strong> {ride.seats}</p>
+            <p><strong>Vehicle:</strong> {ride.vehicle}</p>
+            <p><strong>Driver:</strong> {ride.driverEmail || "RoadLink Driver"}</p>
 
-            <button className="reserve">
-              Reserve Seat
-            </button>
+            {ride.notes && <p><strong>Notes:</strong> {ride.notes}</p>}
+
+            <button className="reserve">Reserve Seat</button>
           </div>
         ))}
       </section>
 
       <style>{`
-        *{
-          box-sizing:border-box;
+        * { box-sizing: border-box; }
+
+        .page {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #000, #0f172a, #111827);
+          color: white;
+          padding: 20px;
+          font-family: Arial, sans-serif;
         }
 
-        .page{
-          min-height:100vh;
-          background:linear-gradient(135deg,#000,#0f172a,#111827);
-          color:white;
-          padding:20px;
-          font-family:Arial,sans-serif;
+        .searchCard {
+          max-width: 700px;
+          margin: 0 auto 30px;
+          background: #0b0b0b;
+          border: 1px solid #222;
+          border-radius: 24px;
+          padding: 24px;
         }
 
-        .searchCard{
-          max-width:700px;
-          margin:0 auto 30px;
-          background:#0b0b0b;
-          border:1px solid #222;
-          border-radius:24px;
-          padding:24px;
+        .logo {
+          font-size: 28px;
+          font-weight: 900;
+          margin-bottom: 20px;
         }
 
-        h1{
-          margin-bottom:20px;
+        .logo span {
+          color: #22c55e;
         }
 
-        input{
-          width:100%;
-          padding:15px;
-          margin-bottom:12px;
-          border-radius:12px;
-          border:1px solid #333;
-          background:#111;
-          color:white;
+        h1 {
+          font-size: 38px;
+          margin: 0 0 10px;
         }
 
-        button{
-          width:100%;
-          padding:16px;
-          border:none;
-          border-radius:999px;
-          background:#22c55e;
-          color:white;
-          font-weight:700;
+        p {
+          color: #a1a1aa;
+          line-height: 1.5;
         }
 
-        .results{
-          max-width:700px;
-          margin:0 auto;
+        .results {
+          max-width: 700px;
+          margin: 0 auto;
         }
 
-        .rideCard{
-          background:#0b0b0b;
-          border:1px solid #222;
-          border-radius:20px;
-          padding:20px;
-          margin-bottom:16px;
+        .message {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 700;
         }
 
-        .topRow{
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
+        .rideCard {
+          background: #0b0b0b;
+          border: 1px solid #222;
+          border-radius: 20px;
+          padding: 20px;
+          margin-bottom: 16px;
         }
 
-        .price{
-          color:#22c55e;
-          font-size:24px;
-          font-weight:800;
+        .topRow {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
         }
 
-        .reserve{
-          margin-top:16px;
+        h3 {
+          margin: 0;
+          font-size: 22px;
+        }
+
+        .price {
+          color: #22c55e;
+          font-size: 24px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .reserve {
+          width: 100%;
+          padding: 16px;
+          margin-top: 16px;
+          border: none;
+          border-radius: 999px;
+          background: #22c55e;
+          color: white;
+          font-weight: 800;
+          font-size: 16px;
+        }
+
+        @media (max-width: 480px) {
+          .page {
+            padding: 12px;
+          }
+
+          .searchCard,
+          .rideCard {
+            border-radius: 22px;
+          }
+
+          h1 {
+            font-size: 34px;
+          }
+
+          .topRow {
+            flex-direction: column;
+          }
         }
       `}</style>
     </main>
