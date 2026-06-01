@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "../../lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 type Ride = {
   id: string;
@@ -16,26 +24,82 @@ type Ride = {
   notes: string;
   status: string;
   driverEmail: string;
+  driverId?: string;
 };
 
 export default function FindRidePage() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [message, setMessage] = useState("Loading rides...");
+  const [loadingRideId, setLoadingRideId] = useState("");
 
   async function loadRides() {
     try {
       const q = query(collection(db, "rides"), where("status", "==", "active"));
       const snapshot = await getDocs(q);
 
-      const ridesData = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
+      const ridesData = snapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
       })) as Ride[];
 
       setRides(ridesData);
       setMessage(ridesData.length ? "" : "No rides available yet.");
     } catch (error: any) {
       setMessage(error.message);
+    }
+  }
+
+  async function reserveSeat(ride: Ride) {
+    setMessage("");
+
+    try {
+      const user = auth.currentUser;
+
+      if (!user) {
+        setMessage("Please sign in before reserving a seat.");
+        return;
+      }
+
+      if (ride.driverId === user.uid) {
+        setMessage("You cannot reserve your own ride.");
+        return;
+      }
+
+      if (ride.seats <= 0) {
+        setMessage("No seats available for this ride.");
+        return;
+      }
+
+      setLoadingRideId(ride.id);
+
+      await addDoc(collection(db, "bookings"), {
+        rideId: ride.id,
+        passengerId: user.uid,
+        passengerEmail: user.email || "",
+        driverId: ride.driverId || "",
+        driverEmail: ride.driverEmail || "",
+        from: ride.from,
+        to: ride.to,
+        date: ride.date,
+        time: ride.time,
+        price: ride.price,
+        status: "reserved",
+        createdAt: new Date().toISOString(),
+      });
+
+      const newSeats = ride.seats - 1;
+
+      await updateDoc(doc(db, "rides", ride.id), {
+        seats: newSeats,
+        status: newSeats <= 0 ? "full" : "active",
+      });
+
+      setMessage("Seat reserved successfully.");
+      await loadRides();
+    } catch (error: any) {
+      setMessage(error.message);
+    } finally {
+      setLoadingRideId("");
     }
   }
 
@@ -64,19 +128,38 @@ export default function FindRidePage() {
                 <h3>
                   {ride.from} → {ride.to}
                 </h3>
-                <p>{ride.date} • {ride.time}</p>
+                <p>
+                  {ride.date} • {ride.time}
+                </p>
               </div>
 
               <div className="price">${ride.price}</div>
             </div>
 
-            <p><strong>Seats:</strong> {ride.seats}</p>
-            <p><strong>Vehicle:</strong> {ride.vehicle}</p>
-            <p><strong>Driver:</strong> {ride.driverEmail || "RoadLink Driver"}</p>
+            <p>
+              <strong>Seats:</strong> {ride.seats}
+            </p>
+            <p>
+              <strong>Vehicle:</strong> {ride.vehicle}
+            </p>
+            <p>
+              <strong>Driver:</strong>{" "}
+              {ride.driverEmail || "RoadLink Driver"}
+            </p>
 
-            {ride.notes && <p><strong>Notes:</strong> {ride.notes}</p>}
+            {ride.notes && (
+              <p>
+                <strong>Notes:</strong> {ride.notes}
+              </p>
+            )}
 
-            <button className="reserve">Reserve Seat</button>
+            <button
+              className="reserve"
+              onClick={() => reserveSeat(ride)}
+              disabled={loadingRideId === ride.id}
+            >
+              {loadingRideId === ride.id ? "Reserving..." : "Reserve Seat"}
+            </button>
           </div>
         ))}
       </section>
@@ -169,6 +252,10 @@ export default function FindRidePage() {
           color: white;
           font-weight: 800;
           font-size: 16px;
+        }
+
+        .reserve:disabled {
+          opacity: 0.7;
         }
 
         @media (max-width: 480px) {
