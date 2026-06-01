@@ -2,190 +2,207 @@
 
 import { useEffect, useState } from "react";
 import { auth, db } from "../../lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 
 type Booking = {
   id: string;
   rideId: string;
-  passengerId: string;
-  passengerEmail: string;
-  driverEmail: string;
   from: string;
   to: string;
   date: string;
   time: string;
-  price: number;
+  seatsBooked: number;
   status: string;
-  createdAt: string;
 };
 
 export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [message, setMessage] = useState("Loading your bookings...");
+  const [message, setMessage] = useState("Loading bookings...");
 
-  async function loadBookings() {
-    try {
-      const user = auth.currentUser;
-
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setMessage("Please sign in to view your bookings.");
         return;
       }
 
-      const q = query(
-        collection(db, "bookings"),
-        where("passengerId", "==", user.uid)
-      );
+      try {
+        const q = query(
+          collection(db, "bookings"),
+          where("userId", "==", user.uid)
+        );
 
-      const snapshot = await getDocs(q);
+        const snapshot = await getDocs(q);
 
-      const bookingsData = snapshot.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      })) as Booking[];
+        const bookingData = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Booking[];
 
-      setBookings(bookingsData);
-      setMessage(bookingsData.length ? "" : "You do not have bookings yet.");
-    } catch (error: any) {
-      setMessage(error.message);
-    }
-  }
+        setBookings(bookingData);
 
-  useEffect(() => {
-    loadBookings();
+        if (bookingData.length === 0) {
+          setMessage("You have no bookings yet.");
+        } else {
+          setMessage("");
+        }
+      } catch (error: any) {
+        setMessage(error.message);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   return (
     <main className="page">
-      <section className="header">
+      <section className="headerCard">
         <div className="logo">
           Road<span>Link</span>
         </div>
 
         <h1>My Bookings</h1>
+
         <p>Your reserved rides will appear here.</p>
       </section>
 
-      <section className="list">
-        {message && <p className="message">{message}</p>}
+      <section className="results">
+
+        {message && (
+          <div className="messageBox">
+            <p className="message">{message}</p>
+
+            {message.includes("sign in") && (
+              <a href="/login" className="loginButton">
+                Sign In
+              </a>
+            )}
+          </div>
+        )}
 
         {bookings.map((booking) => (
-          <div key={booking.id} className="card">
-            <h2>
+          <div key={booking.id} className="bookingCard">
+
+            <h3>
               {booking.from} → {booking.to}
-            </h2>
+            </h3>
 
             <p>
-              <strong>Date:</strong> {booking.date}
+              {booking.date} • {booking.time}
             </p>
 
             <p>
-              <strong>Time:</strong> {booking.time}
+              Seats Reserved: {booking.seatsBooked}
             </p>
 
             <p>
-              <strong>Price:</strong> ${booking.price}
+              Status: {booking.status}
             </p>
 
-            <p>
-              <strong>Driver:</strong> {booking.driverEmail || "RoadLink Driver"}
-            </p>
-
-            <p>
-              <strong>Status:</strong>{" "}
-              <span className="status">{booking.status}</span>
-            </p>
           </div>
         ))}
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
+        *{
+          box-sizing:border-box;
         }
 
-        .page {
-          min-height: 100vh;
-          background: linear-gradient(135deg, #000, #0f172a, #111827);
-          color: white;
-          padding: 20px;
-          font-family: Arial, sans-serif;
+        .page{
+          min-height:100vh;
+          background:linear-gradient(135deg,#000,#0f172a,#111827);
+          color:white;
+          padding:20px;
+          font-family:Arial,sans-serif;
         }
 
-        .header {
-          max-width: 700px;
-          margin: 0 auto 30px;
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 24px;
-          padding: 28px;
+        .headerCard{
+          max-width:700px;
+          margin:0 auto 30px;
+          background:#0b0b0b;
+          border:1px solid #222;
+          border-radius:24px;
+          padding:24px;
         }
 
-        .logo {
-          font-size: 30px;
-          font-weight: 900;
-          margin-bottom: 22px;
+        .logo{
+          font-size:28px;
+          font-weight:900;
+          margin-bottom:20px;
         }
 
-        .logo span {
-          color: #22c55e;
+        .logo span{
+          color:#22c55e;
         }
 
-        h1 {
-          font-size: 38px;
-          margin: 0 0 10px;
+        h1{
+          font-size:42px;
+          margin-bottom:12px;
         }
 
-        h2 {
-          margin-top: 0;
+        p{
+          color:#a1a1aa;
         }
 
-        p {
-          color: #a1a1aa;
-          line-height: 1.5;
+        .results{
+          max-width:700px;
+          margin:0 auto;
         }
 
-        .list {
-          max-width: 700px;
-          margin: 0 auto;
+        .messageBox{
+          text-align:center;
+          margin-top:30px;
         }
 
-        .message {
-          text-align: center;
-          color: #22c55e;
-          font-weight: 800;
+        .message{
+          color:#22c55e;
+          font-size:20px;
+          font-weight:800;
         }
 
-        .card {
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 22px;
-          padding: 24px;
-          margin-bottom: 16px;
+        .loginButton{
+          display:inline-block;
+          margin-top:20px;
+          padding:16px 30px;
+          border-radius:999px;
+          background:#22c55e;
+          color:white;
+          text-decoration:none;
+          font-weight:800;
         }
 
-        strong {
-          color: white;
+        .bookingCard{
+          background:#0b0b0b;
+          border:1px solid #222;
+          border-radius:20px;
+          padding:20px;
+          margin-bottom:16px;
         }
 
-        .status {
-          color: #22c55e;
-          font-weight: 800;
-          text-transform: capitalize;
+        .bookingCard h3{
+          margin-top:0;
+          font-size:22px;
         }
 
-        @media (max-width: 480px) {
-          .page {
-            padding: 12px;
+        @media (max-width:480px){
+
+          .page{
+            padding:12px;
           }
 
-          .header,
-          .card {
-            border-radius: 22px;
+          h1{
+            font-size:34px;
           }
 
-          h1 {
-            font-size: 34px;
+          .headerCard,
+          .bookingCard{
+            border-radius:22px;
           }
         }
       `}</style>
