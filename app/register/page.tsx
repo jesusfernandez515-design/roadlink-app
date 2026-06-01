@@ -1,138 +1,211 @@
+"use client";
+
+import { useState } from "react";
+import { auth, db } from "../../lib/firebase";
+import {
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+
 export default function RegisterPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("passenger");
+  const [message, setMessage] = useState("");
+
+  async function createAccount() {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      await setDoc(doc(db, "users", user.uid), {
+        name,
+        email,
+        role,
+        createdAt: new Date().toISOString(),
+      });
+
+      setMessage("Account created successfully.");
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  }
+
+  async function continueWithGoogle() {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      await setDoc(doc(db, "users", user.uid), {
+        name: user.displayName || "",
+        email: user.email || "",
+        role: "passenger",
+        createdAt: new Date().toISOString(),
+      });
+
+      setMessage("Signed in with Google.");
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  }
+
   return (
-    <main style={page}>
-      <section style={card}>
-        <div style={logo}>RoadLink</div>
+    <main className="page">
+      <section className="card">
+        <h2>Road<span>Link</span></h2>
+        <h1>Create your account</h1>
+        <p>Join RoadLink as a passenger or driver.</p>
 
-        <h1 style={title}>Create your account</h1>
-        <p style={subtitle}>Join RoadLink as a passenger or driver.</p>
+        <button className="social" onClick={continueWithGoogle}>
+          Continue with Google
+        </button>
 
-        <button style={socialButton}>Continue with Google</button>
-        <button style={socialButton}>Continue with Facebook</button>
-        <button style={socialButton}>Continue with Apple</button>
+        <div className="divider">or</div>
 
-        <div style={divider}>
-          <span style={line}></span>
-          <span style={dividerText}>or</span>
-          <span style={line}></span>
-        </div>
+        <input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
 
-        <input placeholder="Full name" style={input} />
-        <input placeholder="Email address" type="email" style={input} />
-        <input placeholder="Password" type="password" style={input} />
-
-        <select style={input}>
-          <option>Passenger</option>
-          <option>Driver</option>
+        <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="passenger">Passenger</option>
+          <option value="driver">Driver</option>
         </select>
 
-        <button style={primaryButton}>Create Account</button>
+        <button className="primary" onClick={createAccount}>
+          Create Account
+        </button>
 
-        <p style={footerText}>
-          Already have an account? <span style={link}>Sign in</span>
+        {message && <p className="message">{message}</p>}
+
+        <p className="footer">
+          Already have an account? <a href="/login">Sign in</a>
         </p>
       </section>
+
+      <style>{`
+        * { box-sizing: border-box; }
+
+        .page {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #000, #020617, #0f172a);
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          font-family: Arial, sans-serif;
+        }
+
+        .card {
+          width: 100%;
+          max-width: 520px;
+          background: #0b0b0b;
+          border: 1px solid #222;
+          border-radius: 30px;
+          padding: 32px;
+          box-shadow: 0 30px 90px rgba(0,0,0,0.7);
+        }
+
+        h2 {
+          font-size: 28px;
+          margin: 0 0 24px;
+        }
+
+        h2 span { color: #22c55e; }
+
+        h1 {
+          font-size: 42px;
+          margin: 0 0 12px;
+          line-height: 1.1;
+        }
+
+        p {
+          color: #a1a1aa;
+          line-height: 1.5;
+        }
+
+        input, select {
+          width: 100%;
+          padding: 16px;
+          margin-top: 12px;
+          border-radius: 16px;
+          border: 1px solid #333;
+          background: #111;
+          color: white;
+          font-size: 16px;
+        }
+
+        button {
+          width: 100%;
+          padding: 16px;
+          border-radius: 999px;
+          font-size: 16px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .social {
+          margin-top: 24px;
+          background: #18181b;
+          border: 1px solid #333;
+          color: white;
+        }
+
+        .primary {
+          margin-top: 22px;
+          background: #22c55e;
+          border: none;
+          color: white;
+        }
+
+        .divider {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          color: #71717a;
+          margin: 24px 0;
+        }
+
+        .divider:before,
+        .divider:after {
+          content: "";
+          flex: 1;
+          height: 1px;
+          background: #333;
+        }
+
+        .message {
+          color: #22c55e;
+          margin-top: 18px;
+          text-align: center;
+        }
+
+        .footer {
+          text-align: center;
+          margin-top: 20px;
+        }
+
+        a {
+          color: white;
+          font-weight: 800;
+          text-decoration: none;
+        }
+
+        @media (max-width: 480px) {
+          .card {
+            padding: 26px;
+            border-radius: 26px;
+          }
+
+          h1 {
+            font-size: 36px;
+          }
+        }
+      `}</style>
     </main>
   );
 }
-
-const page = {
-  minHeight: "100vh",
-  background: "linear-gradient(135deg, #000000, #111827)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "24px",
-  fontFamily: "Arial, sans-serif",
-};
-
-const card = {
-  width: "100%",
-  maxWidth: "430px",
-  background: "#0b0b0b",
-  color: "white",
-  borderRadius: "24px",
-  padding: "34px",
-  boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
-  border: "1px solid #222",
-};
-
-const logo = {
-  fontSize: "28px",
-  fontWeight: "800",
-  marginBottom: "28px",
-};
-
-const title = {
-  fontSize: "34px",
-  lineHeight: "1.1",
-  marginBottom: "10px",
-};
-
-const subtitle = {
-  color: "#a1a1aa",
-  fontSize: "16px",
-  marginBottom: "24px",
-};
-
-const socialButton = {
-  width: "100%",
-  padding: "15px",
-  marginTop: "12px",
-  borderRadius: "999px",
-  border: "1px solid #333",
-  background: "#18181b",
-  color: "white",
-  fontSize: "16px",
-};
-
-const divider = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  margin: "26px 0",
-};
-
-const line = {
-  flex: 1,
-  height: "1px",
-  background: "#333",
-};
-
-const dividerText = {
-  color: "#71717a",
-};
-
-const input = {
-  width: "100%",
-  padding: "15px",
-  marginTop: "12px",
-  borderRadius: "14px",
-  border: "1px solid #333",
-  background: "#111",
-  color: "white",
-  fontSize: "16px",
-};
-
-const primaryButton = {
-  width: "100%",
-  padding: "16px",
-  marginTop: "20px",
-  borderRadius: "999px",
-  border: "none",
-  background: "white",
-  color: "black",
-  fontSize: "16px",
-  fontWeight: "700",
-};
-
-const footerText = {
-  color: "#a1a1aa",
-  textAlign: "center" as const,
-  marginTop: "22px",
-};
-
-const link = {
-  color: "white",
-  fontWeight: "700",
-};
