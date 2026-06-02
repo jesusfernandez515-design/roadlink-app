@@ -1,5 +1,6 @@
 "use client";
 
+import Logo from "./components/Logo";
 import Link from "next/link";
 
 export default function Home() {
@@ -7,9 +8,7 @@ export default function Home() {
     <main className="page">
       <nav className="nav">
         <div>
-          <div className="logo">
-            Road<span>Link</span>
-          </div>
+          <Logo height={90} />
           <p className="tagline">Long distance rides made simple.</p>
         </div>
 
@@ -104,20 +103,9 @@ export default function Home() {
           margin-bottom: 60px;
         }
 
-        .logo {
-          font-size: 34px;
-          font-weight: 900;
-        }
-
-        .logo span,
-        .title span,
-        .cardTitle span {
-          color: #22c55e;
-        }
-
         .tagline {
           color: #a1a1aa;
-          margin-top: 4px;
+          margin-top: 8px;
         }
 
         .navLinks {
@@ -153,6 +141,11 @@ export default function Home() {
           font-size: 72px;
           line-height: 1.05;
           margin-bottom: 24px;
+        }
+
+        .title span,
+        .cardTitle span {
+          color: #22c55e;
         }
 
         .subtitle {
