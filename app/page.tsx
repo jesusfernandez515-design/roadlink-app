@@ -1,6 +1,5 @@
 "use client";
 
-import Logo from "./components/Logo";
 import Link from "next/link";
 
 export default function Home() {
@@ -10,7 +9,9 @@ export default function Home() {
         <div className="overlay" />
 
         <nav className="nav">
-          <Logo height={95} />
+          <div className="logo">
+            <img src="/roadlink-logo.png" alt="RoadLink" />
+          </div>
 
           <div className="navLinks">
             <a href="/">Inicio</a>
@@ -34,23 +35,23 @@ export default function Home() {
 
             <p className="subtitle">
               La plataforma de viajes largos por carretera entre estados.
-              Seguro, económico y confiable.
+              Segura, económica y confiable.
             </p>
 
             <div className="buttons">
               <Link href="/find-ride" className="primary">
-                🔎 Buscar viaje
+                Buscar viaje
               </Link>
 
               <Link href="/offer-ride" className="secondary">
-                👤 Conviértete en conductor
+                Conviértete en conductor
               </Link>
             </div>
 
             <div id="features" className="features">
               <Feature icon="🛡️" title="Seguro" text="Conductores verificados y seguimiento en tiempo real." />
-              <Feature icon="💵" title="Económico" text="Viajes compartidos con precios justos." />
-              <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes entre ciudades y estados." />
+              <Feature icon="💵" title="Económico" text="Comparte gastos y ahorra dinero en cada viaje." />
+              <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes y viajes entre estados." />
               <Feature icon="👥" title="Confiable" text="Viajeros conectados cada día en RoadLink." />
             </div>
           </div>
@@ -128,7 +129,7 @@ export default function Home() {
           inset: 0;
           background:
             linear-gradient(90deg, rgba(0,0,0,0.95), rgba(0,0,0,0.65), rgba(0,0,0,0.25)),
-            linear-gradient(180deg, rgba(0,0,0,0.4), rgba(0,0,0,0.85));
+            linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.9));
           z-index: 0;
         }
 
@@ -143,7 +144,19 @@ export default function Home() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 70px;
+          margin-bottom: 60px;
+        }
+
+        .logo {
+          display: flex;
+          align-items: center;
+        }
+
+        .logo img {
+          height: 150px;
+          width: auto;
+          object-fit: contain;
+          display: block;
         }
 
         .navLinks {
@@ -162,7 +175,7 @@ export default function Home() {
         .navButton {
           background: #22c55e;
           padding: 12px 20px;
-          border-radius: 12px;
+          border-radius: 999px;
           color: white;
           text-decoration: none;
           font-weight: 800;
@@ -229,7 +242,7 @@ export default function Home() {
         }
 
         .feature {
-          background: rgba(0,0,0,0.38);
+          background: rgba(0,0,0,0.42);
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 20px;
           padding: 20px;
@@ -253,7 +266,7 @@ export default function Home() {
         }
 
         .searchCard {
-          background: rgba(5, 8, 15, 0.82);
+          background: rgba(5, 8, 15, 0.84);
           border: 1px solid rgba(255,255,255,0.18);
           border-radius: 30px;
           padding: 34px;
@@ -342,75 +355,23 @@ export default function Home() {
         }
 
         @media (max-width: 900px) {
-  .hero {
-    min-height: auto;
-    padding: 24px 20px 40px;
-    background-position: center top;
-  }
+          .hero {
+            min-height: auto;
+            padding: 24px 20px 44px;
+            background-position: center top;
+          }
 
-  .overlay {
-    background:
-      linear-gradient(180deg, rgba(0,0,0,0.88), rgba(0,0,0,0.78), rgba(0,0,0,0.92));
-  }
+          .overlay {
+            background:
+              linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.78), rgba(0,0,0,0.94));
+          }
 
-  .nav {
-    margin-bottom: 70px;
-  }
+          .nav {
+            margin-bottom: 42px;
+          }
 
-  .nav img {
-    height: 90px !important;
-  }
-
-  .navLinks {
-    display: none;
-  }
-
-  .heroContent {
-    display: block;
-  }
-
-  .left h1 {
-    font-size: 54px;
-    line-height: 1.05;
-    margin-bottom: 24px;
-  }
-
-  .subtitle {
-    font-size: 19px;
-    line-height: 1.6;
-  }
-
-  .buttons {
-    flex-direction: column;
-    gap: 16px;
-    margin: 34px 0;
-  }
-
-  .primary,
-  .secondary {
-    width: 100%;
-    padding: 20px;
-    border-radius: 18px;
-    font-size: 18px;
-  }
-
-  .features {
-    grid-template-columns: 1fr;
-    margin-top: 36px;
-  }
-
-  .searchCard {
-    display: none;
-  }
-
-  .stats {
-    grid-template-columns: 1fr 1fr;
-    margin-top: 40px;
-  }
-
-           .nav {
-            align-items: flex-start;
-            margin-bottom: 55px;
+          .logo img {
+            height: 135px;
           }
 
           .navLinks {
@@ -418,39 +379,54 @@ export default function Home() {
           }
 
           .heroContent {
-            grid-template-columns: 1fr;
+            display: block;
           }
 
           .left h1 {
-            font-size: 52px;
+            font-size: 50px;
+            line-height: 1.05;
+            margin-bottom: 22px;
           }
 
           .subtitle {
             font-size: 18px;
+            line-height: 1.6;
           }
 
           .buttons {
             flex-direction: column;
+            gap: 16px;
+            margin: 32px 0;
+          }
+
+          .primary,
+          .secondary {
+            width: 100%;
+            padding: 19px;
+            border-radius: 18px;
+            font-size: 17px;
           }
 
           .features {
             grid-template-columns: 1fr;
+            margin-top: 34px;
           }
 
           .searchCard {
-            padding: 24px;
-          }
-
-          .searchCard h2 {
-            font-size: 34px;
-          }
-
-          .fieldGrid {
-            grid-template-columns: 1fr;
+            display: none;
           }
 
           .stats {
             grid-template-columns: 1fr 1fr;
+            margin-top: 42px;
+          }
+
+          .stat {
+            align-items: flex-start;
+          }
+
+          .stat h3 {
+            font-size: 26px;
           }
         }
       `}</style>
