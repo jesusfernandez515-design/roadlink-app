@@ -1,21 +1,118 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { auth, db } from "../../lib/firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { collection, getDocs, query, where } from "firebase/firestore";
+
+type UserProfile = {
+  name?: string;
+  email?: string;
+  role?: string;
+  createdAt?: string;
+};
+
 export default function ProfilePage() {
+  const [profile, setProfile] = useState<UserProfile>({
+    name: "RoadLink User",
+    email: "",
+    role: "member",
+  });
+
+  const [bookedTrips, setBookedTrips] = useState(0);
+  const [activeRides, setActiveRides] = useState(0);
+  const [avatar, setAvatar] = useState("R");
+  const [message, setMessage] = useState("Loading profile...");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setMessage("Please sign in to view your profile.");
+        return;
+      }
+
+      const userEmail = user.email || "";
+      const fallbackName = user.displayName || "RoadLink User";
+
+      setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
+
+      try {
+        const usersQuery = query(
+          collection(db, "users"),
+          where("email", "==", userEmail)
+        );
+
+        const usersSnapshot = await getDocs(usersQuery);
+
+        if (!usersSnapshot.empty) {
+          const userData = usersSnapshot.docs[0].data() as UserProfile;
+
+          setProfile({
+            name: userData.name || fallbackName,
+            email: userData.email || userEmail,
+            role: userData.role || "member",
+            createdAt: userData.createdAt || "",
+          });
+        } else {
+          setProfile({
+            name: fallbackName,
+            email: userEmail,
+            role: "member",
+            createdAt: "",
+          });
+        }
+
+        const bookingsQuery = query(
+          collection(db, "bookings"),
+          where("passengerEmail", "==", userEmail),
+          where("status", "==", "reserved")
+        );
+
+        const bookingsSnapshot = await getDocs(bookingsQuery);
+        setBookedTrips(bookingsSnapshot.size);
+
+        const ridesQuery = query(
+          collection(db, "rides"),
+          where("driverEmail", "==", userEmail),
+          where("status", "==", "active")
+        );
+
+        const ridesSnapshot = await getDocs(ridesQuery);
+        setActiveRides(ridesSnapshot.size);
+
+        setMessage("");
+      } catch (error: any) {
+        setMessage(error.message);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  async function handleSignOut() {
+    await signOut(auth);
+    window.location.href = "/login";
+  }
+
   return (
     <main className="page">
       <section className="card">
         <div className="top">
-          <div className="avatar">J</div>
+          <div className="avatar">{avatar}</div>
 
           <div>
-            <h1>Jesús Fernández</h1>
-            <p>Driver & Passenger · United States</p>
+            <h1>{profile.name}</h1>
+            <p>{profile.email || "No email found"}</p>
             <p className="verified">Verified RoadLink Member</p>
           </div>
         </div>
 
+        {message && <p className="message">{message}</p>}
+
         <div className="stats">
-          <Box title="Rating" value="4.9" />
-          <Box title="Trips Completed" value="28" />
-          <Box title="Member Since" value="2026" />
+          <Box title="Rating" value="New" />
+          <Box title="Booked Trips" value={String(bookedTrips)} />
+          <Box title="Active Rides" value={String(activeRides)} />
         </div>
 
         <section className="section">
@@ -23,22 +120,43 @@ export default function ProfilePage() {
 
           <div className="detail">
             <span>Full Name</span>
-            <strong>Jesús Fernández</strong>
+            <strong>{profile.name || "RoadLink User"}</strong>
           </div>
 
           <div className="detail">
-            <span>Location</span>
-            <strong>United States</strong>
+            <span>Email</span>
+            <strong>{profile.email || "Not available"}</strong>
           </div>
 
           <div className="detail">
             <span>Account Type</span>
-            <strong>Driver / Passenger</strong>
+            <strong className="capitalize">{profile.role || "member"}</strong>
+          </div>
+
+          <div className="detail">
+            <span>Member Since</span>
+            <strong>
+              {profile.createdAt
+                ? profile.createdAt.slice(0, 10)
+                : "2026"}
+            </strong>
           </div>
 
           <div className="detail">
             <span>Verification</span>
-            <strong>Identity Pending</strong>
+            <strong>Email Verified</strong>
+          </div>
+        </section>
+
+        <section className="section">
+          <h2>Quick Actions</h2>
+
+          <div className="actions">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/find-ride">Find a Ride</a>
+            <a href="/offer-ride">Offer a Ride</a>
+            <a href="/my-bookings">My Bookings</a>
+            <a href="/dashboard/driver">Driver Dashboard</a>
           </div>
         </section>
 
@@ -52,7 +170,9 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        <button>Edit Profile</button>
+        <button onClick={handleSignOut} className="signOutButton">
+          Sign Out
+        </button>
       </section>
 
       <style>{`
@@ -107,6 +227,12 @@ export default function ProfilePage() {
           margin: 6px 0;
         }
 
+        .message {
+          color: #22c55e;
+          font-weight: 800;
+          margin-top: 22px;
+        }
+
         .verified {
           color: #22c55e;
           font-weight: 700;
@@ -158,6 +284,27 @@ export default function ProfilePage() {
           color: #a1a1aa;
         }
 
+        .capitalize {
+          text-transform: capitalize;
+        }
+
+        .actions {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 12px;
+        }
+
+        .actions a {
+          background: #111;
+          border: 1px solid #222;
+          border-radius: 16px;
+          padding: 15px;
+          text-align: center;
+          color: white;
+          text-decoration: none;
+          font-weight: 800;
+        }
+
         .badges {
           display: flex;
           flex-wrap: wrap;
@@ -172,19 +319,19 @@ export default function ProfilePage() {
           color: #d4d4d8;
         }
 
-        button {
+        .signOutButton {
           width: 100%;
           margin-top: 30px;
           padding: 17px;
           border-radius: 999px;
           border: none;
-          background: #22c55e;
+          background: #ef4444;
           color: white;
           font-size: 17px;
           font-weight: 800;
         }
 
-        @media (max-width: 600px) {
+        @media (max-width: 700px) {
           .card {
             padding: 22px;
           }
@@ -198,6 +345,10 @@ export default function ProfilePage() {
           }
 
           .stats {
+            grid-template-columns: 1fr;
+          }
+
+          .actions {
             grid-template-columns: 1fr;
           }
 
