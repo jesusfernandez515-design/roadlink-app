@@ -29,6 +29,7 @@ type Ride = {
 
 export default function FindRidePage() {
   const [rides, setRides] = useState<Ride[]>([]);
+  const [reservedRideIds, setReservedRideIds] = useState<string[]>([]);
   const [message, setMessage] = useState("Loading rides...");
   const [loadingRideId, setLoadingRideId] = useState("");
 
@@ -47,6 +48,29 @@ export default function FindRidePage() {
     } catch (error: any) {
       setMessage(error.message);
     }
+  }
+
+  async function loadUserBookings() {
+    const user = auth.currentUser;
+
+    if (!user) {
+      setReservedRideIds([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "bookings"),
+      where("passengerId", "==", user.uid),
+      where("status", "==", "reserved")
+    );
+
+    const snapshot = await getDocs(q);
+
+    const ids = snapshot.docs
+      .map((document) => document.data().rideId)
+      .filter(Boolean);
+
+    setReservedRideIds(ids);
   }
 
   async function reserveSeat(ride: Ride) {
@@ -70,6 +94,23 @@ export default function FindRidePage() {
         return;
       }
 
+      const duplicateQuery = query(
+        collection(db, "bookings"),
+        where("rideId", "==", ride.id),
+        where("passengerId", "==", user.uid),
+        where("status", "==", "reserved")
+      );
+
+      const duplicateSnapshot = await getDocs(duplicateQuery);
+
+      if (!duplicateSnapshot.empty) {
+        setMessage("You already reserved this ride.");
+        setReservedRideIds((previous) =>
+          previous.includes(ride.id) ? previous : [...previous, ride.id]
+        );
+        return;
+      }
+
       setLoadingRideId(ride.id);
 
       await addDoc(collection(db, "bookings"), {
@@ -83,6 +124,7 @@ export default function FindRidePage() {
         date: ride.date,
         time: ride.time,
         price: ride.price,
+        seatsBooked: 1,
         status: "reserved",
         createdAt: new Date().toISOString(),
       });
@@ -94,7 +136,9 @@ export default function FindRidePage() {
         status: newSeats <= 0 ? "full" : "active",
       });
 
+      setReservedRideIds((previous) => [...previous, ride.id]);
       setMessage("Seat reserved successfully.");
+
       await loadRides();
     } catch (error: any) {
       setMessage(error.message);
@@ -104,7 +148,12 @@ export default function FindRidePage() {
   }
 
   useEffect(() => {
-    loadRides();
+    async function loadPage() {
+      await loadRides();
+      await loadUserBookings();
+    }
+
+    loadPage();
   }, []);
 
   return (
@@ -121,47 +170,55 @@ export default function FindRidePage() {
       <section className="results">
         {message && <p className="message">{message}</p>}
 
-        {rides.map((ride) => (
-          <div key={ride.id} className="rideCard">
-            <div className="topRow">
-              <div>
-                <h3>
-                  {ride.from} → {ride.to}
-                </h3>
-                <p>
-                  {ride.date} • {ride.time}
-                </p>
+        {rides.map((ride) => {
+          const alreadyReserved = reservedRideIds.includes(ride.id);
+
+          return (
+            <div key={ride.id} className="rideCard">
+              <div className="topRow">
+                <div>
+                  <h3>
+                    {ride.from} → {ride.to}
+                  </h3>
+                  <p>
+                    {ride.date} • {ride.time}
+                  </p>
+                </div>
+
+                <div className="price">${ride.price}</div>
               </div>
 
-              <div className="price">${ride.price}</div>
-            </div>
-
-            <p>
-              <strong>Seats:</strong> {ride.seats}
-            </p>
-            <p>
-              <strong>Vehicle:</strong> {ride.vehicle}
-            </p>
-            <p>
-              <strong>Driver:</strong>{" "}
-              {ride.driverEmail || "RoadLink Driver"}
-            </p>
-
-            {ride.notes && (
               <p>
-                <strong>Notes:</strong> {ride.notes}
+                <strong>Seats:</strong> {ride.seats}
               </p>
-            )}
+              <p>
+                <strong>Vehicle:</strong> {ride.vehicle}
+              </p>
+              <p>
+                <strong>Driver:</strong>{" "}
+                {ride.driverEmail || "RoadLink Driver"}
+              </p>
 
-            <button
-              className="reserve"
-              onClick={() => reserveSeat(ride)}
-              disabled={loadingRideId === ride.id}
-            >
-              {loadingRideId === ride.id ? "Reserving..." : "Reserve Seat"}
-            </button>
-          </div>
-        ))}
+              {ride.notes && (
+                <p>
+                  <strong>Notes:</strong> {ride.notes}
+                </p>
+              )}
+
+              <button
+                className="reserve"
+                onClick={() => reserveSeat(ride)}
+                disabled={loadingRideId === ride.id || alreadyReserved}
+              >
+                {loadingRideId === ride.id
+                  ? "Reserving..."
+                  : alreadyReserved
+                  ? "Already Reserved"
+                  : "Reserve Seat"}
+              </button>
+            </div>
+          );
+        })}
       </section>
 
       <style>{`
@@ -255,7 +312,7 @@ export default function FindRidePage() {
         }
 
         .reserve:disabled {
-          opacity: 0.7;
+          opacity: 0.55;
         }
 
         @media (max-width: 480px) {
