@@ -342,12 +342,73 @@ export default function Home() {
         }
 
         @media (max-width: 900px) {
-          .hero {
-            padding: 20px;
-            background-position: center;
-          }
+  .hero {
+    min-height: auto;
+    padding: 24px 20px 40px;
+    background-position: center top;
+  }
 
-          .nav {
+  .overlay {
+    background:
+      linear-gradient(180deg, rgba(0,0,0,0.88), rgba(0,0,0,0.78), rgba(0,0,0,0.92));
+  }
+
+  .nav {
+    margin-bottom: 70px;
+  }
+
+  .nav img {
+    height: 90px !important;
+  }
+
+  .navLinks {
+    display: none;
+  }
+
+  .heroContent {
+    display: block;
+  }
+
+  .left h1 {
+    font-size: 54px;
+    line-height: 1.05;
+    margin-bottom: 24px;
+  }
+
+  .subtitle {
+    font-size: 19px;
+    line-height: 1.6;
+  }
+
+  .buttons {
+    flex-direction: column;
+    gap: 16px;
+    margin: 34px 0;
+  }
+
+  .primary,
+  .secondary {
+    width: 100%;
+    padding: 20px;
+    border-radius: 18px;
+    font-size: 18px;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+    margin-top: 36px;
+  }
+
+  .searchCard {
+    display: none;
+  }
+
+  .stats {
+    grid-template-columns: 1fr 1fr;
+    margin-top: 40px;
+  }
+
+           .nav {
             align-items: flex-start;
             margin-bottom: 55px;
           }
