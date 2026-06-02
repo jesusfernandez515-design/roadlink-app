@@ -1,4 +1,101 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { auth, db } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, getDocs, query, where } from "firebase/firestore";
+
+type Ride = {
+  id: string;
+  from: string;
+  to: string;
+  date: string;
+  time: string;
+  price: number;
+  seats: number;
+  status: string;
+};
+
+type Booking = {
+  id: string;
+  from: string;
+  to: string;
+  date: string;
+  time: string;
+  price: number;
+  driverEmail: string;
+  status: string;
+};
+
 export default function DashboardPage() {
+  const [activeRides, setActiveRides] = useState<Ride[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [earnings, setEarnings] = useState(0);
+  const [avatar, setAvatar] = useState("J");
+  const [message, setMessage] = useState("Loading dashboard...");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setMessage("Please sign in to view your dashboard.");
+        return;
+      }
+
+      setAvatar((user.email || "J").charAt(0).toUpperCase());
+
+      try {
+        const ridesQuery = query(
+          collection(db, "rides"),
+          where("driverId", "==", user.uid)
+        );
+
+        const ridesSnapshot = await getDocs(ridesQuery);
+
+        const ridesData = ridesSnapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Ride[];
+
+        const bookingsQuery = query(
+          collection(db, "bookings"),
+          where("passengerId", "==", user.uid),
+          where("status", "==", "reserved")
+        );
+
+        const bookingsSnapshot = await getDocs(bookingsQuery);
+
+        const bookingsData = bookingsSnapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Booking[];
+
+        const driverBookingsQuery = query(
+          collection(db, "bookings"),
+          where("driverId", "==", user.uid),
+          where("status", "==", "reserved")
+        );
+
+        const driverBookingsSnapshot = await getDocs(driverBookingsQuery);
+
+        const totalEarnings = driverBookingsSnapshot.docs.reduce(
+          (total, document) => total + Number(document.data().price || 0),
+          0
+        );
+
+        setActiveRides(ridesData);
+        setBookings(bookingsData);
+        setEarnings(totalEarnings);
+        setMessage("");
+      } catch (error: any) {
+        setMessage(error.message);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const upcomingTrip = bookings[0];
+
   return (
     <main className="page">
       <section className="card">
@@ -8,26 +105,43 @@ export default function DashboardPage() {
             <p>Welcome back to RoadLink.</p>
           </div>
 
-          <div className="avatar">J</div>
+          <div className="avatar">{avatar}</div>
         </div>
 
+        {message && <p className="message">{message}</p>}
+
         <div className="stats">
-          <Box title="Active Rides" value="2" />
-          <Box title="Booked Trips" value="4" />
-          <Box title="Rating" value="4.9" />
-          <Box title="Earnings" value="$245" />
+          <Box title="Active Rides" value={String(activeRides.length)} />
+          <Box title="Booked Trips" value={String(bookings.length)} />
+          <Box title="Rating" value="New" />
+          <Box title="Earnings" value={`$${earnings}`} />
         </div>
 
         <section className="section">
           <h2>Upcoming Trip</h2>
-          <div className="trip">
-            <h3>Mobile, AL → Pensacola, FL</h3>
-            <p>Tomorrow · 9:30 AM</p>
-            <p>Driver: Michael T. · ⭐ 4.8</p>
-            <a className="mainButton" href="/my-bookings">
-              View Details
-            </a>
-          </div>
+
+          {upcomingTrip ? (
+            <div className="trip">
+              <h3>
+                {upcomingTrip.from} → {upcomingTrip.to}
+              </h3>
+              <p>
+                {upcomingTrip.date} · {upcomingTrip.time}
+              </p>
+              <p>Driver: {upcomingTrip.driverEmail || "RoadLink Driver"}</p>
+              <a className="mainButton" href="/my-bookings">
+                View Details
+              </a>
+            </div>
+          ) : (
+            <div className="trip">
+              <h3>No upcoming trips yet.</h3>
+              <p>Reserve a ride to see it here.</p>
+              <a className="mainButton" href="/find-ride">
+                Find a Ride
+              </a>
+            </div>
+          )}
         </section>
 
         <section className="section">
@@ -36,6 +150,7 @@ export default function DashboardPage() {
             <a href="/find-ride">Find a Ride</a>
             <a href="/offer-ride">Offer a Ride</a>
             <a href="/my-bookings">My Bookings</a>
+            <a href="/dashboard/driver">Driver Dashboard</a>
             <a href="/profile">Profile</a>
           </div>
         </section>
@@ -77,6 +192,12 @@ export default function DashboardPage() {
 
         p {
           color: #a1a1aa;
+        }
+
+        .message {
+          color: #22c55e;
+          font-weight: 800;
+          margin-top: 20px;
         }
 
         .avatar {
@@ -148,7 +269,7 @@ export default function DashboardPage() {
 
         .actions {
           display: grid;
-          grid-template-columns: repeat(4,1fr);
+          grid-template-columns: repeat(5,1fr);
           gap: 14px;
         }
 
@@ -166,10 +287,6 @@ export default function DashboardPage() {
         @media (max-width: 700px) {
           .card {
             padding: 22px;
-          }
-
-          .header {
-            align-items: flex-start;
           }
 
           h1 {
