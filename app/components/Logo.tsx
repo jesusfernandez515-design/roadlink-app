@@ -1,4 +1,4 @@
-export default function Logo({ height = 80 }) {
+export default function Logo({ height = 120 }: { height?: number }) {
   return (
     <img
       src="/roadlink-logo.png"
@@ -6,7 +6,8 @@ export default function Logo({ height = 80 }) {
       style={{
         height: `${height}px`,
         width: "auto",
-        display: "block"
+        display: "block",
+        objectFit: "contain",
       }}
     />
   );
