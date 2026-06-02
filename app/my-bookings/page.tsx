@@ -20,15 +20,17 @@ type Booking = {
   to: string;
   date: string;
   time: string;
-  seatsBooked?: number;
   price?: number;
   driverEmail?: string;
+  passengerId?: string;
+  passengerEmail?: string;
   status: string;
 };
 
 export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [message, setMessage] = useState("Loading bookings...");
+  const [currentUserId, setCurrentUserId] = useState("");
   const [loadingId, setLoadingId] = useState("");
 
   async function loadBookings(userId: string) {
@@ -73,10 +75,7 @@ export default function MyBookingsPage() {
         }
       }
 
-      setBookings((current) =>
-        current.filter((item) => item.id !== booking.id)
-      );
-
+      await loadBookings(currentUserId);
       setMessage("Reservation cancelled successfully.");
     } catch (error: any) {
       setMessage(error.message);
@@ -88,9 +87,13 @@ export default function MyBookingsPage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
+        setBookings([]);
+        setCurrentUserId("");
         setMessage("Please sign in to view your bookings.");
         return;
       }
+
+      setCurrentUserId(user.uid);
 
       try {
         await loadBookings(user.uid);
@@ -118,7 +121,7 @@ export default function MyBookingsPage() {
           <div className="messageBox">
             <p className="message">{message}</p>
 
-            {message.includes("sign in") && (
+            {message.toLowerCase().includes("sign in") && (
               <a href="/login" className="loginButton">
                 Sign In
               </a>
@@ -168,14 +171,16 @@ export default function MyBookingsPage() {
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .page {
           min-height: 100vh;
           background: linear-gradient(135deg,#000,#0f172a,#111827);
           color: white;
           padding: 20px;
-          font-family: Arial,sans-serif;
+          font-family: Arial, sans-serif;
         }
 
         .headerCard,
@@ -262,9 +267,14 @@ export default function MyBookingsPage() {
           opacity: 0.6;
         }
 
-        @media (max-width:480px) {
-          .page { padding: 12px; }
-          h1 { font-size: 34px; }
+        @media (max-width: 480px) {
+          .page {
+            padding: 12px;
+          }
+
+          h1 {
+            font-size: 34px;
+          }
 
           .headerCard,
           .bookingCard {
