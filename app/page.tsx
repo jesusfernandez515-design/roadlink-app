@@ -7,10 +7,7 @@ export default function Home() {
   return (
     <main className="page">
       <nav className="nav">
-        <div>
-          <Logo height={90} />
-          <p className="tagline">Long distance rides made simple.</p>
-        </div>
+        <Logo height={120} />
 
         <div className="navLinks">
           <a href="/">Inicio</a>
@@ -101,11 +98,6 @@ export default function Home() {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 60px;
-        }
-
-        .tagline {
-          color: #a1a1aa;
-          margin-top: 8px;
         }
 
         .navLinks {
