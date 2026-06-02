@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 type Ride = {
   id: string;
@@ -28,42 +35,89 @@ export default function DriverDashboardPage() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [message, setMessage] = useState("Loading driver dashboard...");
+  const [loadingRideId, setLoadingRideId] = useState("");
+
+  async function loadDriverData(userId: string) {
+    const ridesQuery = query(
+      collection(db, "rides"),
+      where("driverId", "==", userId),
+      where("status", "in", ["active", "full"])
+    );
+
+    const ridesSnapshot = await getDocs(ridesQuery);
+
+    const ridesData = ridesSnapshot.docs.map((document) => ({
+      id: document.id,
+      ...document.data(),
+    })) as Ride[];
+
+    const bookingsQuery = query(
+      collection(db, "bookings"),
+      where("driverId", "==", userId),
+      where("status", "==", "reserved")
+    );
+
+    const bookingsSnapshot = await getDocs(bookingsQuery);
+
+    const bookingsData = bookingsSnapshot.docs.map((document) => ({
+      id: document.id,
+      ...document.data(),
+    })) as Booking[];
+
+    setRides(ridesData);
+    setBookings(bookingsData);
+    setMessage(ridesData.length ? "" : "You have not published rides yet.");
+  }
+
+  function getBookingsForRide(rideId: string) {
+    return bookings.filter((booking) => booking.rideId === rideId);
+  }
+
+  async function cancelRide(rideId: string) {
+    try {
+      setLoadingRideId(rideId);
+      setMessage("");
+
+      await updateDoc(doc(db, "rides", rideId), {
+        status: "cancelled",
+      });
+
+      const relatedBookings = bookings.filter(
+        (booking) => booking.rideId === rideId
+      );
+
+      await Promise.all(
+        relatedBookings.map((booking) =>
+          updateDoc(doc(db, "bookings", booking.id), {
+            status: "cancelled",
+          })
+        )
+      );
+
+      setRides((current) => current.filter((ride) => ride.id !== rideId));
+      setBookings((current) =>
+        current.filter((booking) => booking.rideId !== rideId)
+      );
+
+      setMessage("Ride cancelled successfully.");
+    } catch (error: any) {
+      setMessage(error.message);
+    } finally {
+      setLoadingRideId("");
+    }
+  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
+        setRides([]);
+        setBookings([]);
         setMessage("Please sign in to view your driver dashboard.");
         return;
       }
 
       try {
-        const ridesQuery = query(
-          collection(db, "rides"),
-          where("driverId", "==", user.uid)
-        );
-
-        const ridesSnapshot = await getDocs(ridesQuery);
-
-        const ridesData = ridesSnapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Ride[];
-
-        const bookingsQuery = query(
-          collection(db, "bookings"),
-          where("driverId", "==", user.uid)
-        );
-
-        const bookingsSnapshot = await getDocs(bookingsQuery);
-
-        const bookingsData = bookingsSnapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Booking[];
-
-        setRides(ridesData);
-        setBookings(bookingsData);
-        setMessage(ridesData.length ? "" : "You have not published rides yet.");
+        await loadDriverData(user.uid);
       } catch (error: any) {
         setMessage(error.message);
       }
@@ -71,12 +125,6 @@ export default function DriverDashboardPage() {
 
     return () => unsubscribe();
   }, []);
-
-  function getBookingsForRide(rideId: string) {
-    return bookings.filter(
-      (booking) => booking.rideId === rideId && booking.status === "reserved"
-    );
-  }
 
   return (
     <main className="page">
@@ -94,7 +142,7 @@ export default function DriverDashboardPage() {
 
         {rides.map((ride) => {
           const rideBookings = getBookingsForRide(ride.id);
-          const estimatedEarnings = rideBookings.length * ride.price;
+          const estimatedEarnings = rideBookings.length * Number(ride.price || 0);
 
           return (
             <div key={ride.id} className="rideCard">
@@ -111,7 +159,7 @@ export default function DriverDashboardPage() {
               </p>
 
               <p>
-                <strong>Vehicle:</strong> {ride.vehicle}
+                <strong>Vehicle:</strong> {ride.vehicle || "Not provided"}
               </p>
 
               <p>
@@ -138,6 +186,14 @@ export default function DriverDashboardPage() {
                   <small>Estimated earnings</small>
                 </div>
               </div>
+
+              <button
+                className="cancelButton"
+                onClick={() => cancelRide(ride.id)}
+                disabled={loadingRideId === ride.id}
+              >
+                {loadingRideId === ride.id ? "Cancelling..." : "Cancel Ride"}
+              </button>
 
               <h3>Passengers</h3>
 
@@ -220,6 +276,7 @@ export default function DriverDashboardPage() {
           text-align: center;
           color: #22c55e;
           font-weight: 800;
+          font-size: 18px;
         }
 
         .rideCard {
@@ -259,6 +316,24 @@ export default function DriverDashboardPage() {
 
         .summary small {
           color: #a1a1aa;
+        }
+
+        .cancelButton {
+          width: 100%;
+          margin-top: 20px;
+          padding: 16px;
+          border: none;
+          border-radius: 999px;
+          background: #ef4444;
+          color: white;
+          font-size: 16px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .cancelButton:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .passenger {
