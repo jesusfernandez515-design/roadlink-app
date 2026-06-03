@@ -174,7 +174,7 @@ export default function Home() {
         }
 
         .logo img {
-          height: 110px;
+          height: 220px;
           width: auto;
           display: block;
           object-fit: contain;
@@ -400,7 +400,7 @@ export default function Home() {
           }
 
           .logo img {
-            height: 90px;
+            height: 220px;
           }
 
           .navLinks {
