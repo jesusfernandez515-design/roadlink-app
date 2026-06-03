@@ -49,10 +49,10 @@ export default function Home() {
             </div>
 
             <div id="features" className="features">
-              <Feature icon="🛡️" title="Seguro" text="Conductores verificados y seguimiento en tiempo real." />
-              <Feature icon="💵" title="Económico" text="Comparte gastos y ahorra dinero en cada viaje." />
-              <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes y viajes entre estados." />
-              <Feature icon="👥" title="Confiable" text="Viajeros conectados cada día en RoadLink." />
+              <Feature icon="🛡️" title="Seguro" text="Conductores verificados y viajes confiables." />
+              <Feature icon="💵" title="Económico" text="Comparte gastos y ahorra dinero." />
+              <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes entre ciudades." />
+              <Feature icon="👥" title="Confiable" text="Viajeros conectados cada día." />
             </div>
           </div>
 
@@ -118,20 +118,30 @@ export default function Home() {
           min-height: 100vh;
           position: relative;
           padding: 28px;
-background-image: url("/images/hero-road.png");          background-size: cover;
-          background-position: center;
+          background-image: url("/images/hero-roadlink-sportscar.png");
+          background-size: cover;
+          background-position: center center;
+          background-repeat: no-repeat;
           overflow: hidden;
         }
 
         .overlay {
-        .overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(90deg, rgba(0,0,0,0.95), rgba(0,0,0,0.65), rgba(0,0,0,0.25)),
-    linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.9));
-  z-index: 0;
-}
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(
+              90deg,
+              rgba(0,0,0,0.78),
+              rgba(0,0,0,0.48),
+              rgba(0,0,0,0.18)
+            ),
+            linear-gradient(
+              180deg,
+              rgba(0,0,0,0.20),
+              rgba(0,0,0,0.70)
+            );
+          z-index: 0;
+        }
 
         .nav,
         .heroContent,
@@ -144,19 +154,14 @@ background-image: url("/images/hero-road.png");          background-size: cover;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 60px;
-        }
-
-        .logo {
-          display: flex;
-          align-items: center;
+          margin-bottom: 56px;
         }
 
         .logo img {
-          height: 150px;
+          height: 110px;
           width: auto;
-          object-fit: contain;
           display: block;
+          object-fit: contain;
         }
 
         .navLinks {
@@ -191,7 +196,7 @@ background-image: url("/images/hero-road.png");          background-size: cover;
         }
 
         .left h1 {
-          font-size: 78px;
+          font-size: 74px;
           line-height: 1.05;
           margin: 0 0 24px;
         }
@@ -357,13 +362,18 @@ background-image: url("/images/hero-road.png");          background-size: cover;
         @media (max-width: 900px) {
           .hero {
             min-height: auto;
-            padding: 24px 20px 44px;
+            padding: 22px 20px 44px;
             background-position: center top;
           }
 
           .overlay {
             background:
-              linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.78), rgba(0,0,0,0.94));
+              linear-gradient(
+                180deg,
+                rgba(0,0,0,0.70),
+                rgba(0,0,0,0.55),
+                rgba(0,0,0,0.85)
+              );
           }
 
           .nav {
@@ -371,11 +381,11 @@ background-image: url("/images/hero-road.png");          background-size: cover;
           }
 
           .logo img {
-            height: 135px;
+            height: 90px;
           }
 
           .navLinks {
-            display: none;
+            display: none !important;
           }
 
           .heroContent {
