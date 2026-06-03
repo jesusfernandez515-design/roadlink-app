@@ -49,10 +49,26 @@ export default function Home() {
             </div>
 
             <div id="features" className="features">
-              <Feature icon="🛡️" title="Seguro" text="Conductores verificados y viajes confiables." />
-              <Feature icon="💵" title="Económico" text="Comparte gastos y ahorra dinero." />
-              <Feature icon="🕒" title="Cómodo" text="Rutas inteligentes entre ciudades." />
-              <Feature icon="👥" title="Confiable" text="Viajeros conectados cada día." />
+              <Feature
+                icon="🛡️"
+                title="Seguro"
+                text="Conductores verificados y viajes confiables."
+              />
+              <Feature
+                icon="💵"
+                title="Económico"
+                text="Comparte gastos y ahorra dinero."
+              />
+              <Feature
+                icon="🕒"
+                title="Cómodo"
+                text="Rutas inteligentes entre ciudades."
+              />
+              <Feature
+                icon="👥"
+                title="Confiable"
+                text="Viajeros conectados cada día."
+              />
             </div>
           </div>
 
@@ -131,14 +147,14 @@ export default function Home() {
           background:
             linear-gradient(
               90deg,
-              rgba(0,0,0,0.78),
-              rgba(0,0,0,0.48),
-              rgba(0,0,0,0.18)
+              rgba(0,0,0,0.35),
+              rgba(0,0,0,0.15),
+              rgba(0,0,0,0.00)
             ),
             linear-gradient(
               180deg,
-              rgba(0,0,0,0.20),
-              rgba(0,0,0,0.70)
+              rgba(0,0,0,0.00),
+              rgba(0,0,0,0.25)
             );
           z-index: 0;
         }
@@ -199,6 +215,7 @@ export default function Home() {
           font-size: 74px;
           line-height: 1.05;
           margin: 0 0 24px;
+          text-shadow: 0 8px 30px rgba(0,0,0,0.65);
         }
 
         .left h1 span,
@@ -209,8 +226,9 @@ export default function Home() {
         .subtitle {
           font-size: 22px;
           line-height: 1.6;
-          color: #e5e7eb;
+          color: #f3f4f6;
           max-width: 640px;
+          text-shadow: 0 6px 22px rgba(0,0,0,0.7);
         }
 
         .buttons {
@@ -235,8 +253,8 @@ export default function Home() {
 
         .secondary {
           color: white;
-          border: 1px solid rgba(255,255,255,0.25);
-          background: rgba(0,0,0,0.35);
+          border: 1px solid rgba(255,255,255,0.3);
+          background: rgba(0,0,0,0.28);
           backdrop-filter: blur(10px);
         }
 
@@ -247,11 +265,11 @@ export default function Home() {
         }
 
         .feature {
-          background: rgba(0,0,0,0.42);
+          background: rgba(0,0,0,0.32);
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 20px;
           padding: 20px;
-          backdrop-filter: blur(10px);
+          backdrop-filter: blur(8px);
         }
 
         .featureIcon {
@@ -264,18 +282,18 @@ export default function Home() {
         }
 
         .feature p {
-          color: #d4d4d8;
+          color: #e5e7eb;
           font-size: 14px;
           line-height: 1.5;
           margin: 0;
         }
 
         .searchCard {
-          background: rgba(5, 8, 15, 0.84);
+          background: rgba(5, 8, 15, 0.72);
           border: 1px solid rgba(255,255,255,0.18);
           border-radius: 30px;
           padding: 34px;
-          box-shadow: 0 30px 90px rgba(0,0,0,0.8);
+          box-shadow: 0 30px 90px rgba(0,0,0,0.65);
           backdrop-filter: blur(14px);
         }
 
@@ -303,7 +321,7 @@ export default function Home() {
           padding: 17px;
           border-radius: 16px;
           border: 1px solid rgba(255,255,255,0.18);
-          background: rgba(0,0,0,0.45);
+          background: rgba(0,0,0,0.38);
           color: white;
           font-size: 16px;
           outline: none;
@@ -334,7 +352,7 @@ export default function Home() {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 18px;
-          border-top: 1px solid rgba(255,255,255,0.14);
+          border-top: 1px solid rgba(255,255,255,0.18);
           padding-top: 26px;
         }
 
@@ -356,23 +374,24 @@ export default function Home() {
 
         .stat p {
           margin: 4px 0 0;
-          color: #d4d4d8;
+          color: #f3f4f6;
         }
 
         @media (max-width: 900px) {
           .hero {
             min-height: auto;
             padding: 22px 20px 44px;
-            background-position: center top;
+            background-size: cover;
+            background-position: center center;
           }
 
           .overlay {
             background:
               linear-gradient(
                 180deg,
-                rgba(0,0,0,0.70),
-                rgba(0,0,0,0.55),
-                rgba(0,0,0,0.85)
+                rgba(0,0,0,0.20),
+                rgba(0,0,0,0.10),
+                rgba(0,0,0,0.40)
               );
           }
 
