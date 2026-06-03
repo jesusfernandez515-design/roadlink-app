@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "../../lib/firebase";
 import {
   collection,
@@ -34,22 +35,23 @@ export default function MyRidesPage() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [message, setMessage] = useState("Loading your rides...");
   const [loading, setLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  async function loadMyRides() {
+  async function loadMyRides(userId?: string) {
     setMessage("Loading your rides...");
 
     const user = auth.currentUser;
+    const driverId = userId || user?.uid;
 
-    if (!user) {
+    if (!driverId) {
       setMessage("Please sign in to view your rides.");
-      router.push("/login");
       return;
     }
 
     try {
       const q = query(
         collection(db, "rides"),
-        where("driverId", "==", user.uid)
+        where("driverId", "==", driverId)
       );
 
       const snapshot = await getDocs(q);
@@ -60,7 +62,9 @@ export default function MyRidesPage() {
       })) as Ride[];
 
       setRides(ridesData);
-      setMessage(ridesData.length ? "" : "You have not published any rides yet.");
+      setMessage(
+        ridesData.length ? "" : "You have not published any rides yet."
+      );
     } catch (error: any) {
       setMessage(error.message);
     }
@@ -75,7 +79,7 @@ export default function MyRidesPage() {
       setLoading(true);
       await deleteDoc(doc(db, "rides", rideId));
       setMessage("Ride deleted successfully.");
-      await loadMyRides();
+      await loadMyRides(currentUser?.uid);
     } catch (error: any) {
       setMessage(error.message);
     } finally {
@@ -84,8 +88,20 @@ export default function MyRidesPage() {
   }
 
   useEffect(() => {
-    loadMyRides();
-  }, []);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setCurrentUser(null);
+        setMessage("Please sign in to view your rides.");
+        router.push("/login");
+        return;
+      }
+
+      setCurrentUser(user);
+      await loadMyRides(user.uid);
+    });
+
+    return () => unsubscribe();
+  }, [router]);
 
   return (
     <main className="page">
@@ -97,6 +113,10 @@ export default function MyRidesPage() {
 
           <Link href="/" className="miniButton">
             Home
+          </Link>
+
+          <Link href="/find-ride" className="miniButton">
+            Find Ride
           </Link>
 
           <Link href="/profile" className="miniButton">
@@ -116,7 +136,10 @@ export default function MyRidesPage() {
             Offer New Ride
           </Link>
 
-          <button className="actionButton dark" onClick={loadMyRides}>
+          <button
+            className="actionButton dark"
+            onClick={() => loadMyRides(currentUser?.uid)}
+          >
             Refresh
           </button>
         </div>
@@ -153,6 +176,11 @@ export default function MyRidesPage() {
                 <strong>Vehicle:</strong> {ride.vehicle}
               </p>
 
+              <p>
+                <strong>Driver:</strong>{" "}
+                {ride.driverEmail || currentUser?.email || "RoadLink Driver"}
+              </p>
+
               {ride.notes && (
                 <p>
                   <strong>Notes:</strong> {ride.notes}
@@ -187,7 +215,7 @@ export default function MyRidesPage() {
                 onClick={() => deleteRide(ride.id)}
                 disabled={loading}
               >
-                Delete Ride
+                {loading ? "Deleting..." : "Delete Ride"}
               </button>
             </div>
           </div>
@@ -334,6 +362,7 @@ export default function MyRidesPage() {
         .details p {
           margin: 12px 0;
           font-size: 17px;
+          word-break: break-word;
         }
 
         .details strong {
