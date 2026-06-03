@@ -4,9 +4,9 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-function RideDetailsContent() {
+function DriverProfileContent() {
   const searchParams = useSearchParams();
-  const rideId = searchParams.get("rideId");
+  const driverId = searchParams.get("driverId");
 
   return (
     <main style={{ minHeight: "100vh", background: "#020617", color: "white", padding: 24 }}>
@@ -15,13 +15,14 @@ function RideDetailsContent() {
           ← Back
         </Link>
 
-        <h1>Ride Details</h1>
-        <p>Ride ID: {rideId || "No ride selected"}</p>
+        <h1>Driver Profile</h1>
+
+        <p>Driver ID: {driverId || "No driver selected"}</p>
 
         <div style={{ marginTop: 20 }}>
-          <p><strong>Status:</strong> Available</p>
-          <p><strong>Price:</strong> $25</p>
-          <p><strong>Seats:</strong> 1</p>
+          <p><strong>Name:</strong> RoadLink Driver</p>
+          <p><strong>Rating:</strong> 5.0 ⭐</p>
+          <p><strong>Trips:</strong> 1</p>
         </div>
 
         <Link
@@ -45,10 +46,10 @@ function RideDetailsContent() {
   );
 }
 
-export default function RideDetailsPage() {
+export default function DriverProfilePage() {
   return (
     <Suspense fallback={<main style={{ color: "white", background: "#020617", minHeight: "100vh", padding: 24 }}>Loading...</main>}>
-      <RideDetailsContent />
+      <DriverProfileContent />
     </Suspense>
   );
 }
