@@ -118,20 +118,20 @@ export default function Home() {
           min-height: 100vh;
           position: relative;
           padding: 28px;
-          background-image: url("/images/hero-road.png");
-          background-size: cover;
+background-image: url("/images/hero-road.png");          background-size: cover;
           background-position: center;
           overflow: hidden;
         }
 
         .overlay {
-          position: absolute;
-          inset: 0;
-          background:
-            linear-gradient(90deg, rgba(0,0,0,0.95), rgba(0,0,0,0.65), rgba(0,0,0,0.25)),
-            linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.9));
-          z-index: 0;
-        }
+        .overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,0.95), rgba(0,0,0,0.65), rgba(0,0,0,0.25)),
+    linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.9));
+  z-index: 0;
+}
 
         .nav,
         .heroContent,
