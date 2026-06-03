@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function RideDetailsPage() {
+function RideDetailsContent() {
   const searchParams = useSearchParams();
   const rideId = searchParams.get("rideId");
 
@@ -15,8 +16,7 @@ export default function RideDetailsPage() {
         </Link>
 
         <h1>Ride Details</h1>
-
-        <p>Ride ID: {rideId}</p>
+        <p>Ride ID: {rideId || "No ride selected"}</p>
 
         <div style={{ marginTop: 20 }}>
           <p><strong>Status:</strong> Available</p>
@@ -42,5 +42,13 @@ export default function RideDetailsPage() {
         </Link>
       </section>
     </main>
+  );
+}
+
+export default function RideDetailsPage() {
+  return (
+    <Suspense fallback={<main style={{ color: "white", background: "#020617", minHeight: "100vh", padding: 24 }}>Loading...</main>}>
+      <RideDetailsContent />
+    </Suspense>
   );
 }
