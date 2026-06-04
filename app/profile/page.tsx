@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { auth, db } from "../../lib/firebase";
+import { auth, db, storage } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   collection,
@@ -13,6 +13,7 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 type UserProfile = {
   name?: string;
@@ -40,6 +41,7 @@ export default function ProfilePage() {
   const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading profile...");
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -112,6 +114,40 @@ export default function ProfilePage() {
     return () => unsubscribe();
   }, []);
 
+  async function uploadProfilePhoto(file: File) {
+    if (!userId) {
+      setMessage("Please sign in to upload a photo.");
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      setMessage("");
+
+      const filePath = `profile-photos/${userId}/${Date.now()}-${file.name}`;
+      const photoRef = ref(storage, filePath);
+
+      await uploadBytes(photoRef, file);
+
+      const downloadURL = await getDownloadURL(photoRef);
+
+      const updatedProfile: UserProfile = {
+        ...profile,
+        photoURL: downloadURL,
+      };
+
+      await setDoc(doc(db, "users", userId), updatedProfile, { merge: true });
+
+      setProfile(updatedProfile);
+      setPhotoInput(downloadURL);
+      setMessage("Profile photo uploaded successfully.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
   async function saveProfile() {
     if (!userId) {
       setMessage("Please sign in to update your profile.");
@@ -151,21 +187,10 @@ export default function ProfilePage() {
     <main className="page">
       <section className="hero">
         <div className="topActions">
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/find-ride" className="miniButton">
-            Find Ride
-          </Link>
-
-          <Link href="/offer-ride" className="miniButton">
-            Offer Ride
-          </Link>
-
-          <Link href="/my-bookings" className="miniButton">
-            My Bookings
-          </Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/find-ride" className="miniButton">Find Ride</Link>
+          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
+          <Link href="/my-bookings" className="miniButton">My Bookings</Link>
         </div>
 
         <div className="profileHeader">
@@ -177,11 +202,8 @@ export default function ProfilePage() {
 
           <div>
             <p className="eyebrow">RoadLink Member</p>
-            <h1>
-              {displayName} <span>Profile</span>
-            </h1>
+            <h1>{displayName} <span>Profile</span></h1>
             <p className="subtitle">{profile.email || "No email found"}</p>
-
             <div className="verifiedBadge">✓ Verified RoadLink Member</div>
           </div>
         </div>
@@ -201,7 +223,6 @@ export default function ProfilePage() {
             <p className="eyebrow">Edit Profile</p>
             <h2>Photo & Identity</h2>
           </div>
-
           <div className="shield">📸</div>
         </div>
 
@@ -212,7 +233,6 @@ export default function ProfilePage() {
             ) : (
               <div className="previewAvatar">{avatar}</div>
             )}
-
             <p>Profile Photo Preview</p>
           </div>
 
@@ -224,6 +244,16 @@ export default function ProfilePage() {
               placeholder="Your name"
             />
 
+            <label>Upload Photo</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadProfilePhoto(file);
+              }}
+            />
+
             <label>Photo URL</label>
             <input
               value={photoInput}
@@ -231,7 +261,9 @@ export default function ProfilePage() {
               placeholder="https://example.com/photo.jpg"
             />
 
-            <button onClick={saveProfile} disabled={saving} className="saveButton">
+            {uploadingPhoto && <p className="message">Uploading photo...</p>}
+
+            <button onClick={saveProfile} disabled={saving || uploadingPhoto} className="saveButton">
               {saving ? "Saving..." : "Save Profile"}
             </button>
           </div>
@@ -244,7 +276,6 @@ export default function ProfilePage() {
             <p className="eyebrow">Account</p>
             <h2>Profile Details</h2>
           </div>
-
           <div className="shield">✓</div>
         </div>
 
@@ -291,9 +322,7 @@ export default function ProfilePage() {
       </button>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -425,7 +454,7 @@ export default function ProfilePage() {
         .message {
           color: #22c55e;
           font-weight: 900;
-          margin-top: 22px;
+          margin-top: 14px;
         }
 
         .stats {
@@ -761,4 +790,4 @@ function Info({
       <div className="infoValue">{value}</div>
     </div>
   );
-}
+                   }
