@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { auth, db } from "../../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -126,15 +127,56 @@ export default function DriverDashboardPage() {
     return () => unsubscribe();
   }, []);
 
+  const totalPassengers = bookings.length;
+  const totalEarnings = bookings.reduce((total, booking) => {
+    const ride = rides.find((item) => item.id === booking.rideId);
+    return total + Number(ride?.price || 0);
+  }, 0);
+
+  const totalSeats = rides.reduce(
+    (total, ride) => total + Number(ride.seats || 0),
+    0
+  );
+
   return (
     <main className="page">
-      <section className="headerCard">
+      <section className="hero">
+        <div className="topActions">
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
+
+          <Link href="/my-rides" className="miniButton">
+            My Rides
+          </Link>
+
+          <Link href="/offer-ride" className="miniButton">
+            Offer Ride
+          </Link>
+
+          <Link href="/profile" className="miniButton">
+            Profile
+          </Link>
+        </div>
+
         <div className="logo">
           Road<span>Link</span>
         </div>
 
-        <h1>Driver Dashboard</h1>
-        <p>Manage your published rides and passenger reservations.</p>
+        <h1>
+          Driver <span>Dashboard</span>
+        </h1>
+
+        <p className="subtitle">
+          Manage your published rides, passenger reservations, and estimated earnings.
+        </p>
+      </section>
+
+      <section className="stats">
+        <Metric icon="🚘" label="Active Rides" value={String(rides.length)} />
+        <Metric icon="👥" label="Passengers" value={String(totalPassengers)} />
+        <Metric icon="💺" label="Open Seats" value={String(totalSeats)} />
+        <Metric icon="💵" label="Earnings" value={`$${totalEarnings}`} />
       </section>
 
       <section className="list">
@@ -142,38 +184,37 @@ export default function DriverDashboardPage() {
 
         {rides.map((ride) => {
           const rideBookings = getBookingsForRide(ride.id);
-          const estimatedEarnings = rideBookings.length * Number(ride.price || 0);
+          const estimatedEarnings =
+            rideBookings.length * Number(ride.price || 0);
 
           return (
             <div key={ride.id} className="rideCard">
-              <h2>
-                {ride.from} → {ride.to}
-              </h2>
+              <div className="routeHeader">
+                <div>
+                  <p className="eyebrow">Driver Route</p>
+                  <h2>
+                    {ride.from} <span>→</span> {ride.to}
+                  </h2>
+                </div>
 
-              <p>
-                <strong>Date:</strong> {ride.date}
-              </p>
+                <div className="priceBox">
+                  <small>EARNINGS</small>
+                  <strong>${estimatedEarnings}</strong>
+                </div>
+              </div>
 
-              <p>
-                <strong>Time:</strong> {ride.time}
-              </p>
+              <div className="chips">
+                <div className="chip">📅 {ride.date}</div>
+                <div className="chip">🕒 {ride.time}</div>
+                <div className="chip">💺 {ride.seats} seats left</div>
+                <div className="chip active">● {ride.status}</div>
+              </div>
 
-              <p>
-                <strong>Vehicle:</strong> {ride.vehicle || "Not provided"}
-              </p>
-
-              <p>
-                <strong>Seats left:</strong> {ride.seats}
-              </p>
-
-              <p>
-                <strong>Price:</strong> ${ride.price}
-              </p>
-
-              <p>
-                <strong>Status:</strong>{" "}
-                <span className="status">{ride.status}</span>
-              </p>
+              <div className="infoGrid">
+                <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not provided"} />
+                <Info icon="💵" label="Price Per Seat" value={`$${ride.price}`} />
+                <Info icon="👥" label="Passengers" value={String(rideBookings.length)} />
+              </div>
 
               <div className="summary">
                 <div>
@@ -187,6 +228,22 @@ export default function DriverDashboardPage() {
                 </div>
               </div>
 
+              <div className="cardButtons">
+                <Link
+                  href={`/ride-details?rideId=${ride.id}`}
+                  className="outlineButton"
+                >
+                  View Details
+                </Link>
+
+                <Link
+                  href={`/ride-passengers?rideId=${ride.id}`}
+                  className="outlineButton"
+                >
+                  View Passengers
+                </Link>
+              </div>
+
               <button
                 className="cancelButton"
                 onClick={() => cancelRide(ride.id)}
@@ -195,18 +252,24 @@ export default function DriverDashboardPage() {
                 {loadingRideId === ride.id ? "Cancelling..." : "Cancel Ride"}
               </button>
 
-              <h3>Passengers</h3>
+              <section className="passengerSection">
+                <h3>Passengers</h3>
 
-              {rideBookings.length === 0 ? (
-                <p>No passengers yet.</p>
-              ) : (
-                rideBookings.map((booking) => (
-                  <div key={booking.id} className="passenger">
-                    <p>{booking.passengerEmail || "Passenger"}</p>
-                    <span>{booking.status}</span>
-                  </div>
-                ))
-              )}
+                {rideBookings.length === 0 ? (
+                  <p className="emptyText">No passengers yet.</p>
+                ) : (
+                  rideBookings.map((booking) => (
+                    <div key={booking.id} className="passenger">
+                      <div>
+                        <strong>{booking.passengerEmail || "Passenger"}</strong>
+                        <p>Reservation status</p>
+                      </div>
+
+                      <span>{booking.status}</span>
+                    </div>
+                  ))
+                )}
+              </section>
             </div>
           );
         })}
@@ -219,78 +282,233 @@ export default function DriverDashboardPage() {
 
         .page {
           min-height: 100vh;
-          background: linear-gradient(135deg, #000, #0f172a, #111827);
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 20px;
+          padding: 24px;
           font-family: Arial, sans-serif;
         }
 
-        .headerCard {
-          max-width: 800px;
-          margin: 0 auto 30px;
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 24px;
-          padding: 28px;
+        .hero,
+        .stats,
+        .list {
+          max-width: 860px;
+          margin-left: auto;
+          margin-right: auto;
         }
 
-        .logo {
-          font-size: 30px;
-          font-weight: 900;
+        .hero,
+        .metric,
+        .rideCard {
+          background: rgba(8, 13, 25, 0.88);
+          border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+          backdrop-filter: blur(14px);
+        }
+
+        .hero {
+          border-radius: 32px;
+          padding: 30px;
           margin-bottom: 22px;
         }
 
-        .logo span {
+        .topActions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 30px;
+        }
+
+        .miniButton {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 11px 18px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
+        .logo {
+          font-size: 36px;
+          font-weight: 900;
+          margin-bottom: 28px;
+        }
+
+        .logo span,
+        h1 span,
+        h2 span,
+        .active,
+        .eyebrow,
+        .priceBox strong,
+        .metricValue,
+        .summary span {
           color: #22c55e;
         }
 
         h1 {
-          font-size: 38px;
-          margin: 0 0 10px;
+          font-size: 58px;
+          line-height: 1;
+          margin: 0 0 16px;
+          letter-spacing: -1px;
         }
 
-        h2 {
-          margin-top: 0;
-          font-size: 26px;
-        }
-
-        h3 {
-          margin-top: 24px;
-        }
-
-        p {
+        .subtitle {
           color: #a1a1aa;
+          font-size: 20px;
           line-height: 1.5;
+          margin: 0;
         }
 
-        strong {
-          color: white;
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 14px;
+          margin-bottom: 24px;
         }
 
-        .list {
-          max-width: 800px;
-          margin: 0 auto;
+        .metric {
+          border-radius: 24px;
+          padding: 20px;
+        }
+
+        .metricIcon {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 24px;
+          margin-bottom: 14px;
+        }
+
+        .metricLabel {
+          display: block;
+          color: #a1a1aa;
+          font-size: 13px;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .metricValue {
+          font-size: 26px;
+          font-weight: 900;
         }
 
         .message {
           text-align: center;
           color: #22c55e;
-          font-weight: 800;
-          font-size: 18px;
+          font-weight: 900;
+          margin: 26px 0;
         }
 
         .rideCard {
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 22px;
-          padding: 24px;
-          margin-bottom: 18px;
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 24px;
         }
 
-        .status {
-          color: #22c55e;
+        .routeHeader {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 18px;
+          align-items: start;
+          margin-bottom: 20px;
+        }
+
+        .eyebrow {
+          margin: 0 0 8px;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        h2 {
+          font-size: 34px;
+          line-height: 1.15;
+          margin: 0;
+        }
+
+        .priceBox {
+          min-width: 120px;
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.35);
+          text-align: center;
+        }
+
+        .priceBox small {
+          display: block;
+          color: #a1a1aa;
+          font-size: 11px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .priceBox strong {
+          font-size: 32px;
+          font-weight: 900;
+        }
+
+        .chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 20px;
+        }
+
+        .chip {
+          padding: 10px 14px;
+          border-radius: 14px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: #e5e7eb;
           font-weight: 800;
-          text-transform: capitalize;
+        }
+
+        .infoGrid {
+          display: grid;
+          gap: 10px;
+        }
+
+        .infoRow {
+          display: grid;
+          grid-template-columns: 42px 1fr;
+          gap: 12px;
+          align-items: center;
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.035);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .infoIcon {
+          width: 38px;
+          height: 38px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.15);
+        }
+
+        .infoText strong {
+          display: block;
+          color: #e5e7eb;
+          margin-bottom: 4px;
+        }
+
+        .infoText span {
+          color: #a1a1aa;
+          overflow-wrap: anywhere;
         }
 
         .summary {
@@ -301,82 +519,130 @@ export default function DriverDashboardPage() {
         }
 
         .summary div {
-          background: #111;
-          border: 1px solid #222;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
           border-radius: 18px;
           padding: 18px;
         }
 
         .summary span {
           display: block;
-          color: #22c55e;
-          font-size: 28px;
+          font-size: 30px;
           font-weight: 900;
         }
 
         .summary small {
           color: #a1a1aa;
+          font-weight: 800;
+        }
+
+        .cardButtons {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-top: 22px;
+        }
+
+        .outlineButton {
+          display: block;
+          width: 100%;
+          padding: 15px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
+          text-align: center;
+          text-decoration: none;
+          font-size: 15px;
+          font-weight: 900;
         }
 
         .cancelButton {
           width: 100%;
-          margin-top: 20px;
-          padding: 16px;
+          margin-top: 16px;
+          padding: 18px;
           border: none;
           border-radius: 999px;
-          background: #ef4444;
+          background: linear-gradient(135deg, #ef4444, #b91c1c);
           color: white;
-          font-size: 16px;
-          font-weight: 800;
+          font-size: 17px;
+          font-weight: 900;
           cursor: pointer;
         }
 
         .cancelButton:disabled {
-          opacity: 0.6;
+          opacity: 0.55;
           cursor: not-allowed;
         }
 
+        .passengerSection {
+          margin-top: 28px;
+        }
+
+        h3 {
+          font-size: 26px;
+          margin: 0 0 14px;
+        }
+
+        .emptyText {
+          color: #a1a1aa;
+        }
+
         .passenger {
-          background: #111;
-          border: 1px solid #222;
-          border-radius: 16px;
-          padding: 14px;
-          margin-top: 10px;
           display: flex;
           justify-content: space-between;
-          gap: 12px;
+          gap: 14px;
+          padding: 16px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          margin-top: 10px;
+        }
+
+        .passenger strong {
+          color: white;
+          overflow-wrap: anywhere;
         }
 
         .passenger p {
-          margin: 0;
+          color: #a1a1aa;
+          margin: 6px 0 0;
         }
 
         .passenger span {
           color: #22c55e;
-          font-weight: 800;
+          font-weight: 900;
           text-transform: capitalize;
         }
 
-        @media (max-width: 480px) {
+        @media (max-width: 700px) {
           .page {
-            padding: 12px;
+            padding: 16px;
           }
 
-          .headerCard,
+          .hero,
           .rideCard {
-            border-radius: 22px;
+            padding: 24px;
+            border-radius: 28px;
           }
 
           h1 {
-            font-size: 34px;
+            font-size: 50px;
           }
 
           h2 {
-            font-size: 24px;
+            font-size: 32px;
           }
 
-          .summary {
+          .stats,
+          .routeHeader,
+          .summary,
+          .cardButtons {
             grid-template-columns: 1fr;
+          }
+
+          .priceBox {
+            text-align: left;
           }
 
           .passenger {
@@ -385,5 +651,43 @@ export default function DriverDashboardPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+function Metric({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="metric">
+      <div className="metricIcon">{icon}</div>
+      <span className="metricLabel">{label}</span>
+      <div className="metricValue">{value}</div>
+    </div>
+  );
+}
+
+function Info({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="infoRow">
+      <div className="infoIcon">{icon}</div>
+      <div className="infoText">
+        <strong>{label}</strong>
+        <span>{value}</span>
+      </div>
+    </div>
   );
 }
