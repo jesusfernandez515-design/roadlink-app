@@ -790,4 +790,4 @@ function Info({
       <div className="infoValue">{value}</div>
     </div>
   );
-                   }
+}
