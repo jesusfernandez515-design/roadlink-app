@@ -1,6 +1,80 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { db } from "../../lib/firebase";
+import { collection, getDocs, query, where } from "firebase/firestore";
+
+type Rating = {
+  id: string;
+  driverId?: string;
+  driverEmail?: string;
+  passengerEmail?: string;
+  rating?: number;
+  comment?: string;
+  from?: string;
+  to?: string;
+  createdAt?: string;
+};
 
 export default function DriverProfilePage() {
+  const [driverId, setDriverId] = useState("");
+  const [ratings, setRatings] = useState<Rating[]>([]);
+  const [message, setMessage] = useState("Loading driver profile...");
+
+  useEffect(() => {
+    async function loadDriverProfile() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const currentDriverId = params.get("driverId") || "";
+
+        setDriverId(currentDriverId);
+
+        if (!currentDriverId) {
+          setMessage("");
+          return;
+        }
+
+        const ratingsQuery = query(
+          collection(db, "ratings"),
+          where("driverId", "==", currentDriverId)
+        );
+
+        const ratingsSnapshot = await getDocs(ratingsQuery);
+
+        const ratingsData = ratingsSnapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Rating[];
+
+        setRatings(ratingsData);
+        setMessage("");
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          setMessage(error.message);
+        } else {
+          setMessage("Something went wrong.");
+        }
+      }
+    }
+
+    loadDriverProfile();
+  }, []);
+
+  const totalReviews = ratings.length;
+
+  const averageRating =
+    totalReviews > 0
+      ? ratings.reduce((total, item) => total + Number(item.rating || 0), 0) /
+        totalReviews
+      : 0;
+
+  const ratingDisplay =
+    totalReviews > 0 ? averageRating.toFixed(1) : "New";
+
+  const stars =
+    totalReviews > 0 ? "★".repeat(Math.round(averageRating)) : "★★★★★";
+
   return (
     <main className="page">
       <section className="profileCard">
@@ -23,17 +97,37 @@ export default function DriverProfilePage() {
 
           <div>
             <p className="eyebrow">Verified Driver</p>
+
             <h1>
               Driver <span>Profile</span>
             </h1>
+
             <p className="subtitle">RoadLink Driver</p>
+
             <div className="verifiedBadge">✓ Verified RoadLink Member</div>
           </div>
         </div>
 
+        {message && <p className="message">{message}</p>}
+
+        <section className="ratingHero">
+          <div>
+            <p className="eyebrow">Public Reviews</p>
+            <h2>{ratingDisplay}</h2>
+            <p className="stars">{stars}</p>
+            <p className="reviewText">
+              {totalReviews > 0
+                ? `${totalReviews} public review${totalReviews === 1 ? "" : "s"}`
+                : "This driver has no reviews yet."}
+            </p>
+          </div>
+
+          <div className="ratingBadge">⭐</div>
+        </section>
+
         <section className="stats">
-          <Metric icon="⭐" label="Rating" value="New" />
-          <Metric icon="🚘" label="Completed Trips" value="0" />
+          <Metric icon="⭐" label="Rating" value={String(ratingDisplay)} />
+          <Metric icon="💬" label="Reviews" value={String(totalReviews)} />
           <Metric icon="🛡️" label="Status" value="Verified" />
         </section>
 
@@ -42,10 +136,62 @@ export default function DriverProfilePage() {
           <h2>Driver Information</h2>
 
           <Info icon="👤" label="Name" value="RoadLink Driver" />
-          <Info icon="⭐" label="Rating" value="New Driver" />
-          <Info icon="🚗" label="Completed Trips" value="0" />
+          <Info
+            icon="⭐"
+            label="Rating"
+            value={totalReviews > 0 ? `${ratingDisplay}/5` : "New Driver"}
+          />
+          <Info icon="💬" label="Total Reviews" value={String(totalReviews)} />
           <Info icon="📅" label="Member Since" value="2026" />
           <Info icon="🛡️" label="Verification" value="Email Verified" />
+          <Info
+            icon="🆔"
+            label="Driver ID"
+            value={driverId || "Not available"}
+          />
+        </section>
+
+        <section className="reviewsCard">
+          <p className="eyebrow">Passenger Feedback</p>
+          <h2>Reviews</h2>
+
+          {ratings.length === 0 ? (
+            <div className="emptyReview">
+              <h3>No reviews yet</h3>
+              <p>
+                Once passengers rate this driver, their comments will appear here.
+              </p>
+            </div>
+          ) : (
+            ratings.map((item) => (
+              <div key={item.id} className="review">
+                <div className="reviewTop">
+                  <div>
+                    <strong>
+                      {"★".repeat(Number(item.rating || 0))}
+                      {"☆".repeat(5 - Number(item.rating || 0))}
+                    </strong>
+                    <p>
+                      {item.from || "Trip"} → {item.to || "Destination"}
+                    </p>
+                  </div>
+
+                  <span>{item.rating || 0}/5</span>
+                </div>
+
+                {item.comment ? (
+                  <p className="comment">“{item.comment}”</p>
+                ) : (
+                  <p className="comment muted">No written comment.</p>
+                )}
+
+                <small>
+                  {item.passengerEmail || "RoadLink Passenger"}
+                  {item.createdAt ? ` • ${item.createdAt.slice(0, 10)}` : ""}
+                </small>
+              </div>
+            ))
+          )}
         </section>
       </section>
 
@@ -91,7 +237,9 @@ export default function DriverProfilePage() {
 
         .driverHeader,
         .metric,
-        .infoCard {
+        .infoCard,
+        .ratingHero,
+        .reviewsCard {
           background: rgba(8, 13, 25, 0.88);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.5);
@@ -137,7 +285,10 @@ export default function DriverProfilePage() {
         }
 
         h1 span,
-        .metricValue {
+        .metricValue,
+        .stars,
+        .reviewTop strong,
+        .ratingHero h2 {
           color: #22c55e;
         }
 
@@ -157,6 +308,53 @@ export default function DriverProfilePage() {
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
           font-weight: 900;
+        }
+
+        .message {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 900;
+          margin: 20px 0;
+        }
+
+        .ratingHero {
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 22px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 20px;
+        }
+
+        .ratingHero h2 {
+          font-size: 64px;
+          line-height: 1;
+          margin: 0;
+        }
+
+        .stars {
+          font-size: 28px;
+          letter-spacing: 2px;
+          margin: 10px 0;
+        }
+
+        .reviewText {
+          color: #a1a1aa;
+          margin: 0;
+          font-weight: 800;
+        }
+
+        .ratingBadge {
+          min-width: 90px;
+          height: 90px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 42px;
         }
 
         .stats {
@@ -196,9 +394,11 @@ export default function DriverProfilePage() {
           font-weight: 900;
         }
 
-        .infoCard {
+        .infoCard,
+        .reviewsCard {
           border-radius: 30px;
           padding: 28px;
+          margin-bottom: 24px;
         }
 
         h2 {
@@ -237,6 +437,61 @@ export default function DriverProfilePage() {
           color: #a1a1aa;
           font-weight: 800;
           text-align: right;
+          overflow-wrap: anywhere;
+        }
+
+        .emptyReview,
+        .review {
+          padding: 18px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          margin-bottom: 14px;
+        }
+
+        .emptyReview h3 {
+          margin: 0 0 8px;
+          font-size: 24px;
+        }
+
+        .emptyReview p {
+          color: #a1a1aa;
+          margin: 0;
+        }
+
+        .reviewTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+        }
+
+        .reviewTop strong {
+          font-size: 22px;
+          letter-spacing: 1px;
+        }
+
+        .reviewTop p,
+        .comment,
+        .review small {
+          color: #a1a1aa;
+        }
+
+        .reviewTop p {
+          margin: 8px 0 0;
+        }
+
+        .reviewTop span {
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .comment {
+          font-size: 17px;
+          line-height: 1.5;
+        }
+
+        .muted {
+          opacity: 0.75;
         }
 
         @media (max-width: 700px) {
@@ -245,7 +500,9 @@ export default function DriverProfilePage() {
           }
 
           .driverHeader,
-          .infoCard {
+          .infoCard,
+          .ratingHero,
+          .reviewsCard {
             padding: 24px;
             border-radius: 28px;
           }
@@ -264,6 +521,20 @@ export default function DriverProfilePage() {
             font-size: 42px;
           }
 
+          .ratingHero {
+            align-items: flex-start;
+          }
+
+          .ratingHero h2 {
+            font-size: 54px;
+          }
+
+          .ratingBadge {
+            min-width: 62px;
+            height: 62px;
+            font-size: 30px;
+          }
+
           .stats {
             grid-template-columns: 1fr;
           }
@@ -275,6 +546,10 @@ export default function DriverProfilePage() {
           .infoValue {
             grid-column: 2;
             text-align: left;
+          }
+
+          .reviewTop {
+            flex-direction: column;
           }
         }
       `}</style>
