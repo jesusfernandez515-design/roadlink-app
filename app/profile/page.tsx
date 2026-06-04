@@ -4,26 +4,42 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
 
 type UserProfile = {
   name?: string;
   email?: string;
   role?: string;
   createdAt?: string;
+  photoURL?: string;
 };
 
 export default function ProfilePage() {
+  const [userId, setUserId] = useState("");
+
   const [profile, setProfile] = useState<UserProfile>({
     name: "RoadLink User",
     email: "",
     role: "member",
+    photoURL: "",
   });
+
+  const [nameInput, setNameInput] = useState("");
+  const [photoInput, setPhotoInput] = useState("");
 
   const [bookedTrips, setBookedTrips] = useState(0);
   const [activeRides, setActiveRides] = useState(0);
   const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading profile...");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -34,34 +50,40 @@ export default function ProfilePage() {
 
       const userEmail = user.email || "";
       const fallbackName = user.displayName || "RoadLink User";
+      const fallbackPhoto = user.photoURL || "";
 
+      setUserId(user.uid);
       setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
 
       try {
-        const usersQuery = query(
-          collection(db, "users"),
-          where("email", "==", userEmail)
-        );
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
 
-        const usersSnapshot = await getDocs(usersQuery);
+        let finalProfile: UserProfile = {
+          name: fallbackName,
+          email: userEmail,
+          role: "member",
+          createdAt: new Date().toISOString(),
+          photoURL: fallbackPhoto,
+        };
 
-        if (!usersSnapshot.empty) {
-          const userData = usersSnapshot.docs[0].data() as UserProfile;
+        if (userSnap.exists()) {
+          const userData = userSnap.data() as UserProfile;
 
-          setProfile({
+          finalProfile = {
             name: userData.name || fallbackName,
             email: userData.email || userEmail,
             role: userData.role || "member",
             createdAt: userData.createdAt || "",
-          });
+            photoURL: userData.photoURL || fallbackPhoto,
+          };
         } else {
-          setProfile({
-            name: fallbackName,
-            email: userEmail,
-            role: "member",
-            createdAt: "",
-          });
+          await setDoc(userRef, finalProfile, { merge: true });
         }
+
+        setProfile(finalProfile);
+        setNameInput(finalProfile.name || "");
+        setPhotoInput(finalProfile.photoURL || "");
 
         const bookingsQuery = query(
           collection(db, "bookings"),
@@ -82,18 +104,48 @@ export default function ProfilePage() {
         setActiveRides(ridesSnapshot.size);
 
         setMessage("");
-      } catch (error: any) {
-        setMessage(error.message);
+      } catch (error: unknown) {
+        setMessage(error instanceof Error ? error.message : "Something went wrong.");
       }
     });
 
     return () => unsubscribe();
   }, []);
 
+  async function saveProfile() {
+    if (!userId) {
+      setMessage("Please sign in to update your profile.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setMessage("");
+
+      const updatedProfile: UserProfile = {
+        ...profile,
+        name: nameInput.trim() || "RoadLink User",
+        photoURL: photoInput.trim(),
+      };
+
+      await setDoc(doc(db, "users", userId), updatedProfile, { merge: true });
+
+      setProfile(updatedProfile);
+      setMessage("Profile updated successfully.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSignOut() {
     await signOut(auth);
     window.location.href = "/login";
   }
+
+  const displayName = profile.name || "RoadLink User";
+  const displayPhoto = profile.photoURL || "";
 
   return (
     <main className="page">
@@ -117,12 +169,16 @@ export default function ProfilePage() {
         </div>
 
         <div className="profileHeader">
-          <div className="avatar">{avatar}</div>
+          {displayPhoto ? (
+            <img src={displayPhoto} alt={displayName} className="avatarImage" />
+          ) : (
+            <div className="avatar">{avatar}</div>
+          )}
 
           <div>
             <p className="eyebrow">RoadLink Member</p>
             <h1>
-              {profile.name || "RoadLink"} <span>Profile</span>
+              {displayName} <span>Profile</span>
             </h1>
             <p className="subtitle">{profile.email || "No email found"}</p>
 
@@ -142,6 +198,49 @@ export default function ProfilePage() {
       <section className="detailsCard">
         <div className="sectionHeader">
           <div>
+            <p className="eyebrow">Edit Profile</p>
+            <h2>Photo & Identity</h2>
+          </div>
+
+          <div className="shield">📸</div>
+        </div>
+
+        <div className="editGrid">
+          <div className="previewBox">
+            {photoInput ? (
+              <img src={photoInput} alt="Profile preview" className="previewImage" />
+            ) : (
+              <div className="previewAvatar">{avatar}</div>
+            )}
+
+            <p>Profile Photo Preview</p>
+          </div>
+
+          <div className="formBox">
+            <label>Display Name</label>
+            <input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Your name"
+            />
+
+            <label>Photo URL</label>
+            <input
+              value={photoInput}
+              onChange={(e) => setPhotoInput(e.target.value)}
+              placeholder="https://example.com/photo.jpg"
+            />
+
+            <button onClick={saveProfile} disabled={saving} className="saveButton">
+              {saving ? "Saving..." : "Save Profile"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="detailsCard">
+        <div className="sectionHeader">
+          <div>
             <p className="eyebrow">Account</p>
             <h2>Profile Details</h2>
           </div>
@@ -149,7 +248,7 @@ export default function ProfilePage() {
           <div className="shield">✓</div>
         </div>
 
-        <Info label="Full Name" value={profile.name || "RoadLink User"} icon="👤" />
+        <Info label="Full Name" value={displayName} icon="👤" />
         <Info label="Email" value={profile.email || "Not available"} icon="✉️" />
         <Info label="Account Type" value={profile.role || "member"} icon="🪪" />
         <Info
@@ -260,17 +359,27 @@ export default function ProfilePage() {
           align-items: center;
         }
 
-        .avatar {
+        .avatar,
+        .avatarImage {
           min-width: 92px;
+          width: 92px;
           height: 92px;
           border-radius: 50%;
+          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
+          border: 2px solid rgba(34,197,94,0.45);
+        }
+
+        .avatar {
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 42px;
           font-weight: 900;
-          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
+        }
+
+        .avatarImage {
+          object-fit: cover;
         }
 
         .eyebrow {
@@ -391,6 +500,101 @@ export default function ProfilePage() {
           font-weight: 900;
         }
 
+        .editGrid {
+          display: grid;
+          grid-template-columns: 0.8fr 1.2fr;
+          gap: 18px;
+        }
+
+        .previewBox,
+        .formBox {
+          padding: 18px;
+          border-radius: 22px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .previewBox {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+        }
+
+        .previewImage,
+        .previewAvatar {
+          width: 124px;
+          height: 124px;
+          border-radius: 50%;
+          margin-bottom: 14px;
+          border: 2px solid rgba(34,197,94,0.45);
+        }
+
+        .previewImage {
+          object-fit: cover;
+        }
+
+        .previewAvatar {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 48px;
+          font-weight: 900;
+        }
+
+        .previewBox p {
+          color: #a1a1aa;
+          font-weight: 800;
+          margin: 0;
+        }
+
+        label {
+          display: block;
+          color: #e5e7eb;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        input {
+          width: 100%;
+          padding: 16px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.04);
+          color: white;
+          font-size: 16px;
+          outline: none;
+          margin-bottom: 16px;
+        }
+
+        input:focus {
+          border-color: rgba(34,197,94,0.65);
+          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
+        }
+
+        input::placeholder {
+          color: #71717a;
+        }
+
+        .saveButton {
+          width: 100%;
+          padding: 17px;
+          border-radius: 999px;
+          border: none;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          font-size: 17px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .saveButton:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
         .infoRow {
           display: grid;
           grid-template-columns: 42px 1fr auto;
@@ -491,8 +695,10 @@ export default function ProfilePage() {
             align-items: flex-start;
           }
 
-          .avatar {
+          .avatar,
+          .avatarImage {
             min-width: 76px;
+            width: 76px;
             height: 76px;
             font-size: 34px;
           }
@@ -502,7 +708,8 @@ export default function ProfilePage() {
           }
 
           .stats,
-          .actions {
+          .actions,
+          .editGrid {
             grid-template-columns: 1fr;
           }
 
