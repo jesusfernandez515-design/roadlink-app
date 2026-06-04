@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -96,84 +97,99 @@ export default function ProfilePage() {
 
   return (
     <main className="page">
-      <section className="card">
-        <div className="top">
+      <section className="hero">
+        <div className="topActions">
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
+
+          <Link href="/find-ride" className="miniButton">
+            Find Ride
+          </Link>
+
+          <Link href="/offer-ride" className="miniButton">
+            Offer Ride
+          </Link>
+
+          <Link href="/my-bookings" className="miniButton">
+            My Bookings
+          </Link>
+        </div>
+
+        <div className="profileHeader">
           <div className="avatar">{avatar}</div>
 
           <div>
-            <h1>{profile.name}</h1>
-            <p>{profile.email || "No email found"}</p>
-            <p className="verified">Verified RoadLink Member</p>
+            <p className="eyebrow">RoadLink Member</p>
+            <h1>
+              {profile.name || "RoadLink"} <span>Profile</span>
+            </h1>
+            <p className="subtitle">{profile.email || "No email found"}</p>
+
+            <div className="verifiedBadge">✓ Verified RoadLink Member</div>
           </div>
         </div>
 
         {message && <p className="message">{message}</p>}
+      </section>
 
-        <div className="stats">
-          <Box title="Rating" value="New" />
-          <Box title="Booked Trips" value={String(bookedTrips)} />
-          <Box title="Active Rides" value={String(activeRides)} />
+      <section className="stats">
+        <Metric icon="⭐" label="Rating" value="New" />
+        <Metric icon="🎟️" label="Booked Trips" value={String(bookedTrips)} />
+        <Metric icon="🚘" label="Active Rides" value={String(activeRides)} />
+      </section>
+
+      <section className="detailsCard">
+        <div className="sectionHeader">
+          <div>
+            <p className="eyebrow">Account</p>
+            <h2>Profile Details</h2>
+          </div>
+
+          <div className="shield">✓</div>
         </div>
 
-        <section className="section">
-          <h2>Profile Details</h2>
-
-          <div className="detail">
-            <span>Full Name</span>
-            <strong>{profile.name || "RoadLink User"}</strong>
-          </div>
-
-          <div className="detail">
-            <span>Email</span>
-            <strong>{profile.email || "Not available"}</strong>
-          </div>
-
-          <div className="detail">
-            <span>Account Type</span>
-            <strong className="capitalize">{profile.role || "member"}</strong>
-          </div>
-
-          <div className="detail">
-            <span>Member Since</span>
-            <strong>
-              {profile.createdAt
-                ? profile.createdAt.slice(0, 10)
-                : "2026"}
-            </strong>
-          </div>
-
-          <div className="detail">
-            <span>Verification</span>
-            <strong>Email Verified</strong>
-          </div>
-        </section>
-
-        <section className="section">
-          <h2>Quick Actions</h2>
-
-          <div className="actions">
-            <a href="/dashboard">Dashboard</a>
-            <a href="/find-ride">Find a Ride</a>
-            <a href="/offer-ride">Offer a Ride</a>
-            <a href="/my-bookings">My Bookings</a>
-            <a href="/dashboard/driver">Driver Dashboard</a>
-          </div>
-        </section>
-
-        <section className="section">
-          <h2>Trust & Safety</h2>
-
-          <div className="badges">
-            <span>Email Verified</span>
-            <span>Phone Pending</span>
-            <span>Driver Check Pending</span>
-          </div>
-        </section>
-
-        <button onClick={handleSignOut} className="signOutButton">
-          Sign Out
-        </button>
+        <Info label="Full Name" value={profile.name || "RoadLink User"} icon="👤" />
+        <Info label="Email" value={profile.email || "Not available"} icon="✉️" />
+        <Info label="Account Type" value={profile.role || "member"} icon="🪪" />
+        <Info
+          label="Member Since"
+          value={profile.createdAt ? profile.createdAt.slice(0, 10) : "2026"}
+          icon="📅"
+        />
+        <Info label="Verification" value="Email Verified" icon="🛡️" />
       </section>
+
+      <section className="actionsCard">
+        <p className="eyebrow">Quick Actions</p>
+        <h2>Control Center</h2>
+
+        <div className="actions">
+          <Link href="/dashboard">📊 Dashboard</Link>
+          <Link href="/find-ride">🔎 Find a Ride</Link>
+          <Link href="/offer-ride">➕ Offer a Ride</Link>
+          <Link href="/my-bookings">📋 My Bookings</Link>
+          <Link href="/my-rides">🚘 My Rides</Link>
+          <Link href="/dashboard/driver">🚗 Driver Dashboard</Link>
+        </div>
+      </section>
+
+      <section className="safetyCard">
+        <div>
+          <p className="eyebrow">Trust & Safety</p>
+          <h2>Verification Status</h2>
+        </div>
+
+        <div className="badges">
+          <span>✓ Email Verified</span>
+          <span>Phone Pending</span>
+          <span>Driver Check Pending</span>
+        </div>
+      </section>
+
+      <button onClick={handleSignOut} className="signOutButton">
+        Sign Out
+      </button>
 
       <style>{`
         * {
@@ -182,178 +198,321 @@ export default function ProfilePage() {
 
         .page {
           min-height: 100vh;
-          background: linear-gradient(135deg,#000,#0f172a,#111827);
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 20px;
+          padding: 24px;
           font-family: Arial, sans-serif;
         }
 
-        .card {
-          max-width: 850px;
-          margin: 0 auto;
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 28px;
-          padding: 28px;
-          box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+        .hero,
+        .stats,
+        .detailsCard,
+        .actionsCard,
+        .safetyCard,
+        .signOutButton {
+          max-width: 860px;
+          margin-left: auto;
+          margin-right: auto;
         }
 
-        .top {
+        .hero,
+        .metric,
+        .detailsCard,
+        .actionsCard,
+        .safetyCard {
+          background: rgba(8, 13, 25, 0.88);
+          border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+          backdrop-filter: blur(14px);
+        }
+
+        .hero {
+          border-radius: 32px;
+          padding: 30px;
+          margin-bottom: 22px;
+        }
+
+        .topActions {
           display: flex;
-          gap: 20px;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 32px;
+        }
+
+        .miniButton {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 11px 18px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
+        .profileHeader {
+          display: flex;
+          gap: 22px;
           align-items: center;
         }
 
         .avatar {
-          width: 76px;
-          height: 76px;
+          min-width: 92px;
+          height: 92px;
           border-radius: 50%;
-          background: #22c55e;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 34px;
+          font-size: 42px;
           font-weight: 900;
-          flex-shrink: 0;
+          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
+        }
+
+        .eyebrow {
+          margin: 0 0 10px;
+          color: #22c55e;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
         }
 
         h1 {
-          margin: 0;
-          font-size: 36px;
+          font-size: 54px;
+          line-height: 1;
+          margin: 0 0 12px;
+          letter-spacing: -1px;
         }
 
-        p {
+        h1 span,
+        .metricValue {
+          color: #22c55e;
+        }
+
+        .subtitle {
           color: #a1a1aa;
-          margin: 6px 0;
+          font-size: 18px;
+          line-height: 1.5;
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .verifiedBadge {
+          display: inline-flex;
+          margin-top: 16px;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          font-weight: 900;
         }
 
         .message {
           color: #22c55e;
-          font-weight: 800;
+          font-weight: 900;
           margin-top: 22px;
-        }
-
-        .verified {
-          color: #22c55e;
-          font-weight: 700;
         }
 
         .stats {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 14px;
-          margin-top: 32px;
+          margin-bottom: 24px;
         }
 
-        .box {
-          background: #111;
-          border: 1px solid #222;
-          border-radius: 18px;
-          padding: 18px;
+        .metric {
+          border-radius: 24px;
+          padding: 22px;
         }
 
-        .box h3 {
+        .metricIcon {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 24px;
+          margin-bottom: 14px;
+        }
+
+        .metricLabel {
+          display: block;
           color: #a1a1aa;
-          font-size: 14px;
-          margin: 0 0 10px;
+          font-size: 13px;
+          font-weight: 900;
+          margin-bottom: 8px;
         }
 
-        .box p {
-          color: #22c55e;
-          font-size: 26px;
+        .metricValue {
+          font-size: 28px;
           font-weight: 900;
+        }
+
+        .detailsCard,
+        .actionsCard,
+        .safetyCard {
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 24px;
+        }
+
+        .sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          align-items: center;
+          margin-bottom: 22px;
+        }
+
+        h2 {
+          font-size: 32px;
           margin: 0;
         }
 
-        .section {
-          margin-top: 34px;
-        }
-
-        .detail {
+        .shield {
+          min-width: 64px;
+          height: 64px;
+          border-radius: 50%;
           display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          background: #111;
-          border: 1px solid #222;
+          align-items: center;
+          justify-content: center;
+          color: #22c55e;
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.35);
+          font-size: 30px;
+          font-weight: 900;
+        }
+
+        .infoRow {
+          display: grid;
+          grid-template-columns: 42px 1fr auto;
+          gap: 12px;
+          align-items: center;
+          padding: 14px;
           border-radius: 16px;
-          padding: 16px;
-          margin-top: 12px;
+          background: rgba(255,255,255,0.035);
+          border: 1px solid rgba(255,255,255,0.08);
+          margin-bottom: 10px;
         }
 
-        .detail span {
+        .infoIcon {
+          width: 38px;
+          height: 38px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.15);
+        }
+
+        .infoLabel {
+          color: #e5e7eb;
+          font-weight: 900;
+        }
+
+        .infoValue {
           color: #a1a1aa;
-        }
-
-        .capitalize {
-          text-transform: capitalize;
+          font-weight: 800;
+          text-align: right;
+          overflow-wrap: anywhere;
         }
 
         .actions {
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          grid-template-columns: repeat(3, 1fr);
           gap: 12px;
+          margin-top: 22px;
         }
 
         .actions a {
-          background: #111;
-          border: 1px solid #222;
-          border-radius: 16px;
-          padding: 15px;
-          text-align: center;
+          display: block;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 18px;
+          padding: 18px;
           color: white;
+          text-align: center;
           text-decoration: none;
-          font-weight: 800;
+          font-weight: 900;
         }
 
         .badges {
           display: flex;
           flex-wrap: wrap;
           gap: 10px;
+          margin-top: 18px;
         }
 
         .badges span {
-          background: #111;
-          border: 1px solid #222;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
           border-radius: 999px;
-          padding: 10px 14px;
+          padding: 11px 15px;
           color: #d4d4d8;
-        }
-
-        .signOutButton {
-          width: 100%;
-          margin-top: 30px;
-          padding: 17px;
-          border-radius: 999px;
-          border: none;
-          background: #ef4444;
-          color: white;
-          font-size: 17px;
           font-weight: 800;
         }
 
+        .signOutButton {
+          display: block;
+          width: 100%;
+          padding: 18px;
+          border-radius: 999px;
+          border: none;
+          background: linear-gradient(135deg, #ef4444, #b91c1c);
+          color: white;
+          font-size: 17px;
+          font-weight: 900;
+          cursor: pointer;
+          margin-top: 6px;
+        }
+
         @media (max-width: 700px) {
-          .card {
-            padding: 22px;
+          .page {
+            padding: 16px;
           }
 
-          .top {
+          .hero,
+          .detailsCard,
+          .actionsCard,
+          .safetyCard {
+            padding: 24px;
+            border-radius: 28px;
+          }
+
+          .profileHeader {
             align-items: flex-start;
           }
 
+          .avatar {
+            min-width: 76px;
+            height: 76px;
+            font-size: 34px;
+          }
+
           h1 {
-            font-size: 28px;
+            font-size: 42px;
           }
 
-          .stats {
-            grid-template-columns: 1fr;
-          }
-
+          .stats,
           .actions {
             grid-template-columns: 1fr;
           }
 
-          .detail {
-            flex-direction: column;
+          .infoRow {
+            grid-template-columns: 42px 1fr;
+          }
+
+          .infoValue {
+            grid-column: 2;
+            text-align: left;
           }
         }
       `}</style>
@@ -361,11 +520,38 @@ export default function ProfilePage() {
   );
 }
 
-function Box({ title, value }: any) {
+function Metric({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
   return (
-    <div className="box">
-      <h3>{title}</h3>
-      <p>{value}</p>
+    <div className="metric">
+      <div className="metricIcon">{icon}</div>
+      <span className="metricLabel">{label}</span>
+      <div className="metricValue">{value}</div>
+    </div>
+  );
+}
+
+function Info({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="infoRow">
+      <div className="infoIcon">{icon}</div>
+      <div className="infoLabel">{label}</div>
+      <div className="infoValue">{value}</div>
     </div>
   );
 }
