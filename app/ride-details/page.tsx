@@ -15,25 +15,29 @@ type Ride = {
   vehicle?: string;
   notes?: string;
   driverEmail?: string;
+  driverId?: string;
   status?: string;
 };
 
 export default function RideDetailsPage() {
   const [ride, setRide] = useState<Ride | null>(null);
+  const [rideId, setRideId] = useState("");
   const [message, setMessage] = useState("Loading ride details...");
 
   useEffect(() => {
     async function loadRide() {
       try {
         const params = new URLSearchParams(window.location.search);
-        const rideId = params.get("rideId");
+        const currentRideId = params.get("rideId") || "";
 
-        if (!rideId) {
+        if (!currentRideId) {
           setMessage("No ride selected.");
           return;
         }
 
-        const rideRef = doc(db, "rides", rideId);
+        setRideId(currentRideId);
+
+        const rideRef = doc(db, "rides", currentRideId);
         const rideSnap = await getDoc(rideRef);
 
         if (!rideSnap.exists()) {
@@ -54,14 +58,27 @@ export default function RideDetailsPage() {
   return (
     <main className="page">
       <section className="hero">
-        <Link href="/find-ride" className="backButton">
-          ← Back
-        </Link>
+        <div className="topActions">
+          <Link href="/find-ride" className="miniButton">
+            ← Back
+          </Link>
+
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
+
+          <Link href="/profile" className="miniButton">
+            Profile
+          </Link>
+        </div>
 
         <h1>
           Ride <span>Details</span>
         </h1>
-        <p className="subtitle">View all the details about this ride</p>
+
+        <p className="subtitle">
+          Review the route, driver information, price, safety details, and trip status.
+        </p>
       </section>
 
       {message && <p className="message">{message}</p>}
@@ -77,14 +94,14 @@ export default function RideDetailsPage() {
 
             <div className="routeInfo">
               <span>FROM</span>
-              <h2>{ride.from}</h2>
+              <h2>{ride.from || "Starting point"}</h2>
 
               <span>TO</span>
-              <h2>{ride.to}</h2>
+              <h2>{ride.to || "Destination"}</h2>
 
               <div className="chips">
-                <div className="chip">📅 {ride.date}</div>
-                <div className="chip">🕒 {ride.time}</div>
+                <div className="chip">📅 {ride.date || "Date not set"}</div>
+                <div className="chip">🕒 {ride.time || "Time not set"}</div>
                 <div className="chip active">● {ride.status || "Active"}</div>
               </div>
             </div>
@@ -93,9 +110,10 @@ export default function RideDetailsPage() {
           </section>
 
           <section className="infoCard">
+            <p className="eyebrow">Trip Overview</p>
             <h3>🚗 Ride Information</h3>
 
-            <Info label="Price" value={`$${ride.price}`} icon="💵" green />
+            <Info label="Price" value={`$${ride.price || 0}`} icon="💵" green />
             <Info label="Seats Available" value={ride.seats ?? 0} icon="💺" />
             <Info label="Vehicle" value={ride.vehicle || "Not provided"} icon="🚘" />
             <Info label="Driver" value={ride.driverEmail || "RoadLink Driver"} icon="👤" />
@@ -103,20 +121,72 @@ export default function RideDetailsPage() {
             <Info label="Notes" value={ride.notes || "No notes"} icon="📝" />
           </section>
 
-          <section className="safetyCard">
+          <section className="driverCard">
             <div>
-              <h3>🛡️ Safety First</h3>
+              <p className="eyebrow">Driver Experience</p>
+              <h3>⭐ Driver Trust</h3>
               <p>
-                All RoadLink rides are reviewed for your safety. Driver and trip
-                details are shown before booking.
+                View the driver profile, check verification status, and leave a rating
+                after your trip.
               </p>
             </div>
+
+            <div className="driverStats">
+              <div>
+                <strong>New</strong>
+                <span>Rating</span>
+              </div>
+
+              <div>
+                <strong>0</strong>
+                <span>Trips</span>
+              </div>
+
+              <div>
+                <strong>Verified</strong>
+                <span>Status</span>
+              </div>
+            </div>
+
+            <div className="driverButtons">
+              <Link
+                href={`/driver-profile?driverId=${ride.driverId || ""}`}
+                className="outlineButton"
+              >
+                View Driver Profile
+              </Link>
+
+              <Link
+                href={`/rate-driver?rideId=${rideId}&driverId=${ride.driverId || ""}`}
+                className="outlineButton greenOutline"
+              >
+                ⭐ Rate Driver
+              </Link>
+            </div>
+          </section>
+
+          <section className="safetyCard">
+            <div>
+              <p className="eyebrow">Safety</p>
+              <h3>🛡️ Safety First</h3>
+              <p>
+                RoadLink helps passengers review ride details before booking.
+                Always confirm pickup location, luggage space, and trip rules with the driver.
+              </p>
+            </div>
+
             <div className="shield">✓</div>
           </section>
 
-          <Link href="/find-ride" className="bookButton">
-            📅 Book This Ride
-          </Link>
+          <div className="bottomActions">
+            <Link href="/find-ride" className="bookButton">
+              📅 Back to Available Rides
+            </Link>
+
+            <Link href="/my-bookings" className="secondaryButton">
+              View My Bookings
+            </Link>
+          </div>
         </>
       )}
 
@@ -138,42 +208,67 @@ export default function RideDetailsPage() {
         .hero,
         .routeCard,
         .infoCard,
-        .safetyCard {
+        .driverCard,
+        .safetyCard,
+        .bottomActions {
           max-width: 820px;
           margin-left: auto;
           margin-right: auto;
         }
 
-        .backButton {
+        .hero,
+        .routeCard,
+        .infoCard,
+        .driverCard,
+        .safetyCard {
+          background: rgba(8, 13, 25, 0.88);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 30px;
+          padding: 28px;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+          backdrop-filter: blur(14px);
+          margin-bottom: 22px;
+        }
+
+        .topActions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 32px;
+        }
+
+        .miniButton {
           display: inline-flex;
           align-items: center;
-          padding: 10px 18px;
+          justify-content: center;
+          padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(34,197,94,0.08);
-          border: 1px solid rgba(34,197,94,0.25);
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
-          font-weight: 800;
-          margin-bottom: 34px;
+          font-weight: 900;
         }
 
         h1 {
-          font-size: 54px;
+          font-size: 58px;
           line-height: 1;
-          margin: 0 0 12px;
+          margin: 0 0 14px;
           letter-spacing: -1px;
         }
 
         h1 span,
         .active,
-        .greenValue {
+        .greenValue,
+        .eyebrow {
           color: #22c55e;
         }
 
         .subtitle {
           color: #a1a1aa;
           font-size: 20px;
-          margin: 0 0 28px;
+          line-height: 1.5;
+          margin: 0;
         }
 
         .message {
@@ -182,18 +277,6 @@ export default function RideDetailsPage() {
           color: #22c55e;
           font-weight: 900;
           text-align: center;
-        }
-
-        .routeCard,
-        .infoCard,
-        .safetyCard {
-          background: rgba(8, 13, 25, 0.88);
-          border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 26px;
-          padding: 28px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
-          margin-bottom: 22px;
         }
 
         .routeCard {
@@ -233,7 +316,7 @@ export default function RideDetailsPage() {
         }
 
         .routeInfo h2 {
-          font-size: 28px;
+          font-size: 30px;
           margin: 0 0 24px;
           line-height: 1.15;
         }
@@ -247,11 +330,11 @@ export default function RideDetailsPage() {
 
         .chip {
           padding: 10px 14px;
-          border-radius: 12px;
+          border-radius: 14px;
           background: rgba(255,255,255,0.06);
           border: 1px solid rgba(255,255,255,0.12);
           color: #e5e7eb;
-          font-weight: 700;
+          font-weight: 800;
         }
 
         .carIcon {
@@ -266,10 +349,19 @@ export default function RideDetailsPage() {
           font-size: 42px;
         }
 
+        .eyebrow {
+          margin: 0 0 8px;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
         .infoCard h3,
+        .driverCard h3,
         .safetyCard h3 {
           margin: 0 0 18px;
-          font-size: 24px;
+          font-size: 26px;
         }
 
         .infoRow {
@@ -296,15 +388,75 @@ export default function RideDetailsPage() {
 
         .infoLabel {
           color: #e5e7eb;
-          font-weight: 800;
+          font-weight: 900;
         }
 
         .infoValue {
           color: #f9fafb;
-          font-weight: 800;
+          font-weight: 900;
           text-align: right;
           max-width: 280px;
           overflow-wrap: anywhere;
+        }
+
+        .driverCard p,
+        .safetyCard p {
+          color: #a1a1aa;
+          line-height: 1.5;
+          margin: 0;
+        }
+
+        .driverStats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin: 24px 0;
+        }
+
+        .driverStats div {
+          padding: 16px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .driverStats strong {
+          display: block;
+          color: #22c55e;
+          font-size: 22px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .driverStats span {
+          color: #a1a1aa;
+          font-weight: 800;
+        }
+
+        .driverButtons {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+
+        .outlineButton,
+        .secondaryButton {
+          display: block;
+          width: 100%;
+          padding: 16px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
+          text-align: center;
+          text-decoration: none;
+          font-size: 16px;
+          font-weight: 900;
+        }
+
+        .greenOutline {
+          border-color: rgba(34,197,94,0.45);
+          color: #22c55e;
         }
 
         .safetyCard {
@@ -312,12 +464,6 @@ export default function RideDetailsPage() {
           justify-content: space-between;
           gap: 20px;
           align-items: center;
-        }
-
-        .safetyCard p {
-          color: #a1a1aa;
-          line-height: 1.5;
-          margin: 0;
         }
 
         .shield {
@@ -334,17 +480,23 @@ export default function RideDetailsPage() {
           font-weight: 900;
         }
 
+        .bottomActions {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 14px;
+          margin-top: 28px;
+        }
+
         .bookButton {
           display: block;
-          max-width: 820px;
-          margin: 28px auto 0;
+          width: 100%;
           padding: 20px;
-          border-radius: 16px;
+          border-radius: 18px;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
           text-align: center;
           text-decoration: none;
-          font-size: 22px;
+          font-size: 20px;
           font-weight: 900;
           box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
@@ -381,6 +533,11 @@ export default function RideDetailsPage() {
           .infoValue {
             grid-column: 2;
             text-align: left;
+          }
+
+          .driverStats,
+          .driverButtons {
+            grid-template-columns: 1fr;
           }
 
           .safetyCard {
