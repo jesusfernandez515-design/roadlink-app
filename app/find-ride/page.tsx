@@ -163,7 +163,7 @@ export default function FindRidePage() {
 
   return (
     <main className="page">
-      <section className="headerCard">
+      <section className="hero">
         <div className="topActions">
           <button type="button" className="miniButton" onClick={() => router.back()}>
             ← Back
@@ -182,15 +182,20 @@ export default function FindRidePage() {
           Road<span>Link</span>
         </div>
 
-        <h1>Find a Ride</h1>
-        <p>Available rides published by drivers.</p>
+        <h1>
+          Find a <span>Ride</span>
+        </h1>
+
+        <p className="subtitle">
+          Discover available long-distance rides published by verified drivers.
+        </p>
 
         <div className="mainActions">
-          <Link href="/offer-ride" className="actionButton">
+          <Link href="/offer-ride" className="primaryButton">
             Offer a Ride
           </Link>
 
-          <button type="button" className="actionButton dark" onClick={loadRides}>
+          <button type="button" className="secondaryTopButton" onClick={loadRides}>
             Refresh Rides
           </button>
         </div>
@@ -207,56 +212,48 @@ export default function FindRidePage() {
 
           return (
             <div key={ride.id} className="rideCard">
-              <div className="topRow">
+              <div className="routeHeader">
                 <div>
-                  <h3>
-                    {ride.from} → {ride.to}
-                  </h3>
-                  <p>
-                    {ride.date} • {ride.time}
-                  </p>
+                  <p className="label">ROUTE</p>
+                  <h2>
+                    {ride.from} <span>→</span> {ride.to}
+                  </h2>
                 </div>
 
-                <div className="price">${ride.price}</div>
+                <div className="priceBox">
+                  <span>PRICE</span>
+                  <strong>${ride.price}</strong>
+                </div>
               </div>
 
-              <div className="details">
-                <p>
-                  <strong>Seats:</strong> {ride.seats}
-                </p>
-
-                <p>
-                  <strong>Vehicle:</strong> {ride.vehicle}
-                </p>
-
-                <p>
-                  <strong>Driver:</strong>{" "}
-                  {ride.driverEmail || "RoadLink Driver"}
-                </p>
-
-                {ride.notes && (
-                  <p>
-                    <strong>Notes:</strong> {ride.notes}
-                  </p>
-                )}
+              <div className="chips">
+                <div className="chip">📅 {ride.date}</div>
+                <div className="chip">🕒 {ride.time}</div>
+                <div className="chip">💺 {ride.seats} seats</div>
+                <div className="chip active">● {ride.status}</div>
               </div>
 
-              {isOwnRide && (
-                <p className="warning">This is your own ride.</p>
-              )}
+              <div className="infoGrid">
+                <Info label="Vehicle" value={ride.vehicle} icon="🚘" />
+                <Info
+                  label="Driver"
+                  value={ride.driverEmail || "RoadLink Driver"}
+                  icon="👤"
+                />
+                {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
+              </div>
+
+              {isOwnRide && <p className="warning">This is your own ride.</p>}
 
               <div className="cardButtons">
                 <Link
                   href={`/driver-profile?driverId=${ride.driverId || ""}`}
-                  className="secondaryButton"
+                  className="outlineButton"
                 >
                   View Driver Profile
                 </Link>
 
-                <Link
-                  href={`/ride-details?rideId=${ride.id}`}
-                  className="secondaryButton"
-                >
+                <Link href={`/ride-details?rideId=${ride.id}`} className="outlineButton">
                   View Details
                 </Link>
               </div>
@@ -264,12 +261,7 @@ export default function FindRidePage() {
               <button
                 className="reserve"
                 onClick={() => reserveSeat(ride)}
-                disabled={
-                  loadingRideId === ride.id ||
-                  alreadyReserved ||
-                  isOwnRide ||
-                  noSeats
-                }
+                disabled={loadingRideId === ride.id || alreadyReserved || isOwnRide || noSeats}
               >
                 {loadingRideId === ride.id
                   ? "Reserving..."
@@ -293,164 +285,247 @@ export default function FindRidePage() {
 
         .page {
           min-height: 100vh;
-          background: linear-gradient(135deg, #000, #0f172a, #111827);
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 20px;
+          padding: 24px;
           font-family: Arial, sans-serif;
         }
 
-        .headerCard {
-          max-width: 760px;
-          margin: 0 auto 30px;
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 26px;
-          padding: 24px;
-          box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+        .hero,
+        .results {
+          max-width: 820px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        .hero {
+          background: rgba(8, 13, 25, 0.88);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 30px;
+          padding: 28px;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+          backdrop-filter: blur(14px);
+          margin-bottom: 28px;
         }
 
         .topActions {
           display: flex;
-          gap: 10px;
+          gap: 12px;
           flex-wrap: wrap;
-          margin-bottom: 24px;
+          margin-bottom: 30px;
         }
 
         .miniButton {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          padding: 10px 14px;
+          padding: 11px 18px;
           border-radius: 999px;
-          border: 1px solid #333;
-          background: #111;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
-          font-weight: 800;
-          font-size: 14px;
+          font-weight: 900;
           cursor: pointer;
         }
 
         .logo {
-          font-size: 34px;
+          font-size: 36px;
           font-weight: 900;
-          margin-bottom: 24px;
+          margin-bottom: 28px;
         }
 
-        .logo span {
+        .logo span,
+        h1 span,
+        .active,
+        .priceBox strong {
           color: #22c55e;
         }
 
         h1 {
-          font-size: 42px;
-          margin: 0 0 10px;
+          font-size: 58px;
+          line-height: 1;
+          margin: 0 0 16px;
+          letter-spacing: -1px;
         }
 
-        p {
+        .subtitle {
           color: #a1a1aa;
+          font-size: 20px;
           line-height: 1.5;
+          margin: 0;
         }
 
         .mainActions {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-top: 24px;
+          gap: 14px;
+          margin-top: 30px;
         }
 
-        .actionButton {
-          display: block;
+        .primaryButton,
+        .secondaryTopButton {
           width: 100%;
-          padding: 16px;
+          padding: 18px;
           border-radius: 999px;
-          border: none;
-          background: #22c55e;
-          color: white;
           text-align: center;
           text-decoration: none;
-          font-size: 16px;
+          font-size: 17px;
           font-weight: 900;
           cursor: pointer;
         }
 
-        .actionButton.dark {
-          background: #111;
-          border: 1px solid #333;
+        .primaryButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          border: none;
+          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
-        .results {
-          max-width: 760px;
-          margin: 0 auto;
+        .secondaryTopButton {
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
         }
 
         .message {
           text-align: center;
           color: #22c55e;
-          font-weight: 800;
+          font-weight: 900;
+          margin: 26px 0;
+        }
+
+        .rideCard {
+          background: rgba(8, 13, 25, 0.88);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 28px;
+          padding: 28px;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+          backdrop-filter: blur(14px);
+          margin-bottom: 24px;
+        }
+
+        .routeHeader {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 18px;
+          align-items: start;
+        }
+
+        .label {
+          color: #22c55e;
+          font-size: 13px;
+          font-weight: 900;
+          margin: 0 0 8px;
+        }
+
+        h2 {
+          font-size: 34px;
+          line-height: 1.15;
+          margin: 0;
+        }
+
+        h2 span {
+          color: #22c55e;
+        }
+
+        .priceBox {
+          min-width: 110px;
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.35);
+          text-align: center;
+        }
+
+        .priceBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .priceBox strong {
+          font-size: 34px;
+          font-weight: 900;
+        }
+
+        .chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
           margin: 24px 0;
+        }
+
+        .chip {
+          padding: 10px 14px;
+          border-radius: 14px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: #e5e7eb;
+          font-weight: 800;
+        }
+
+        .infoGrid {
+          display: grid;
+          gap: 10px;
+        }
+
+        .infoRow {
+          display: grid;
+          grid-template-columns: 42px 1fr;
+          gap: 12px;
+          align-items: center;
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.035);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .infoIcon {
+          width: 38px;
+          height: 38px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.15);
+        }
+
+        .infoText strong {
+          display: block;
+          color: #e5e7eb;
+          margin-bottom: 4px;
+        }
+
+        .infoText span {
+          color: #a1a1aa;
+          overflow-wrap: anywhere;
         }
 
         .warning {
           color: #fbbf24;
-          font-weight: 800;
-        }
-
-        .rideCard {
-          background: #0b0b0b;
-          border: 1px solid #222;
-          border-radius: 24px;
-          padding: 24px;
-          margin-bottom: 18px;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.35);
-        }
-
-        .topRow {
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
-          align-items: flex-start;
-        }
-
-        h3 {
-          margin: 0;
-          font-size: 26px;
-          line-height: 1.25;
-        }
-
-        .price {
-          color: #22c55e;
-          font-size: 32px;
           font-weight: 900;
-          white-space: nowrap;
-        }
-
-        .details {
-          margin-top: 20px;
-        }
-
-        .details p {
-          margin: 12px 0;
-          font-size: 17px;
-        }
-
-        .details strong {
-          color: #d4d4d8;
+          margin: 18px 0 0;
         }
 
         .cardButtons {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
-          margin-top: 22px;
+          margin-top: 24px;
         }
 
-        .secondaryButton {
+        .outlineButton {
           display: block;
           width: 100%;
-          padding: 14px;
+          padding: 15px;
           border-radius: 999px;
-          border: 1px solid #333;
-          background: #111;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-align: center;
           text-decoration: none;
@@ -460,55 +535,77 @@ export default function FindRidePage() {
 
         .reserve {
           width: 100%;
-          padding: 17px;
+          padding: 18px;
           margin-top: 16px;
           border: none;
           border-radius: 999px;
-          background: #22c55e;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
           font-weight: 900;
-          font-size: 17px;
+          font-size: 18px;
           cursor: pointer;
+          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
         .reserve:disabled {
           opacity: 0.55;
           cursor: not-allowed;
+          box-shadow: none;
         }
 
-        @media (max-width: 480px) {
+        @media (max-width: 600px) {
           .page {
-            padding: 12px;
+            padding: 16px;
           }
 
-          .headerCard,
+          .hero,
           .rideCard {
-            border-radius: 24px;
-            padding: 22px;
+            padding: 24px;
+            border-radius: 28px;
           }
 
           h1 {
-            font-size: 38px;
+            font-size: 50px;
           }
 
-          h3 {
-            font-size: 24px;
+          h2 {
+            font-size: 32px;
           }
 
-          .topRow {
-            flex-direction: column;
+          .routeHeader {
+            grid-template-columns: 1fr;
+          }
+
+          .priceBox {
+            text-align: left;
           }
 
           .mainActions,
           .cardButtons {
             grid-template-columns: 1fr;
           }
-
-          .price {
-            font-size: 30px;
-          }
         }
       `}</style>
     </main>
+  );
+}
+
+function Info({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="infoRow">
+      <div className="infoIcon">{icon}</div>
+      <div className="infoText">
+        <strong>{label}</strong>
+        <span>{value}</span>
+      </div>
+    </div>
   );
 }
