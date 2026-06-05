@@ -37,16 +37,20 @@ export default function MyBookingsPage() {
   async function loadBookings(userId: string) {
     const q = query(
       collection(db, "bookings"),
-      where("passengerId", "==", userId),
-      where("status", "==", "reserved")
+      where("passengerId", "==", userId)
     );
 
     const snapshot = await getDocs(q);
 
-    const bookingData = snapshot.docs.map((document) => ({
-      id: document.id,
-      ...document.data(),
-    })) as Booking[];
+    const bookingData = snapshot.docs
+      .map((document) => ({
+        id: document.id,
+        ...document.data(),
+      }))
+      .filter(
+        (booking: any) =>
+          booking.status === "reserved" || booking.status === "confirmed"
+      ) as Booking[];
 
     setBookings(bookingData);
     setMessage(bookingData.length ? "" : "You have no bookings yet.");
@@ -76,10 +80,17 @@ export default function MyBookingsPage() {
         }
       }
 
-      await loadBookings(currentUserId);
+      setBookings((current) =>
+        current.filter((item) => item.id !== booking.id)
+      );
+
       setMessage("Reservation cancelled successfully.");
-    } catch (error: any) {
-      setMessage(error.message);
+
+      if (currentUserId) {
+        await loadBookings(currentUserId);
+      }
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
       setLoadingId("");
     }
@@ -98,8 +109,8 @@ export default function MyBookingsPage() {
 
       try {
         await loadBookings(user.uid);
-      } catch (error: any) {
-        setMessage(error.message);
+      } catch (error: unknown) {
+        setMessage(error instanceof Error ? error.message : "Something went wrong.");
       }
     });
 
@@ -200,10 +211,7 @@ export default function MyBookingsPage() {
                 View Ride Details
               </Link>
 
-              <Link
-                href="/find-ride"
-                className="outlineButton"
-              >
+              <Link href="/find-ride" className="outlineButton">
                 Find More Rides
               </Link>
             </div>
