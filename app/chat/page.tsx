@@ -11,6 +11,7 @@ import {
   getDoc,
   onSnapshot,
   query,
+  updateDoc,
   where,
 } from "firebase/firestore";
 
@@ -38,6 +39,7 @@ type Message = {
   senderEmail?: string;
   text?: string;
   createdAt?: string;
+  read?: boolean;
 };
 
 export default function ChatPage() {
@@ -129,7 +131,7 @@ export default function ChatPage() {
 
     const unsubscribeMessages = onSnapshot(
       messagesQuery,
-      (snapshot) => {
+      async (snapshot) => {
         const data = snapshot.docs.map((document) => ({
           id: document.id,
           ...document.data(),
@@ -140,6 +142,20 @@ export default function ChatPage() {
         );
 
         setMessages(data);
+
+        if (userId) {
+          const unreadIncoming = data.filter(
+            (message) => message.senderId !== userId && message.read === false
+          );
+
+          await Promise.all(
+            unreadIncoming.map((message) =>
+              updateDoc(doc(db, "messages", message.id), {
+                read: true,
+              })
+            )
+          );
+        }
       },
       (error) => {
         setStatus(error.message);
@@ -147,7 +163,7 @@ export default function ChatPage() {
     );
 
     return () => unsubscribeMessages();
-  }, [chatId]);
+  }, [chatId, userId]);
 
   async function sendMessage() {
     const cleanText = text.trim();
@@ -181,6 +197,7 @@ export default function ChatPage() {
         text: cleanText,
         createdAt: new Date().toISOString(),
         status: "sent",
+        read: false,
       });
 
       setText("");
@@ -247,6 +264,7 @@ export default function ChatPage() {
                     <small>
                       {isMine ? "You" : message.senderEmail || "RoadLink User"}
                       {message.createdAt ? ` • ${message.createdAt.slice(11, 16)}` : ""}
+                      {isMine && message.read ? " • Read" : ""}
                     </small>
                   </div>
                 </div>
