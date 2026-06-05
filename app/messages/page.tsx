@@ -4,40 +4,26 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 
-type Message = {
+type Chat = {
   id: string;
   chatId?: string;
   rideId?: string;
   driverId?: string;
   passengerId?: string;
-  senderId?: string;
-  senderEmail?: string;
-  text?: string;
-  createdAt?: string;
-};
-
-type Conversation = {
-  chatId: string;
-  rideId: string;
-  driverId: string;
-  passengerId: string;
-  lastMessage: string;
-  lastSender: string;
-  lastTime: string;
-  totalMessages: number;
+  driverEmail?: string;
+  passengerEmail?: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount?: number;
 };
 
 export default function MessagesPage() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [driverChats, setDriverChats] = useState<Chat[]>([]);
+  const [passengerChats, setPassengerChats] = useState<Chat[]>([]);
   const [status, setStatus] = useState("Loading messages...");
 
   useEffect(() => {
@@ -58,55 +44,40 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!userId) return;
 
-    const driverMessagesQuery = query(
-      collection(db, "messages"),
+    const driverChatsQuery = query(
+      collection(db, "chats"),
       where("driverId", "==", userId)
     );
 
-    const passengerMessagesQuery = query(
-      collection(db, "messages"),
+    const passengerChatsQuery = query(
+      collection(db, "chats"),
       where("passengerId", "==", userId)
     );
 
-    const allMessages = new Map<string, Message>();
-
-    const updateMessages = () => {
-      const mergedMessages = Array.from(allMessages.values());
-
-      mergedMessages.sort((a, b) =>
-        String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-      );
-
-      setMessages(mergedMessages);
-      setStatus("");
-    };
-
     const unsubscribeDriver = onSnapshot(
-      driverMessagesQuery,
+      driverChatsQuery,
       (snapshot) => {
-        snapshot.docs.forEach((document) => {
-          allMessages.set(document.id, {
-            id: document.id,
-            ...document.data(),
-          } as Message);
-        });
+        const data = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Chat[];
 
-        updateMessages();
+        setDriverChats(data);
+        setStatus("");
       },
       (error) => setStatus(error.message)
     );
 
     const unsubscribePassenger = onSnapshot(
-      passengerMessagesQuery,
+      passengerChatsQuery,
       (snapshot) => {
-        snapshot.docs.forEach((document) => {
-          allMessages.set(document.id, {
-            id: document.id,
-            ...document.data(),
-          } as Message);
-        });
+        const data = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Chat[];
 
-        updateMessages();
+        setPassengerChats(data);
+        setStatus("");
       },
       (error) => setStatus(error.message)
     );
@@ -118,43 +89,22 @@ export default function MessagesPage() {
   }, [userId]);
 
   const conversations = useMemo(() => {
-    const grouped = new Map<string, Message[]>();
+    const merged = new Map<string, Chat>();
 
-    messages.forEach((message) => {
-      const key =
-        message.chatId ||
-        (message.rideId ? `chat_${message.rideId}` : message.id);
-
-      const existing = grouped.get(key) || [];
-      existing.push(message);
-      grouped.set(key, existing);
+    [...driverChats, ...passengerChats].forEach((chat) => {
+      const key = chat.chatId || chat.id;
+      merged.set(key, chat);
     });
 
-    const result: Conversation[] = [];
-
-    grouped.forEach((conversationMessages, chatId) => {
-      conversationMessages.sort((a, b) =>
-        String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
-      );
-
-      const last = conversationMessages[conversationMessages.length - 1];
-
-      result.push({
-        chatId,
-        rideId: last.rideId || "",
-        driverId: last.driverId || "",
-        passengerId: last.passengerId || "",
-        lastMessage: last.text || "New message",
-        lastSender: last.senderEmail || "RoadLink User",
-        lastTime: last.createdAt || "",
-        totalMessages: conversationMessages.length,
-      });
-    });
-
-    return result.sort((a, b) =>
-      String(b.lastTime || "").localeCompare(String(a.lastTime || ""))
+    return Array.from(merged.values()).sort((a, b) =>
+      String(b.lastMessageTime || "").localeCompare(String(a.lastMessageTime || ""))
     );
-  }, [messages]);
+  }, [driverChats, passengerChats]);
+
+  const totalUnread = conversations.reduce(
+    (total, chat) => total + Number(chat.unreadCount || 0),
+    0
+  );
 
   return (
     <main className="page">
@@ -172,7 +122,7 @@ export default function MessagesPage() {
               Your <span>messages.</span>
             </h1>
             <p className="subtitle">
-              View your ride conversations, open chats, and coordinate every trip from one secure inbox.
+              Manage your ride conversations, unread messages, and trip coordination from one premium inbox.
             </p>
           </div>
 
@@ -188,8 +138,8 @@ export default function MessagesPage() {
           </div>
 
           <div className="summaryCard">
-            <p>Total Messages</p>
-            <h2>{messages.length}</h2>
+            <p>Unread</p>
+            <h2>{totalUnread}</h2>
           </div>
 
           <div className="summaryCard">
@@ -222,38 +172,45 @@ export default function MessagesPage() {
           ) : (
             <div className="conversationList">
               {conversations.map((conversation) => {
+                const otherUser =
+                  conversation.driverId === userId
+                    ? conversation.passengerEmail || "Passenger"
+                    : conversation.driverEmail || "Driver";
+
                 const openChatUrl = conversation.rideId
                   ? `/chat?rideId=${conversation.rideId}`
-                  : `/chat?driverId=${conversation.driverId}`;
+                  : `/chat?driverId=${conversation.driverId || ""}&passengerId=${conversation.passengerId || ""}`;
 
                 return (
                   <Link
                     href={openChatUrl}
                     className="conversation"
-                    key={conversation.chatId}
+                    key={conversation.chatId || conversation.id}
                   >
                     <div className="conversationAvatar">💬</div>
 
                     <div className="conversationContent">
                       <div className="conversationTop">
-                        <h3>
-                          {conversation.lastSender === userEmail
-                            ? "You"
-                            : conversation.lastSender}
-                        </h3>
+                        <h3>{otherUser}</h3>
 
                         <span>
-                          {conversation.lastTime
-                            ? conversation.lastTime.slice(11, 16)
+                          {conversation.lastMessageTime
+                            ? conversation.lastMessageTime.slice(11, 16)
                             : "Now"}
                         </span>
                       </div>
 
-                      <p>{conversation.lastMessage}</p>
+                      <p>{conversation.lastMessage || "New conversation"}</p>
 
                       <div className="conversationMeta">
-                        <span>{conversation.totalMessages} messages</span>
-                        {conversation.rideId && <span>Ride chat</span>}
+                        <span>Ride chat</span>
+                        {conversation.unreadCount && conversation.unreadCount > 0 ? (
+                          <span className="unreadBadge">
+                            {conversation.unreadCount} new
+                          </span>
+                        ) : (
+                          <span>Opened</span>
+                        )}
                       </div>
                     </div>
 
@@ -303,11 +260,6 @@ export default function MessagesPage() {
           color: white;
           text-decoration: none;
           font-weight: 900;
-        }
-
-        .miniButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
         }
 
         .heroCard,
@@ -550,6 +502,12 @@ export default function MessagesPage() {
           border-radius: 999px;
           background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .conversationMeta .unreadBadge {
+          background: rgba(239,68,68,0.18);
+          border-color: rgba(239,68,68,0.4);
+          color: #fca5a5;
         }
 
         .openIcon {
