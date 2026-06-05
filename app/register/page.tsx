@@ -11,7 +11,7 @@ import {
   GoogleAuthProvider,
   signOut,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -38,20 +38,6 @@ export default function RegisterPage() {
     }
 
     return deviceId;
-  }
-
-  async function deviceAlreadyUsed(deviceId: string) {
-    if (!deviceId) return false;
-
-    const deviceRef = doc(db, "devices", deviceId);
-    const deviceSnap = await getDoc(deviceRef);
-
-    if (!deviceSnap.exists()) {
-      localStorage.removeItem("roadlink_registered_device");
-      return false;
-    }
-
-    return true;
   }
 
   function redirectToLogin() {
@@ -85,12 +71,6 @@ export default function RegisterPage() {
       setMessage("");
 
       const deviceId = getDeviceId();
-      const used = await deviceAlreadyUsed(deviceId);
-
-      if (used) {
-        setMessage("This device already has a RoadLink account.");
-        return;
-      }
 
       const userCredential = await createUserWithEmailAndPassword(
         auth,
@@ -142,12 +122,6 @@ export default function RegisterPage() {
       setMessage("");
 
       const deviceId = getDeviceId();
-      const used = await deviceAlreadyUsed(deviceId);
-
-      if (used) {
-        setMessage("This device already has a RoadLink account.");
-        return;
-      }
 
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -205,8 +179,7 @@ export default function RegisterPage() {
         <h1>Create your account</h1>
 
         <p className="subtitle">
-          Join RoadLink with a real Gmail. Each device can create only one
-          account.
+          Join RoadLink with a real Gmail. Email verification is required before login.
         </p>
 
         <button className="social" onClick={continueWithGoogle} disabled={loading}>
@@ -247,7 +220,6 @@ export default function RegisterPage() {
 
         <div className="securityBox">
           <p>✅ Gmail verification required</p>
-          <p>✅ One account per device</p>
           <p>✅ Auto redirect to login</p>
           <p>✅ Google sign-in supported</p>
         </div>
@@ -258,9 +230,7 @@ export default function RegisterPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -368,11 +338,6 @@ export default function RegisterPage() {
           background: rgba(255,255,255,0.06);
           border: 1px solid rgba(255,255,255,0.14);
           color: white;
-        }
-
-        .social:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
         }
 
         .primary {
