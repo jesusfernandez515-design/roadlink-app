@@ -23,10 +23,16 @@ type Ride = {
   driverEmail?: string;
 };
 
+type Driver = {
+  name?: string;
+  email?: string;
+};
+
 type Message = {
   id: string;
   chatId?: string;
   rideId?: string;
+  driverId?: string;
   senderId?: string;
   senderEmail?: string;
   text?: string;
@@ -35,10 +41,12 @@ type Message = {
 
 export default function ChatPage() {
   const [rideId, setRideId] = useState("");
+  const [driverId, setDriverId] = useState("");
   const [chatId, setChatId] = useState("");
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [ride, setRide] = useState<Ride | null>(null);
+  const [driver, setDriver] = useState<Driver | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [status, setStatus] = useState("Loading chat...");
@@ -47,9 +55,18 @@ export default function ChatPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const currentRideId = params.get("rideId") || "";
+    const currentDriverId = params.get("driverId") || "";
 
     setRideId(currentRideId);
-    setChatId(currentRideId ? `chat_${currentRideId}` : "");
+    setDriverId(currentDriverId);
+
+    const generatedChatId = currentRideId
+      ? `chat_${currentRideId}`
+      : currentDriverId
+      ? `driver_chat_${currentDriverId}`
+      : "";
+
+    setChatId(generatedChatId);
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -60,26 +77,40 @@ export default function ChatPage() {
       setUserId(user.uid);
       setUserEmail(user.email || "");
 
-      if (!currentRideId) {
-        setStatus("No ride selected.");
+      if (!currentRideId && !currentDriverId) {
+        setStatus("No ride or driver selected.");
         return;
       }
 
       try {
-        const rideRef = doc(db, "rides", currentRideId);
-        const rideSnap = await getDoc(rideRef);
+        if (currentRideId) {
+          const rideRef = doc(db, "rides", currentRideId);
+          const rideSnap = await getDoc(rideRef);
 
-        if (rideSnap.exists()) {
-          setRide(rideSnap.data() as Ride);
+          if (rideSnap.exists()) {
+            const rideData = rideSnap.data() as Ride;
+            setRide(rideData);
+
+            if (rideData.driverId) {
+              setDriverId(rideData.driverId);
+            }
+          }
+        }
+
+        const finalDriverId = currentDriverId || driverId;
+
+        if (currentDriverId) {
+          const driverRef = doc(db, "users", currentDriverId);
+          const driverSnap = await getDoc(driverRef);
+
+          if (driverSnap.exists()) {
+            setDriver(driverSnap.data() as Driver);
+          }
         }
 
         setStatus("");
       } catch (error: unknown) {
-        if (error instanceof Error) {
-          setStatus(error.message);
-        } else {
-          setStatus("Something went wrong.");
-        }
+        setStatus(error instanceof Error ? error.message : "Something went wrong.");
       }
     });
 
@@ -126,8 +157,8 @@ export default function ChatPage() {
       return;
     }
 
-    if (!rideId || !chatId) {
-      setStatus("No ride selected.");
+    if (!chatId) {
+      setStatus("No chat selected.");
       return;
     }
 
@@ -136,25 +167,29 @@ export default function ChatPage() {
 
       await addDoc(collection(db, "messages"), {
         chatId,
-        rideId,
+        rideId: rideId || "",
+        driverId: driverId || "",
         senderId: userId,
         senderEmail: userEmail,
         text: cleanText,
         createdAt: new Date().toISOString(),
+        status: "sent",
       });
 
       setText("");
       setStatus("");
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        setStatus(error.message);
-      } else {
-        setStatus("Something went wrong.");
-      }
+      setStatus(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
       setSending(false);
     }
   }
+
+  const chatTitle = ride
+    ? `${ride.from || "Starting point"} → ${ride.to || "Destination"}`
+    : driver
+    ? `Chat with ${driver.name || driver.email || "RoadLink Driver"}`
+    : "Coordinate your trip safely.";
 
   return (
     <main className="page">
@@ -182,21 +217,15 @@ export default function ChatPage() {
             <div className="avatar">💬</div>
 
             <div>
-              <p className="eyebrow">Private Trip Chat</p>
+              <p className="eyebrow">Private RoadLink Chat</p>
               <h1>Chat</h1>
-              <p className="subtitle">
-                {ride
-                  ? `${ride.from || "Starting point"} → ${ride.to || "Destination"}`
-                  : "Coordinate your trip safely."}
-              </p>
+              <p className="subtitle">{chatTitle}</p>
 
-              {ride && (
-                <div className="chips">
-                  <span>📅 {ride.date || "Date"}</span>
-                  <span>🕒 {ride.time || "Time"}</span>
-                  <span>🛡️ RoadLink Secure</span>
-                </div>
-              )}
+              <div className="chips">
+                {ride?.date && <span>📅 {ride.date}</span>}
+                {ride?.time && <span>🕒 {ride.time}</span>}
+                <span>🛡️ RoadLink Secure</span>
+              </div>
             </div>
           </div>
         </header>
@@ -223,9 +252,7 @@ export default function ChatPage() {
                     <p>{message.text}</p>
                     <small>
                       {isMine ? "You" : message.senderEmail || "RoadLink User"}
-                      {message.createdAt
-                        ? ` • ${message.createdAt.slice(11, 16)}`
-                        : ""}
+                      {message.createdAt ? ` • ${message.createdAt.slice(11, 16)}` : ""}
                     </small>
                   </div>
                 </div>
@@ -556,4 +583,4 @@ export default function ChatPage() {
       `}</style>
     </main>
   );
-          }
+}
