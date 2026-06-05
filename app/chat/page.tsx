@@ -33,6 +33,7 @@ type Message = {
   chatId?: string;
   rideId?: string;
   driverId?: string;
+  passengerId?: string;
   senderId?: string;
   senderEmail?: string;
   text?: string;
@@ -42,6 +43,7 @@ type Message = {
 export default function ChatPage() {
   const [rideId, setRideId] = useState("");
   const [driverId, setDriverId] = useState("");
+  const [passengerId, setPassengerId] = useState("");
   const [chatId, setChatId] = useState("");
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
@@ -56,9 +58,11 @@ export default function ChatPage() {
     const params = new URLSearchParams(window.location.search);
     const currentRideId = params.get("rideId") || "";
     const currentDriverId = params.get("driverId") || "";
+    const currentPassengerId = params.get("passengerId") || "";
 
     setRideId(currentRideId);
     setDriverId(currentDriverId);
+    setPassengerId(currentPassengerId);
 
     const generatedChatId = currentRideId
       ? `chat_${currentRideId}`
@@ -96,8 +100,6 @@ export default function ChatPage() {
             }
           }
         }
-
-        const finalDriverId = currentDriverId || driverId;
 
         if (currentDriverId) {
           const driverRef = doc(db, "users", currentDriverId);
@@ -165,10 +167,15 @@ export default function ChatPage() {
     try {
       setSending(true);
 
+      const finalDriverId = driverId || ride?.driverId || "";
+      const finalPassengerId =
+        passengerId || (userId !== finalDriverId ? userId : "");
+
       await addDoc(collection(db, "messages"), {
         chatId,
         rideId: rideId || "",
-        driverId: driverId || "",
+        driverId: finalDriverId,
+        passengerId: finalPassengerId,
         senderId: userId,
         senderEmail: userEmail,
         text: cleanText,
@@ -196,22 +203,12 @@ export default function ChatPage() {
       <section className="chatShell">
         <header className="header">
           <div className="topActions">
-            <Link href="/find-ride" className="miniButton">
-              ← Back
-            </Link>
-
-            <Link href="/dashboard" className="miniButton">
-              Dashboard
-            </Link>
-
-            <Link href="/my-bookings" className="miniButton">
-              My Bookings
-            </Link>
+            <Link href="/messages" className="miniButton">← Inbox</Link>
+            <Link href="/dashboard" className="miniButton">Dashboard</Link>
+            <Link href="/my-bookings" className="miniButton">My Bookings</Link>
           </div>
 
-          <div className="brand">
-            Road<span>Link</span>
-          </div>
+          <div className="brand">Road<span>Link</span></div>
 
           <div className="routeCard">
             <div className="avatar">💬</div>
@@ -224,7 +221,7 @@ export default function ChatPage() {
               <div className="chips">
                 {ride?.date && <span>📅 {ride.date}</span>}
                 {ride?.time && <span>🕒 {ride.time}</span>}
-                <span>🛡️ RoadLink Secure</span>
+                <span>🛡️ Secure Chat</span>
               </div>
             </div>
           </div>
@@ -244,10 +241,7 @@ export default function ChatPage() {
               const isMine = message.senderId === userId;
 
               return (
-                <div
-                  key={message.id}
-                  className={isMine ? "messageRow mine" : "messageRow"}
-                >
+                <div key={message.id} className={isMine ? "messageRow mine" : "messageRow"}>
                   <div className={isMine ? "bubble myBubble" : "bubble"}>
                     <p>{message.text}</p>
                     <small>
@@ -275,14 +269,13 @@ export default function ChatPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 34%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -297,10 +290,10 @@ export default function ChatPage() {
         .header,
         .messages,
         .composer {
-          background: rgba(8, 13, 25, 0.88);
+          background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
+          backdrop-filter: blur(16px);
         }
 
         .header {
@@ -317,16 +310,18 @@ export default function ChatPage() {
         }
 
         .miniButton {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
           padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
           font-weight: 900;
+        }
+
+        .miniButton:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
         }
 
         .brand {
@@ -535,9 +530,7 @@ export default function ChatPage() {
         }
 
         @media (max-width: 700px) {
-          .page {
-            padding: 16px;
-          }
+          .page { padding: 16px; }
 
           .header,
           .messages,
