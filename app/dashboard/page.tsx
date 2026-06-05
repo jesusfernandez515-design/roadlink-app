@@ -28,14 +28,12 @@ type Booking = {
   status: string;
 };
 
-type Message = {
+type Chat = {
   id: string;
-  rideId?: string;
+  chatId?: string;
   driverId?: string;
   passengerId?: string;
-  senderId?: string;
-  text?: string;
-  createdAt?: string;
+  unreadCount?: number;
 };
 
 export default function DashboardPage() {
@@ -43,6 +41,7 @@ export default function DashboardPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
+  const [conversationCount, setConversationCount] = useState(0);
   const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading dashboard...");
 
@@ -94,27 +93,59 @@ export default function DashboardPage() {
           0
         );
 
-        const messagesSnapshot = await getDocs(collection(db, "messages"));
+        const driverChatsQuery = query(
+          collection(db, "chats"),
+          where("driverId", "==", user.uid)
+        );
 
-        const messagesData = messagesSnapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Message[];
+        const passengerChatsQuery = query(
+          collection(db, "chats"),
+          where("passengerId", "==", user.uid)
+        );
 
-        const relatedMessages = messagesData.filter((item) => {
-          const isDriverMessage = item.driverId === user.uid;
-          const isPassengerMessage = item.passengerId === user.uid;
-          return isDriverMessage || isPassengerMessage;
+        const driverChatsSnapshot = await getDocs(driverChatsQuery);
+        const passengerChatsSnapshot = await getDocs(passengerChatsQuery);
+
+        const chatsMap = new Map<string, Chat>();
+
+        driverChatsSnapshot.docs.forEach((document) => {
+          const data = {
+            id: document.id,
+            ...document.data(),
+          } as Chat;
+
+          const key = data.chatId || data.id;
+
+          if (key !== "chat_abc123" && data.driverId !== "test-driver") {
+            chatsMap.set(key, data);
+          }
         });
 
-        const incomingMessages = relatedMessages.filter(
-          (item) => item.senderId !== user.uid
+        passengerChatsSnapshot.docs.forEach((document) => {
+          const data = {
+            id: document.id,
+            ...document.data(),
+          } as Chat;
+
+          const key = data.chatId || data.id;
+
+          if (key !== "chat_abc123" && data.passengerId !== "test-passenger") {
+            chatsMap.set(key, data);
+          }
+        });
+
+        const chatsData = Array.from(chatsMap.values());
+
+        const unreadMessages = chatsData.reduce(
+          (total, chat) => total + Number(chat.unreadCount || 0),
+          0
         );
 
         setActiveRides(ridesData);
         setBookings(bookingsData);
         setEarnings(totalEarnings);
-        setMessageCount(incomingMessages.length);
+        setConversationCount(chatsData.length);
+        setMessageCount(unreadMessages);
         setMessage("");
       } catch (error: any) {
         setMessage(error.message);
@@ -133,7 +164,9 @@ export default function DashboardPage() {
           <Link href="/" className="miniButton">Home</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/messages" className="miniButton">Messages</Link>
+          <Link href="/messages" className="miniButton">
+            Messages {messageCount > 0 ? `(${messageCount})` : ""}
+          </Link>
           <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
@@ -156,7 +189,13 @@ export default function DashboardPage() {
         <section className="stats">
           <Metric icon="🚗" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
           <Metric icon="🎟️" title="Booked Trips" value={String(bookings.length)} href="/my-bookings" />
-          <Metric icon="💬" title="Messages" value={String(messageCount)} href="/messages" />
+          <Metric
+            icon="💬"
+            title={messageCount > 0 ? "Unread Messages" : "Messages"}
+            value={messageCount > 0 ? String(messageCount) : String(conversationCount)}
+            href="/messages"
+            alert={messageCount > 0}
+          />
           <Metric icon="💵" title="Earnings" value={`$${earnings}`} href="/dashboard/driver" />
         </section>
 
@@ -220,8 +259,8 @@ export default function DashboardPage() {
             <h2>Control Center</h2>
 
             <div className="actions">
-              <Link href="/messages">
-                💬 Messages {messageCount > 0 ? `(${messageCount})` : ""}
+              <Link href="/messages" className={messageCount > 0 ? "alertAction" : ""}>
+                💬 Messages {messageCount > 0 ? `(${messageCount} new)` : conversationCount > 0 ? `(${conversationCount})` : ""}
               </Link>
               <Link href="/find-ride">🔎 Find a Ride</Link>
               <Link href="/offer-ride">➕ Offer a Ride</Link>
@@ -360,6 +399,24 @@ export default function DashboardPage() {
           transition: all 0.25s ease;
           text-decoration: none;
           color: white;
+          position: relative;
+        }
+
+        .metric.alertMetric {
+          border-color: rgba(239,68,68,0.45);
+          background: rgba(239,68,68,0.08);
+        }
+
+        .metric.alertMetric::after {
+          content: "";
+          position: absolute;
+          top: 18px;
+          right: 18px;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #ef4444;
+          box-shadow: 0 0 18px rgba(239,68,68,0.8);
         }
 
         .metric:hover {
@@ -390,6 +447,10 @@ export default function DashboardPage() {
           font-size: 32px;
           font-weight: 900;
           margin: 0;
+        }
+
+        .alertMetric p {
+          color: #fca5a5;
         }
 
         .premiumGrid {
@@ -527,6 +588,12 @@ export default function DashboardPage() {
           background: rgba(34,197,94,0.12);
         }
 
+        .actions a.alertAction {
+          border-color: rgba(239,68,68,0.45);
+          background: rgba(239,68,68,0.12);
+          color: #fca5a5;
+        }
+
         .actions a:hover {
           transform: translateX(4px);
           border-color: rgba(34,197,94,0.4);
@@ -585,11 +652,13 @@ function Metric({
   title,
   value,
   href,
+  alert,
 }: {
   icon: string;
   title: string;
   value: string;
   href?: string;
+  alert?: boolean;
 }) {
   const content = (
     <>
@@ -599,13 +668,15 @@ function Metric({
     </>
   );
 
+  const className = alert ? "metric alertMetric" : "metric";
+
   if (href) {
     return (
-      <Link href={href} className="metric">
+      <Link href={href} className={className}>
         {content}
       </Link>
     );
   }
 
-  return <div className="metric">{content}</div>;
+  return <div className={className}>{content}</div>;
 }
