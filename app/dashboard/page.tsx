@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
-  const [avatar, setAvatar] = useState("J");
+  const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading dashboard...");
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function DashboardPage() {
         return;
       }
 
-      setAvatar((user.email || "J").charAt(0).toUpperCase());
+      setAvatar((user.email || "R").charAt(0).toUpperCase());
 
       try {
         const ridesQuery = query(
@@ -136,17 +136,18 @@ export default function DashboardPage() {
           <Link href="/" className="miniButton">Home</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
+          <Link href="/messages" className="miniButton">Messages</Link>
           <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
         <section className="heroCard">
           <div>
-            <p className="eyebrow">RoadLink Dashboard</p>
+            <p className="eyebrow">RoadLink Premium Dashboard</p>
             <h1>
               Welcome back, <span>driver.</span>
             </h1>
             <p className="subtitle">
-              Manage your rides, bookings, earnings, messages, and upcoming trips from one premium control center.
+              Manage your rides, bookings, earnings, messages, and upcoming trips from one powerful control center.
             </p>
           </div>
 
@@ -156,10 +157,10 @@ export default function DashboardPage() {
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚗" title="Active Rides" value={String(activeRides.length)} />
-          <Metric icon="🎟️" title="Booked Trips" value={String(bookings.length)} />
-          <Metric icon="💬" title="Messages" value={String(messageCount)} href="/dashboard/messages" />
-          <Metric icon="💵" title="Earnings" value={`$${earnings}`} />
+          <Metric icon="🚗" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
+          <Metric icon="🎟️" title="Booked Trips" value={String(bookings.length)} href="/my-bookings" />
+          <Metric icon="💬" title="Messages" value={String(messageCount)} href="/messages" />
+          <Metric icon="💵" title="Earnings" value={`$${earnings}`} href="/dashboard/driver" />
         </section>
 
         <section className="premiumGrid">
@@ -207,7 +208,9 @@ export default function DashboardPage() {
             ) : (
               <div className="emptyTrip">
                 <h3>No upcoming trips yet.</h3>
-                <p>Reserve your next long-distance ride and it will appear here.</p>
+                <p>
+                  Reserve your next long-distance ride and it will appear here automatically.
+                </p>
                 <Link className="mainButton" href="/find-ride">
                   Find a Ride
                 </Link>
@@ -220,7 +223,9 @@ export default function DashboardPage() {
             <h2>Control Center</h2>
 
             <div className="actions">
-              <Link href="/dashboard/messages">💬 Messages {messageCount > 0 ? `(${messageCount})` : ""}</Link>
+              <Link href="/messages">
+                💬 Messages {messageCount > 0 ? `(${messageCount})` : ""}
+              </Link>
               <Link href="/find-ride">🔎 Find a Ride</Link>
               <Link href="/offer-ride">➕ Offer a Ride</Link>
               <Link href="/my-bookings">📋 My Bookings</Link>
@@ -240,7 +245,8 @@ export default function DashboardPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 32%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.14), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -249,7 +255,7 @@ export default function DashboardPage() {
 
         .dashboard {
           width: 100%;
-          max-width: 1100px;
+          max-width: 1120px;
           margin: 0 auto;
         }
 
@@ -261,26 +267,28 @@ export default function DashboardPage() {
         }
 
         .miniButton {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
           padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
           font-weight: 900;
         }
 
+        .miniButton:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
+        }
+
         .heroCard,
         .tripCard,
         .actionsCard,
         .metric {
-          background: rgba(8, 13, 25, 0.88);
+          background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
         }
 
         .heroCard {
@@ -322,16 +330,16 @@ export default function DashboardPage() {
         }
 
         .avatar {
-          min-width: 86px;
-          height: 86px;
+          min-width: 90px;
+          height: 90px;
           border-radius: 50%;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 38px;
+          font-size: 40px;
           font-weight: 900;
-          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
+          box-shadow: 0 18px 55px rgba(34,197,94,0.35);
         }
 
         .message {
@@ -359,7 +367,7 @@ export default function DashboardPage() {
 
         .metric:hover {
           transform: translateY(-4px);
-          border-color: rgba(34,197,94,0.35);
+          border-color: rgba(34,197,94,0.4);
         }
 
         .metricIcon {
@@ -507,22 +515,24 @@ export default function DashboardPage() {
 
         .actions a {
           display: block;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 18px;
           padding: 18px;
           color: white;
           text-decoration: none;
           font-weight: 900;
+          transition: all 0.25s ease;
         }
 
         .actions a:first-child {
-          border-color: rgba(34,197,94,0.4);
-          background: rgba(34,197,94,0.1);
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
         }
 
         .actions a:hover {
-          border-color: rgba(34,197,94,0.35);
+          transform: translateX(4px);
+          border-color: rgba(34,197,94,0.4);
         }
 
         @media (max-width: 800px) {
