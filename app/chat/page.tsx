@@ -11,6 +11,7 @@ import {
   getDoc,
   onSnapshot,
   query,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -152,9 +153,20 @@ export default function ChatPage() {
             unreadIncoming.map((message) =>
               updateDoc(doc(db, "messages", message.id), {
                 read: true,
+                status: "read",
               })
             )
           );
+
+          if (unreadIncoming.length > 0) {
+            await setDoc(
+              doc(db, "chats", chatId),
+              {
+                unreadCount: 0,
+              },
+              { merge: true }
+            );
+          }
         }
       },
       (error) => {
@@ -187,6 +199,9 @@ export default function ChatPage() {
       const finalPassengerId =
         passengerId || (userId !== finalDriverId ? userId : "");
 
+      const now = new Date().toISOString();
+      const receiverIsDriver = userId !== finalDriverId;
+
       await addDoc(collection(db, "messages"), {
         chatId,
         rideId: rideId || "",
@@ -195,10 +210,28 @@ export default function ChatPage() {
         senderId: userId,
         senderEmail: userEmail,
         text: cleanText,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         status: "sent",
         read: false,
       });
+
+      await setDoc(
+        doc(db, "chats", chatId),
+        {
+          chatId,
+          rideId: rideId || "",
+          driverId: finalDriverId,
+          passengerId: finalPassengerId,
+          driverEmail: ride?.driverEmail || driver?.email || "",
+          passengerEmail: receiverIsDriver ? userEmail : "",
+          lastMessage: cleanText,
+          lastMessageTime: now,
+          lastSenderId: userId,
+          lastSenderEmail: userEmail,
+          unreadCount: 1,
+        },
+        { merge: true }
+      );
 
       setText("");
       setStatus("");
