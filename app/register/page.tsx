@@ -8,6 +8,8 @@ import {
   sendEmailVerification,
   signInWithPopup,
   GoogleAuthProvider,
+  deleteUser,
+  signOut,
 } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
@@ -20,8 +22,6 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
 
   function getDeviceId() {
-    if (typeof window === "undefined") return "";
-
     let deviceId = localStorage.getItem("roadlink_device_id");
 
     if (!deviceId) {
@@ -32,13 +32,8 @@ export default function RegisterPage() {
     return deviceId;
   }
 
-  async function deviceAlreadyUsed(deviceId: string) {
-    if (!deviceId) return false;
-
-    const deviceRef = doc(db, "devices", deviceId);
-    const deviceSnap = await getDoc(deviceRef);
-
-    return deviceSnap.exists();
+  function isValidGmail(emailValue: string) {
+    return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(emailValue);
   }
 
   async function createAccount() {
@@ -51,8 +46,18 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!isValidGmail(cleanEmail)) {
+      setMessage("Please use a real Gmail address ending in @gmail.com.");
+      return;
+    }
+
     if (cleanPassword.length < 6) {
       setMessage("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (localStorage.getItem("roadlink_registered_device") === "true") {
+      setMessage("This device already has a RoadLink account.");
       return;
     }
 
@@ -61,12 +66,6 @@ export default function RegisterPage() {
       setMessage("");
 
       const deviceId = getDeviceId();
-      const used = await deviceAlreadyUsed(deviceId);
-
-      if (used) {
-        setMessage("This device already has a RoadLink account.");
-        return;
-      }
 
       const userCredential = await createUserWithEmailAndPassword(
         auth,
@@ -75,6 +74,16 @@ export default function RegisterPage() {
       );
 
       const user = userCredential.user;
+
+      const deviceRef = doc(db, "devices", deviceId);
+      const deviceSnap = await getDoc(deviceRef);
+
+      if (deviceSnap.exists()) {
+        await deleteUser(user);
+        await signOut(auth);
+        setMessage("This device already has a RoadLink account.");
+        return;
+      }
 
       await sendEmailVerification(user);
 
@@ -88,7 +97,7 @@ export default function RegisterPage() {
         createdAt: new Date().toISOString(),
       });
 
-      await setDoc(doc(db, "devices", deviceId), {
+      await setDoc(deviceRef, {
         userId: user.uid,
         email: cleanEmail,
         provider: "email",
@@ -97,9 +106,7 @@ export default function RegisterPage() {
 
       localStorage.setItem("roadlink_registered_device", "true");
 
-      setMessage(
-        "Account created. Please check your email and verify your account before using RoadLink."
-      );
+      setMessage("Account created. Please check your Gmail and verify your account before using RoadLink.");
     } catch (error: any) {
       setMessage(error.message);
     } finally {
@@ -108,25 +115,40 @@ export default function RegisterPage() {
   }
 
   async function continueWithGoogle() {
+    if (localStorage.getItem("roadlink_registered_device") === "true") {
+      setMessage("This device already has a RoadLink account.");
+      return;
+    }
+
     try {
       setLoading(true);
       setMessage("");
 
       const deviceId = getDeviceId();
-      const used = await deviceAlreadyUsed(deviceId);
-
-      if (used) {
-        setMessage("This device already has a RoadLink account.");
-        return;
-      }
-
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
+      const cleanEmail = (user.email || "").toLowerCase();
+
+      if (!isValidGmail(cleanEmail)) {
+        await signOut(auth);
+        setMessage("Please use a real Gmail account.");
+        return;
+      }
+
+      const deviceRef = doc(db, "devices", deviceId);
+      const deviceSnap = await getDoc(deviceRef);
+
+      if (deviceSnap.exists()) {
+        await signOut(auth);
+        setMessage("This device already has a RoadLink account.");
+        return;
+      }
+
       await setDoc(doc(db, "users", user.uid), {
         name: user.displayName || "",
-        email: user.email || "",
+        email: cleanEmail,
         role: "passenger",
         emailVerified: Boolean(user.emailVerified),
         provider: "google",
@@ -134,9 +156,9 @@ export default function RegisterPage() {
         createdAt: new Date().toISOString(),
       });
 
-      await setDoc(doc(db, "devices", deviceId), {
+      await setDoc(deviceRef, {
         userId: user.uid,
-        email: user.email || "",
+        email: cleanEmail,
         provider: "google",
         createdAt: new Date().toISOString(),
       });
@@ -157,11 +179,10 @@ export default function RegisterPage() {
         <div className="brand">Road<span>Link</span></div>
 
         <p className="eyebrow">Secure Registration</p>
-
         <h1>Create your account</h1>
 
         <p className="subtitle">
-          Join RoadLink with a verified email. Each device can create only one account.
+          Join RoadLink with a verified Gmail. Each device can create only one account.
         </p>
 
         <button className="social" onClick={continueWithGoogle} disabled={loading}>
@@ -170,24 +191,9 @@ export default function RegisterPage() {
 
         <div className="divider">or</div>
 
-        <input
-          placeholder="Full name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-
-        <input
-          placeholder="Email address"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="Gmail address" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
 
         <select value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="passenger">Passenger</option>
@@ -201,7 +207,7 @@ export default function RegisterPage() {
         {message && <p className="message">{message}</p>}
 
         <div className="securityBox">
-          <p>✅ Email verification required</p>
+          <p>✅ Gmail verification required</p>
           <p>✅ One account per device</p>
           <p>✅ Google sign-in supported</p>
         </div>
@@ -212,9 +218,7 @@ export default function RegisterPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -247,12 +251,11 @@ export default function RegisterPage() {
           margin-bottom: 26px;
         }
 
-        .brand span {
+        .brand span, .eyebrow, .message {
           color: #22c55e;
         }
 
         .eyebrow {
-          color: #22c55e;
           font-size: 13px;
           font-weight: 900;
           letter-spacing: 0.08em;
@@ -264,7 +267,6 @@ export default function RegisterPage() {
           font-size: 46px;
           margin: 0 0 14px;
           line-height: 1.05;
-          letter-spacing: -1px;
         }
 
         .subtitle {
@@ -274,8 +276,7 @@ export default function RegisterPage() {
           font-size: 17px;
         }
 
-        input,
-        select {
+        input, select {
           width: 100%;
           padding: 16px;
           margin-top: 12px;
@@ -287,19 +288,7 @@ export default function RegisterPage() {
           outline: none;
         }
 
-        input:focus,
-        select:focus {
-          border-color: rgba(34,197,94,0.65);
-          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
-        }
-
-        input::placeholder {
-          color: #71717a;
-        }
-
-        select option {
-          color: black;
-        }
+        select option { color: black; }
 
         button {
           width: 100%;
@@ -308,7 +297,6 @@ export default function RegisterPage() {
           font-size: 16px;
           font-weight: 900;
           cursor: pointer;
-          transition: all 0.25s ease;
         }
 
         button:disabled {
@@ -323,17 +311,11 @@ export default function RegisterPage() {
           color: white;
         }
 
-        .social:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .primary {
           margin-top: 22px;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           border: none;
           color: white;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
         .divider {
@@ -345,8 +327,7 @@ export default function RegisterPage() {
           font-weight: 800;
         }
 
-        .divider:before,
-        .divider:after {
+        .divider:before, .divider:after {
           content: "";
           flex: 1;
           height: 1px;
@@ -354,7 +335,6 @@ export default function RegisterPage() {
         }
 
         .message {
-          color: #22c55e;
           margin-top: 18px;
           text-align: center;
           font-weight: 800;
@@ -385,21 +365,6 @@ export default function RegisterPage() {
           color: white;
           font-weight: 900;
           text-decoration: none;
-        }
-
-        @media (max-width: 480px) {
-          .page {
-            padding: 16px;
-          }
-
-          .card {
-            padding: 26px;
-            border-radius: 28px;
-          }
-
-          h1 {
-            font-size: 38px;
-          }
         }
       `}</style>
     </main>
