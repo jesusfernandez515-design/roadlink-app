@@ -2,8 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { db } from "../../lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  arrayRemove,
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 type Rating = {
   id: string;
@@ -17,49 +28,144 @@ type Rating = {
   createdAt?: string;
 };
 
+type DriverProfile = {
+  name?: string;
+  email?: string;
+  photoURL?: string;
+  bio?: string;
+  verified?: boolean;
+  followers?: string[];
+  following?: string[];
+  tripsCompleted?: number;
+  joinedAt?: any;
+  createdAt?: any;
+};
+
 export default function DriverProfilePage() {
   const [driverId, setDriverId] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
   const [ratings, setRatings] = useState<Rating[]>([]);
+  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
+  const [isFollowing, setIsFollowing] = useState(false);
   const [message, setMessage] = useState("Loading driver profile...");
+  const [followLoading, setFollowLoading] = useState(false);
 
   useEffect(() => {
-    async function loadDriverProfile() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const currentDriverId = params.get("driverId") || "";
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const params = new URLSearchParams(window.location.search);
+      const currentDriverId = params.get("driverId") || "";
 
-        setDriverId(currentDriverId);
+      setDriverId(currentDriverId);
 
-        if (!currentDriverId) {
-          setMessage("");
-          return;
-        }
-
-        const ratingsQuery = query(
-          collection(db, "ratings"),
-          where("driverId", "==", currentDriverId)
-        );
-
-        const ratingsSnapshot = await getDocs(ratingsQuery);
-
-        const ratingsData = ratingsSnapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Rating[];
-
-        setRatings(ratingsData);
-        setMessage("");
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          setMessage(error.message);
-        } else {
-          setMessage("Something went wrong.");
-        }
+      if (user) {
+        setCurrentUserId(user.uid);
       }
+
+      await loadDriverProfile(currentDriverId, user?.uid || "");
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  async function loadDriverProfile(currentDriverId: string, userId: string) {
+    try {
+      if (!currentDriverId) {
+        setMessage("No driver selected.");
+        return;
+      }
+
+      const driverRef = doc(db, "users", currentDriverId);
+      const driverSnap = await getDoc(driverRef);
+
+      if (driverSnap.exists()) {
+        const data = driverSnap.data() as DriverProfile;
+        setDriverProfile(data);
+
+        const followers = Array.isArray(data.followers) ? data.followers : [];
+        setIsFollowing(userId ? followers.includes(userId) : false);
+      } else {
+        setDriverProfile(null);
+      }
+
+      const ratingsQuery = query(
+        collection(db, "ratings"),
+        where("driverId", "==", currentDriverId)
+      );
+
+      const ratingsSnapshot = await getDocs(ratingsQuery);
+
+      const ratingsData = ratingsSnapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      })) as Rating[];
+
+      setRatings(ratingsData);
+      setMessage("");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    }
+  }
+
+  async function toggleFollow() {
+    if (!currentUserId) {
+      setMessage("Please sign in before following a driver.");
+      return;
     }
 
-    loadDriverProfile();
-  }, []);
+    if (!driverId) {
+      setMessage("No driver selected.");
+      return;
+    }
+
+    if (currentUserId === driverId) {
+      setMessage("You cannot follow yourself.");
+      return;
+    }
+
+    try {
+      setFollowLoading(true);
+      setMessage("");
+
+      const currentUserRef = doc(db, "users", currentUserId);
+      const driverRef = doc(db, "users", driverId);
+
+      if (isFollowing) {
+        await updateDoc(currentUserRef, {
+          following: arrayRemove(driverId),
+        });
+
+        await updateDoc(driverRef, {
+          followers: arrayRemove(currentUserId),
+        });
+
+        setIsFollowing(false);
+
+        setDriverProfile((current) => ({
+          ...current,
+          followers: (current?.followers || []).filter((id) => id !== currentUserId),
+        }));
+      } else {
+        await updateDoc(currentUserRef, {
+          following: arrayUnion(driverId),
+        });
+
+        await updateDoc(driverRef, {
+          followers: arrayUnion(currentUserId),
+        });
+
+        setIsFollowing(true);
+
+        setDriverProfile((current) => ({
+          ...current,
+          followers: [...(current?.followers || []), currentUserId],
+        }));
+      }
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setFollowLoading(false);
+    }
+  }
 
   const totalReviews = ratings.length;
 
@@ -74,6 +180,16 @@ export default function DriverProfilePage() {
 
   const stars =
     totalReviews > 0 ? "★".repeat(Math.round(averageRating)) : "★★★★★";
+
+  const displayName = driverProfile?.name || "RoadLink Driver";
+  const displayEmail = driverProfile?.email || "Verified RoadLink Driver";
+  const displayPhoto = driverProfile?.photoURL || "";
+  const displayBio =
+    driverProfile?.bio || "Trusted RoadLink member ready to connect with passengers.";
+  const followersCount = driverProfile?.followers?.length || 0;
+  const followingCount = driverProfile?.following?.length || 0;
+  const tripsCompleted = Number(driverProfile?.tripsCompleted || 0);
+  const verified = Boolean(driverProfile?.verified);
 
   return (
     <main className="page">
@@ -93,18 +209,48 @@ export default function DriverProfilePage() {
         </div>
 
         <div className="driverHeader">
-          <div className="avatar">D</div>
+          {displayPhoto ? (
+            <img src={displayPhoto} alt={displayName} className="avatarImage" />
+          ) : (
+            <div className="avatar">{displayName.charAt(0).toUpperCase()}</div>
+          )}
 
           <div>
-            <p className="eyebrow">Verified Driver</p>
+            <p className="eyebrow">{verified ? "Verified Driver" : "RoadLink Driver"}</p>
 
             <h1>
-              Driver <span>Profile</span>
+              {displayName} <span>{verified ? "✓" : ""}</span>
             </h1>
 
-            <p className="subtitle">RoadLink Driver</p>
+            <p className="subtitle">{displayEmail}</p>
+            <p className="bioText">{displayBio}</p>
 
-            <div className="verifiedBadge">✓ Verified RoadLink Member</div>
+            <div className="verifiedBadge">
+              {verified ? "✓ Verified RoadLink Member" : "RoadLink Member"}
+            </div>
+
+            <div className="profileActions">
+              <button
+                className={isFollowing ? "followButton following" : "followButton"}
+                onClick={toggleFollow}
+                disabled={followLoading || currentUserId === driverId}
+              >
+                {followLoading
+                  ? "Loading..."
+                  : currentUserId === driverId
+                  ? "Your Profile"
+                  : isFollowing
+                  ? "Following"
+                  : "Follow"}
+              </button>
+
+              <Link
+                href={`/chat?driverId=${driverId}`}
+                className="messageButton"
+              >
+                Message
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -127,23 +273,30 @@ export default function DriverProfilePage() {
 
         <section className="stats">
           <Metric icon="⭐" label="Rating" value={String(ratingDisplay)} />
-          <Metric icon="💬" label="Reviews" value={String(totalReviews)} />
-          <Metric icon="🛡️" label="Status" value="Verified" />
+          <Metric icon="🚗" label="Trips" value={String(tripsCompleted)} />
+          <Metric icon="👥" label="Followers" value={String(followersCount)} />
+          <Metric icon="➡️" label="Following" value={String(followingCount)} />
         </section>
 
         <section className="infoCard">
           <p className="eyebrow">Trust & Safety</p>
           <h2>Driver Information</h2>
 
-          <Info icon="👤" label="Name" value="RoadLink Driver" />
+          <Info icon="👤" label="Name" value={displayName} />
           <Info
             icon="⭐"
             label="Rating"
             value={totalReviews > 0 ? `${ratingDisplay}/5` : "New Driver"}
           />
           <Info icon="💬" label="Total Reviews" value={String(totalReviews)} />
-          <Info icon="📅" label="Member Since" value="2026" />
-          <Info icon="🛡️" label="Verification" value="Email Verified" />
+          <Info icon="🚗" label="Completed Trips" value={String(tripsCompleted)} />
+          <Info icon="👥" label="Followers" value={String(followersCount)} />
+          <Info icon="➡️" label="Following" value={String(followingCount)} />
+          <Info
+            icon="🛡️"
+            label="Verification"
+            value={verified ? "Verified Member" : "Pending Verification"}
+          />
           <Info
             icon="🆔"
             label="Driver ID"
@@ -211,7 +364,7 @@ export default function DriverProfilePage() {
         }
 
         .profileCard {
-          max-width: 860px;
+          max-width: 900px;
           margin: 0 auto;
         }
 
@@ -255,17 +408,27 @@ export default function DriverProfilePage() {
           margin-bottom: 22px;
         }
 
-        .avatar {
-          min-width: 92px;
-          height: 92px;
+        .avatar,
+        .avatarImage {
+          min-width: 96px;
+          width: 96px;
+          height: 96px;
           border-radius: 50%;
+          border: 2px solid rgba(34,197,94,0.45);
+          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
+        }
+
+        .avatar {
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 42px;
           font-weight: 900;
-          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
+        }
+
+        .avatarImage {
+          object-fit: cover;
         }
 
         .eyebrow {
@@ -278,7 +441,7 @@ export default function DriverProfilePage() {
         }
 
         h1 {
-          font-size: 54px;
+          font-size: 48px;
           line-height: 1;
           margin: 0 0 12px;
           letter-spacing: -1px;
@@ -297,6 +460,13 @@ export default function DriverProfilePage() {
           font-size: 18px;
           line-height: 1.5;
           margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .bioText {
+          color: #d4d4d8;
+          line-height: 1.5;
+          margin: 12px 0 0;
         }
 
         .verifiedBadge {
@@ -308,6 +478,50 @@ export default function DriverProfilePage() {
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
           font-weight: 900;
+        }
+
+        .profileActions {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-top: 18px;
+        }
+
+        .followButton,
+        .messageButton {
+          min-width: 130px;
+          padding: 13px 20px;
+          border-radius: 999px;
+          text-align: center;
+          text-decoration: none;
+          font-size: 15px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .followButton {
+          border: none;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          box-shadow: 0 14px 40px rgba(34,197,94,0.22);
+        }
+
+        .followButton.following {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(34,197,94,0.45);
+          color: #22c55e;
+          box-shadow: none;
+        }
+
+        .followButton:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .messageButton {
+          border: 1px solid rgba(255,255,255,0.15);
+          background: rgba(255,255,255,0.04);
+          color: white;
         }
 
         .message {
@@ -359,7 +573,7 @@ export default function DriverProfilePage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
           margin-bottom: 24px;
         }
@@ -511,14 +725,16 @@ export default function DriverProfilePage() {
             align-items: flex-start;
           }
 
-          .avatar {
+          .avatar,
+          .avatarImage {
             min-width: 76px;
+            width: 76px;
             height: 76px;
             font-size: 34px;
           }
 
           h1 {
-            font-size: 42px;
+            font-size: 40px;
           }
 
           .ratingHero {
@@ -536,7 +752,7 @@ export default function DriverProfilePage() {
           }
 
           .stats {
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr 1fr;
           }
 
           .infoRow {
