@@ -28,10 +28,19 @@ type Booking = {
   status: string;
 };
 
+type Message = {
+  id: string;
+  rideId?: string;
+  senderId?: string;
+  text?: string;
+  createdAt?: string;
+};
+
 export default function DashboardPage() {
   const [activeRides, setActiveRides] = useState<Ride[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
   const [avatar, setAvatar] = useState("J");
   const [message, setMessage] = useState("Loading dashboard...");
 
@@ -56,6 +65,8 @@ export default function DashboardPage() {
           id: document.id,
           ...document.data(),
         })) as Ride[];
+
+        const myRideIds = ridesData.map((ride) => ride.id);
 
         const bookingsQuery = query(
           collection(db, "bookings"),
@@ -83,9 +94,30 @@ export default function DashboardPage() {
           0
         );
 
+        const messagesSnapshot = await getDocs(collection(db, "messages"));
+
+        const messagesData = messagesSnapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as Message[];
+
+        const relatedMessages = messagesData.filter((item) => {
+          const isMyMessage = item.senderId === user.uid;
+          const isMessageForMyRide = item.rideId
+            ? myRideIds.includes(item.rideId)
+            : false;
+
+          return isMyMessage || isMessageForMyRide;
+        });
+
+        const incomingMessages = relatedMessages.filter(
+          (item) => item.senderId !== user.uid
+        );
+
         setActiveRides(ridesData);
         setBookings(bookingsData);
         setEarnings(totalEarnings);
+        setMessageCount(incomingMessages.length);
         setMessage("");
       } catch (error: any) {
         setMessage(error.message);
@@ -101,21 +133,10 @@ export default function DashboardPage() {
     <main className="page">
       <section className="dashboard">
         <div className="topNav">
-          <Link href="/" className="miniButton">
-            Home
-          </Link>
-
-          <Link href="/find-ride" className="miniButton">
-            Find Ride
-          </Link>
-
-          <Link href="/offer-ride" className="miniButton">
-            Offer Ride
-          </Link>
-
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
+          <Link href="/" className="miniButton">Home</Link>
+          <Link href="/find-ride" className="miniButton">Find Ride</Link>
+          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
+          <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
         <section className="heroCard">
@@ -125,8 +146,7 @@ export default function DashboardPage() {
               Welcome back, <span>driver.</span>
             </h1>
             <p className="subtitle">
-              Manage your rides, bookings, earnings, and upcoming trips from one
-              premium control center.
+              Manage your rides, bookings, earnings, messages, and upcoming trips from one premium control center.
             </p>
           </div>
 
@@ -138,7 +158,7 @@ export default function DashboardPage() {
         <section className="stats">
           <Metric icon="🚗" title="Active Rides" value={String(activeRides.length)} />
           <Metric icon="🎟️" title="Booked Trips" value={String(bookings.length)} />
-          <Metric icon="⭐" title="Rating" value="New" />
+          <Metric icon="💬" title="Messages" value={String(messageCount)} href="/dashboard/messages" />
           <Metric icon="💵" title="Earnings" value={`$${earnings}`} />
         </section>
 
@@ -200,6 +220,7 @@ export default function DashboardPage() {
             <h2>Control Center</h2>
 
             <div className="actions">
+              <Link href="/dashboard/messages">💬 Messages {messageCount > 0 ? `(${messageCount})` : ""}</Link>
               <Link href="/find-ride">🔎 Find a Ride</Link>
               <Link href="/offer-ride">➕ Offer a Ride</Link>
               <Link href="/my-bookings">📋 My Bookings</Link>
@@ -328,9 +349,12 @@ export default function DashboardPage() {
         }
 
         .metric {
+          display: block;
           border-radius: 24px;
           padding: 22px;
           transition: all 0.25s ease;
+          text-decoration: none;
+          color: white;
         }
 
         .metric:hover {
@@ -492,6 +516,11 @@ export default function DashboardPage() {
           font-weight: 900;
         }
 
+        .actions a:first-child {
+          border-color: rgba(34,197,94,0.4);
+          background: rgba(34,197,94,0.1);
+        }
+
         .actions a:hover {
           border-color: rgba(34,197,94,0.35);
         }
@@ -525,10 +554,6 @@ export default function DashboardPage() {
         }
 
         @media (max-width: 480px) {
-          .stats {
-            grid-template-columns: 1fr 1fr;
-          }
-
           .metric {
             padding: 18px;
           }
@@ -552,16 +577,28 @@ function Metric({
   icon,
   title,
   value,
+  href,
 }: {
   icon: string;
   title: string;
   value: string;
+  href?: string;
 }) {
-  return (
-    <div className="metric">
+  const content = (
+    <>
       <div className="metricIcon">{icon}</div>
       <h3>{title}</h3>
       <p>{value}</p>
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="metric">
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className="metric">{content}</div>;
 }
