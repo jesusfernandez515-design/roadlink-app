@@ -31,6 +31,8 @@ type Booking = {
 type Message = {
   id: string;
   rideId?: string;
+  driverId?: string;
+  passengerId?: string;
   senderId?: string;
   text?: string;
   createdAt?: string;
@@ -66,8 +68,6 @@ export default function DashboardPage() {
           ...document.data(),
         })) as Ride[];
 
-        const myRideIds = ridesData.map((ride) => ride.id);
-
         const bookingsQuery = query(
           collection(db, "bookings"),
           where("passengerId", "==", user.uid),
@@ -102,12 +102,9 @@ export default function DashboardPage() {
         })) as Message[];
 
         const relatedMessages = messagesData.filter((item) => {
-          const isMyMessage = item.senderId === user.uid;
-          const isMessageForMyRide = item.rideId
-            ? myRideIds.includes(item.rideId)
-            : false;
-
-          return isMyMessage || isMessageForMyRide;
+          const isDriverMessage = item.driverId === user.uid;
+          const isPassengerMessage = item.passengerId === user.uid;
+          return isDriverMessage || isPassengerMessage;
         });
 
         const incomingMessages = relatedMessages.filter(
