@@ -40,10 +40,20 @@ export default function RegisterPage() {
     return deviceId;
   }
 
-  function redirectToLogin() {
-    setTimeout(() => {
-      router.push("/login");
-    }, 3000);
+  function showError(error: any) {
+    console.error(error);
+
+    if (error.code === "auth/email-already-in-use") {
+      setMessage("This Gmail is already registered. Please sign in instead.");
+    } else if (error.code === "auth/invalid-email") {
+      setMessage("Please enter a valid Gmail address.");
+    } else if (error.code === "auth/weak-password") {
+      setMessage("Password must be at least 6 characters.");
+    } else if (error.code === "permission-denied") {
+      setMessage("Firestore permission denied. Please check Firebase rules.");
+    } else {
+      setMessage(error.message || "Something went wrong.");
+    }
   }
 
   async function createAccount() {
@@ -80,7 +90,10 @@ export default function RegisterPage() {
 
       const user = userCredential.user;
 
-      await sendEmailVerification(user);
+      await sendEmailVerification(user, {
+        url: "https://getroadlink.com/email-verified",
+        handleCodeInApp: false,
+      });
 
       await setDoc(doc(db, "users", user.uid), {
         name: cleanName,
@@ -108,9 +121,11 @@ export default function RegisterPage() {
         "Account created. Please check your Gmail and verify your account. Redirecting to login..."
       );
 
-      redirectToLogin();
+      setTimeout(() => {
+        router.push("/login");
+      }, 3000);
     } catch (error: any) {
-      setMessage(error.message);
+      showError(error);
     } finally {
       setLoading(false);
     }
@@ -161,7 +176,7 @@ export default function RegisterPage() {
         router.push("/dashboard");
       }, 1500);
     } catch (error: any) {
-      setMessage(error.message);
+      showError(error);
     } finally {
       setLoading(false);
     }
@@ -220,6 +235,7 @@ export default function RegisterPage() {
 
         <div className="securityBox">
           <p>✅ Gmail verification required</p>
+          <p>✅ Premium verification page</p>
           <p>✅ Auto redirect to login</p>
           <p>✅ Google sign-in supported</p>
         </div>
