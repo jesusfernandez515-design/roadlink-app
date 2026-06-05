@@ -1,7 +1,6 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCQLennITSj2mPM7aGTi1Mdn6c7BuABmpk",
@@ -10,13 +9,11 @@ const firebaseConfig = {
   storageBucket: "roadlink-7646d.firebasestorage.app",
   messagingSenderId: "792896559055",
   appId: "1:792896559055:web:6e23dfed23f2d6eae3a4ba",
-  measurementId: "G-S18LV1TNB4"
+  measurementId: "G-S18LV1TNB4",
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
-
 export default app;
