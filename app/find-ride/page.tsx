@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,
   collection,
@@ -32,15 +33,25 @@ type Ride = {
 export default function FindRidePage() {
   const router = useRouter();
 
+  const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [rides, setRides] = useState<Ride[]>([]);
   const [reservedRideIds, setReservedRideIds] = useState<string[]>([]);
-  const [message, setMessage] = useState("Loading rides...");
+  const [message, setMessage] = useState("Checking account...");
   const [loadingRideId, setLoadingRideId] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function loadRides() {
     try {
-      const q = query(collection(db, "rides"), where("status", "==", "active"));
-      const snapshot = await getDocs(q);
+      setLoading(true);
+      setMessage("Loading rides...");
+
+      const ridesQuery = query(
+        collection(db, "rides"),
+        where("status", "==", "active")
+      );
+
+      const snapshot = await getDocs(ridesQuery);
 
       const ridesData = snapshot.docs.map((document) => ({
         id: document.id,
@@ -49,60 +60,69 @@ export default function FindRidePage() {
 
       setRides(ridesData);
       setMessage(ridesData.length ? "" : "No rides available yet.");
-    } catch (error: any) {
-      setMessage(error.message);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function loadUserBookings() {
-    const user = auth.currentUser;
+  async function loadUserBookings(currentUserId: string) {
+    try {
+      if (!currentUserId) {
+        setReservedRideIds([]);
+        return;
+      }
 
-    if (!user) {
-      setReservedRideIds([]);
-      return;
+      const bookingsQuery = query(
+        collection(db, "bookings"),
+        where("passengerId", "==", currentUserId),
+        where("status", "==", "reserved")
+      );
+
+      const snapshot = await getDocs(bookingsQuery);
+
+      const ids = snapshot.docs
+        .map((document) => document.data().rideId)
+        .filter(Boolean) as string[];
+
+      setReservedRideIds(ids);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
     }
+  }
 
-    const q = query(
-      collection(db, "bookings"),
-      where("passengerId", "==", user.uid),
-      where("status", "==", "reserved")
-    );
-
-    const snapshot = await getDocs(q);
-
-    const ids = snapshot.docs
-      .map((document) => document.data().rideId)
-      .filter(Boolean);
-
-    setReservedRideIds(ids);
+  async function refreshPageData(currentUserId: string) {
+    await loadRides();
+    await loadUserBookings(currentUserId);
   }
 
   async function reserveSeat(ride: Ride) {
     setMessage("");
 
+    if (!userId) {
+      setMessage("Please sign in before reserving a seat.");
+      router.push("/login");
+      return;
+    }
+
+    if (ride.driverId === userId) {
+      setMessage("You cannot reserve your own ride.");
+      return;
+    }
+
+    if (ride.seats <= 0) {
+      setMessage("No seats available for this ride.");
+      return;
+    }
+
     try {
-      const user = auth.currentUser;
-
-      if (!user) {
-        setMessage("Please sign in before reserving a seat.");
-        router.push("/login");
-        return;
-      }
-
-      if (ride.driverId === user.uid) {
-        setMessage("You cannot reserve your own ride.");
-        return;
-      }
-
-      if (ride.seats <= 0) {
-        setMessage("No seats available for this ride.");
-        return;
-      }
+      setLoadingRideId(ride.id);
 
       const duplicateQuery = query(
         collection(db, "bookings"),
         where("rideId", "==", ride.id),
-        where("passengerId", "==", user.uid),
+        where("passengerId", "==", userId),
         where("status", "==", "reserved")
       );
 
@@ -116,12 +136,10 @@ export default function FindRidePage() {
         return;
       }
 
-      setLoadingRideId(ride.id);
-
       await addDoc(collection(db, "bookings"), {
         rideId: ride.id,
-        passengerId: user.uid,
-        passengerEmail: user.email || "",
+        passengerId: userId,
+        passengerEmail: userEmail,
         driverId: ride.driverId || "",
         driverEmail: ride.driverEmail || "",
         from: ride.from,
@@ -134,32 +152,42 @@ export default function FindRidePage() {
         createdAt: new Date().toISOString(),
       });
 
-      const newSeats = ride.seats - 1;
+      const newSeats = Number(ride.seats || 0) - 1;
 
       await updateDoc(doc(db, "rides", ride.id), {
         seats: newSeats,
         status: newSeats <= 0 ? "full" : "active",
       });
 
-      setReservedRideIds((previous) => [...previous, ride.id]);
-      setMessage("Seat reserved successfully.");
+      setReservedRideIds((previous) =>
+        previous.includes(ride.id) ? previous : [...previous, ride.id]
+      );
 
-      await loadRides();
-    } catch (error: any) {
-      setMessage(error.message);
+      setMessage("Seat reserved successfully.");
+      await refreshPageData(userId);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
       setLoadingRideId("");
     }
   }
 
   useEffect(() => {
-    async function loadPage() {
-      await loadRides();
-      await loadUserBookings();
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setMessage("Please sign in to view available rides.");
+        router.push("/login");
+        return;
+      }
 
-    loadPage();
-  }, []);
+      setUserId(user.uid);
+      setUserEmail(user.email || "");
+
+      await refreshPageData(user.uid);
+    });
+
+    return () => unsubscribe();
+  }, [router]);
 
   return (
     <main className="page">
@@ -195,8 +223,13 @@ export default function FindRidePage() {
             Offer a Ride
           </Link>
 
-          <button type="button" className="secondaryTopButton" onClick={loadRides}>
-            Refresh Rides
+          <button
+            type="button"
+            className="secondaryTopButton"
+            onClick={() => refreshPageData(userId)}
+            disabled={loading || !userId}
+          >
+            {loading ? "Refreshing..." : "Refresh Rides"}
           </button>
         </div>
       </section>
@@ -205,10 +238,9 @@ export default function FindRidePage() {
         {message && <p className="message">{message}</p>}
 
         {rides.map((ride) => {
-          const user = auth.currentUser;
           const alreadyReserved = reservedRideIds.includes(ride.id);
-          const isOwnRide = user?.uid && ride.driverId === user.uid;
-          const noSeats = ride.seats <= 0;
+          const isOwnRide = Boolean(userId && ride.driverId === userId);
+          const noSeats = Number(ride.seats || 0) <= 0;
 
           return (
             <div key={ride.id} className="rideCard">
@@ -234,7 +266,7 @@ export default function FindRidePage() {
               </div>
 
               <div className="infoGrid">
-                <Info label="Vehicle" value={ride.vehicle} icon="🚘" />
+                <Info label="Vehicle" value={ride.vehicle || "Not specified"} icon="🚘" />
                 <Info
                   label="Driver"
                   value={ride.driverEmail || "RoadLink Driver"}
@@ -331,6 +363,11 @@ export default function FindRidePage() {
           cursor: pointer;
         }
 
+        .miniButton:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
         .logo {
           font-size: 36px;
           font-weight: 900;
@@ -388,6 +425,11 @@ export default function FindRidePage() {
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
+        }
+
+        .secondaryTopButton:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .message {
