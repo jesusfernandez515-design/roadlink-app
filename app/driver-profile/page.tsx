@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -10,7 +10,7 @@ import {
   collection,
   doc,
   getDoc,
-  getDocs,
+  onSnapshot,
   query,
   updateDoc,
   where,
@@ -21,7 +21,9 @@ type Rating = {
   driverId?: string;
   driverEmail?: string;
   passengerEmail?: string;
+  reviewerEmail?: string;
   rating?: number;
+  stars?: number;
   comment?: string;
   from?: string;
   to?: string;
@@ -34,9 +36,13 @@ type DriverProfile = {
   photoURL?: string;
   bio?: string;
   verified?: boolean;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
+  licenseVerified?: boolean;
   followers?: string[];
   following?: string[];
   tripsCompleted?: number;
+  totalTrips?: number;
   joinedAt?: any;
   createdAt?: any;
 };
@@ -51,20 +57,60 @@ export default function DriverProfilePage() {
   const [followLoading, setFollowLoading] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      const params = new URLSearchParams(window.location.search);
-      const currentDriverId = params.get("driverId") || "";
+    let unsubscribeRatings: (() => void) | undefined;
 
-      setDriverId(currentDriverId);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      const params = new URLSearchParams(window.location.search);
+      const paramDriverId = params.get("driverId") || "";
+
+      const finalDriverId = paramDriverId || user?.uid || "";
+
+      setDriverId(finalDriverId);
 
       if (user) {
         setCurrentUserId(user.uid);
       }
 
-      await loadDriverProfile(currentDriverId, user?.uid || "");
+      if (!finalDriverId) {
+        setMessage("Please sign in or select a driver profile.");
+        return;
+      }
+
+      await loadDriverProfile(finalDriverId, user?.uid || "");
+
+      const ratingsQuery = query(
+        collection(db, "ratings"),
+        where("driverId", "==", finalDriverId)
+      );
+
+      unsubscribeRatings = onSnapshot(
+        ratingsQuery,
+        (snapshot) => {
+          const ratingsData = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Rating[];
+
+          ratingsData.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setRatings(ratingsData);
+          setMessage("");
+        },
+        (error) => {
+          setMessage(error.message);
+        }
+      );
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+
+      if (unsubscribeRatings) {
+        unsubscribeRatings();
+      }
+    };
   }, []);
 
   async function loadDriverProfile(currentDriverId: string, userId: string) {
@@ -87,19 +133,6 @@ export default function DriverProfilePage() {
         setDriverProfile(null);
       }
 
-      const ratingsQuery = query(
-        collection(db, "ratings"),
-        where("driverId", "==", currentDriverId)
-      );
-
-      const ratingsSnapshot = await getDocs(ratingsQuery);
-
-      const ratingsData = ratingsSnapshot.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      })) as Rating[];
-
-      setRatings(ratingsData);
       setMessage("");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -167,45 +200,53 @@ export default function DriverProfilePage() {
     }
   }
 
+  function getRatingValue(item: Rating) {
+    return Number(item.stars || item.rating || 0);
+  }
+
+  function renderStars(value: number) {
+    const safeValue = Math.max(0, Math.min(5, Math.round(value)));
+    return "★".repeat(safeValue) + "☆".repeat(5 - safeValue);
+  }
+
   const totalReviews = ratings.length;
 
-  const averageRating =
-    totalReviews > 0
-      ? ratings.reduce((total, item) => total + Number(item.rating || 0), 0) /
-        totalReviews
-      : 0;
+  const averageRating = useMemo(() => {
+    if (ratings.length === 0) return 0;
 
-  const ratingDisplay =
-    totalReviews > 0 ? averageRating.toFixed(1) : "New";
+    const total = ratings.reduce((sum, item) => sum + getRatingValue(item), 0);
 
-  const stars =
-    totalReviews > 0 ? "★".repeat(Math.round(averageRating)) : "★★★★★";
+    return total / ratings.length;
+  }, [ratings]);
+
+  const ratingDisplay = totalReviews > 0 ? averageRating.toFixed(1) : "New";
+  const stars = totalReviews > 0 ? renderStars(averageRating) : "☆☆☆☆☆";
 
   const displayName = driverProfile?.name || "RoadLink Driver";
-  const displayEmail = driverProfile?.email || "Verified RoadLink Driver";
+  const displayEmail = driverProfile?.email || ratings[0]?.driverEmail || "Verified RoadLink Driver";
   const displayPhoto = driverProfile?.photoURL || "";
   const displayBio =
     driverProfile?.bio || "Trusted RoadLink member ready to connect with passengers.";
   const followersCount = driverProfile?.followers?.length || 0;
   const followingCount = driverProfile?.following?.length || 0;
   const tripsCompleted = Number(driverProfile?.tripsCompleted || 0);
-  const verified = Boolean(driverProfile?.verified);
+  const totalTrips = Number(driverProfile?.totalTrips || tripsCompleted || 0);
+
+  const verified = Boolean(
+    driverProfile?.verified ||
+      driverProfile?.emailVerified ||
+      driverProfile?.phoneVerified ||
+      driverProfile?.licenseVerified
+  );
 
   return (
     <main className="page">
       <section className="profileCard">
         <div className="topActions">
-          <Link href="/find-ride" className="miniButton">
-            ← Back
-          </Link>
-
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
+          <Link href="/find-ride" className="miniButton">← Back</Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/reviews" className="miniButton">Reviews</Link>
+          <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
         <div className="driverHeader">
@@ -225,8 +266,10 @@ export default function DriverProfilePage() {
             <p className="subtitle">{displayEmail}</p>
             <p className="bioText">{displayBio}</p>
 
-            <div className="verifiedBadge">
-              {verified ? "✓ Verified RoadLink Member" : "RoadLink Member"}
+            <div className="badges">
+              <span>{driverProfile?.emailVerified ? "✓ Email Verified" : "Email Pending"}</span>
+              <span>{driverProfile?.phoneVerified ? "✓ Phone Verified" : "Phone Pending"}</span>
+              <span>{driverProfile?.licenseVerified ? "✓ License Verified" : "License Pending"}</span>
             </div>
 
             <div className="profileActions">
@@ -244,10 +287,7 @@ export default function DriverProfilePage() {
                   : "Follow"}
               </button>
 
-              <Link
-                href={`/chat?driverId=${driverId}`}
-                className="messageButton"
-              >
+              <Link href={`/chat?driverId=${driverId}`} className="messageButton">
                 Message
               </Link>
             </div>
@@ -273,9 +313,9 @@ export default function DriverProfilePage() {
 
         <section className="stats">
           <Metric icon="⭐" label="Rating" value={String(ratingDisplay)} />
-          <Metric icon="🚗" label="Trips" value={String(tripsCompleted)} />
+          <Metric icon="🚗" label="Trips" value={String(totalTrips)} />
+          <Metric icon="✅" label="Completed" value={String(tripsCompleted)} />
           <Metric icon="👥" label="Followers" value={String(followersCount)} />
-          <Metric icon="➡️" label="Following" value={String(followingCount)} />
         </section>
 
         <section className="infoCard">
@@ -283,25 +323,14 @@ export default function DriverProfilePage() {
           <h2>Driver Information</h2>
 
           <Info icon="👤" label="Name" value={displayName} />
-          <Info
-            icon="⭐"
-            label="Rating"
-            value={totalReviews > 0 ? `${ratingDisplay}/5` : "New Driver"}
-          />
+          <Info icon="⭐" label="Rating" value={totalReviews > 0 ? `${ratingDisplay}/5` : "New Driver"} />
           <Info icon="💬" label="Total Reviews" value={String(totalReviews)} />
-          <Info icon="🚗" label="Completed Trips" value={String(tripsCompleted)} />
+          <Info icon="🚗" label="Total Trips" value={String(totalTrips)} />
+          <Info icon="✅" label="Completed Trips" value={String(tripsCompleted)} />
           <Info icon="👥" label="Followers" value={String(followersCount)} />
           <Info icon="➡️" label="Following" value={String(followingCount)} />
-          <Info
-            icon="🛡️"
-            label="Verification"
-            value={verified ? "Verified Member" : "Pending Verification"}
-          />
-          <Info
-            icon="🆔"
-            label="Driver ID"
-            value={driverId || "Not available"}
-          />
+          <Info icon="🛡️" label="Verification" value={verified ? "Verified Member" : "Pending Verification"} />
+          <Info icon="🆔" label="Driver ID" value={driverId || "Not available"} />
         </section>
 
         <section className="reviewsCard">
@@ -311,47 +340,42 @@ export default function DriverProfilePage() {
           {ratings.length === 0 ? (
             <div className="emptyReview">
               <h3>No reviews yet</h3>
-              <p>
-                Once passengers rate this driver, their comments will appear here.
-              </p>
+              <p>Once passengers rate this driver, their comments will appear here.</p>
             </div>
           ) : (
-            ratings.map((item) => (
-              <div key={item.id} className="review">
-                <div className="reviewTop">
-                  <div>
-                    <strong>
-                      {"★".repeat(Number(item.rating || 0))}
-                      {"☆".repeat(5 - Number(item.rating || 0))}
-                    </strong>
-                    <p>
-                      {item.from || "Trip"} → {item.to || "Destination"}
-                    </p>
+            ratings.map((item) => {
+              const reviewValue = getRatingValue(item);
+
+              return (
+                <div key={item.id} className="review">
+                  <div className="reviewTop">
+                    <div>
+                      <strong>{renderStars(reviewValue)}</strong>
+                      <p>{item.from || "Trip"} → {item.to || "Destination"}</p>
+                    </div>
+
+                    <span>{reviewValue}/5</span>
                   </div>
 
-                  <span>{item.rating || 0}/5</span>
+                  {item.comment ? (
+                    <p className="comment">“{item.comment}”</p>
+                  ) : (
+                    <p className="comment muted">No written comment.</p>
+                  )}
+
+                  <small>
+                    {item.reviewerEmail || item.passengerEmail || "RoadLink Passenger"}
+                    {item.createdAt ? ` • ${item.createdAt.slice(0, 10)}` : ""}
+                  </small>
                 </div>
-
-                {item.comment ? (
-                  <p className="comment">“{item.comment}”</p>
-                ) : (
-                  <p className="comment muted">No written comment.</p>
-                )}
-
-                <small>
-                  {item.passengerEmail || "RoadLink Passenger"}
-                  {item.createdAt ? ` • ${item.createdAt.slice(0, 10)}` : ""}
-                </small>
-              </div>
-            ))
+              );
+            })
           )}
         </section>
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -469,10 +493,15 @@ export default function DriverProfilePage() {
           margin: 12px 0 0;
         }
 
-        .verifiedBadge {
-          display: inline-flex;
+        .badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
           margin-top: 16px;
-          padding: 10px 14px;
+        }
+
+        .badges span {
+          padding: 9px 13px;
           border-radius: 999px;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
