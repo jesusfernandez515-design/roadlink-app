@@ -90,11 +90,7 @@ export default function RateDriverPage() {
 
         setMessage("");
       } catch (error: unknown) {
-        if (error instanceof Error) {
-          setMessage(error.message);
-        } else {
-          setMessage("Something went wrong.");
-        }
+        setMessage(error instanceof Error ? error.message : "Something went wrong.");
       }
     });
 
@@ -127,28 +123,41 @@ export default function RateDriverPage() {
     try {
       setLoading(true);
 
+      const finalDriverId = driverId || ride?.driverId || "";
+      const now = new Date().toISOString();
+
       await addDoc(collection(db, "ratings"), {
         rideId,
-        driverId: driverId || ride?.driverId || "",
+        driverId: finalDriverId,
         driverEmail: ride?.driverEmail || "",
         passengerId,
         passengerEmail,
+        reviewerEmail: passengerEmail,
+        stars: rating,
         rating,
         comment: comment.trim(),
         from: ride?.from || "",
         to: ride?.to || "",
-        createdAt: new Date().toISOString(),
+        vehicle: ride?.vehicle || "",
+        createdAt: now,
       });
+
+      if (finalDriverId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: finalDriverId,
+          type: "review",
+          title: "New Review",
+          message: `${passengerEmail} rated you ${rating} star${rating === 1 ? "" : "s"}.`,
+          read: false,
+          createdAt: now,
+        });
+      }
 
       setAlreadyRated(true);
       setComment("");
       setMessage("Rating submitted successfully.");
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        setMessage(error.message);
-      } else {
-        setMessage("Something went wrong.");
-      }
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -160,26 +169,15 @@ export default function RateDriverPage() {
     <main className="page">
       <section className="card">
         <div className="topActions">
-          <Link href="/find-ride" className="miniButton">
-            ← Back
-          </Link>
-
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/my-bookings" className="miniButton">
-            My Bookings
-          </Link>
+          <Link href="/find-ride" className="miniButton">← Back</Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/my-bookings" className="miniButton">My Bookings</Link>
+          <Link href="/reviews" className="miniButton">Reviews</Link>
         </div>
 
-        <div className="logo">
-          Road<span>Link</span>
-        </div>
+        <div className="logo">Road<span>Link</span></div>
 
-        <h1>
-          Rate <span>Driver</span>
-        </h1>
+        <h1>Rate <span>Driver</span></h1>
 
         <p className="subtitle">
           Share your experience and help RoadLink build trust.
@@ -188,12 +186,8 @@ export default function RateDriverPage() {
         {ride && (
           <div className="tripBox">
             <p className="eyebrow">Trip</p>
-            <h2>
-              {ride.from || "Starting point"} → {ride.to || "Destination"}
-            </h2>
-            <p>
-              {ride.date || "Date"} • {ride.time || "Time"}
-            </p>
+            <h2>{ride.from || "Starting point"} → {ride.to || "Destination"}</h2>
+            <p>{ride.date || "Date"} • {ride.time || "Time"}</p>
             <p>{ride.vehicle || "Vehicle not provided"}</p>
           </div>
         )}
@@ -251,20 +245,14 @@ export default function RateDriverPage() {
           onClick={submitRating}
           disabled={loading || alreadyRated}
         >
-          {loading
-            ? "Submitting..."
-            : alreadyRated
-            ? "Rating Submitted"
-            : "Submit Rating"}
+          {loading ? "Submitting..." : alreadyRated ? "Rating Submitted" : "Submit Rating"}
         </button>
 
         {message && <p className="message">{message}</p>}
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -441,30 +429,20 @@ export default function RateDriverPage() {
         }
 
         @media (max-width: 700px) {
-          .page {
-            padding: 16px;
-          }
+          .page { padding: 16px; }
 
           .card {
             padding: 24px;
             border-radius: 28px;
           }
 
-          h1 {
-            font-size: 48px;
-          }
+          h1 { font-size: 48px; }
 
-          .driverBox {
-            align-items: flex-start;
-          }
+          .driverBox { align-items: flex-start; }
 
-          .stars {
-            justify-content: space-between;
-          }
+          .stars { justify-content: space-between; }
 
-          .star {
-            font-size: 42px;
-          }
+          .star { font-size: 42px; }
         }
       `}</style>
     </main>
