@@ -22,11 +22,12 @@ type NotificationItem = {
   message?: string;
   type?: string;
   read?: boolean;
-  createdAt?: string;
+  createdAt?: any;
 };
 
 export default function NotificationsPage() {
   const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [status, setStatus] = useState("Loading notifications...");
   const [saving, setSaving] = useState(false);
@@ -35,11 +36,14 @@ export default function NotificationsPage() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setUserId("");
+        setUserEmail("");
+        setNotifications([]);
         setStatus("Please sign in to view your notifications.");
         return;
       }
 
       setUserId(user.uid);
+      setUserEmail(user.email || "");
       setStatus("");
     });
 
@@ -90,11 +94,17 @@ export default function NotificationsPage() {
     return "🔔";
   }
 
-  function formatTime(value?: string) {
+  function formatTime(value?: any) {
     if (!value) return "Now";
 
     try {
-      const date = new Date(value);
+      let date: Date;
+
+      if (value?.toDate) {
+        date = value.toDate();
+      } else {
+        date = new Date(value);
+      }
 
       if (Number.isNaN(date.getTime())) return "Recently";
 
@@ -130,16 +140,13 @@ export default function NotificationsPage() {
       const batch = writeBatch(db);
 
       unreadNotifications.forEach((notification) => {
-        const notificationRef = doc(db, "notifications", notification.id);
-
-        batch.update(notificationRef, {
+        batch.update(doc(db, "notifications", notification.id), {
           read: true,
           readAt: new Date().toISOString(),
         });
       });
 
       await batch.commit();
-
       setStatus("All notifications marked as read.");
     } catch (error: any) {
       setStatus(error.message || "Could not mark notifications as read.");
@@ -152,27 +159,15 @@ export default function NotificationsPage() {
     <main className="page">
       <section className="container">
         <div className="topBar">
-          <Link href="/dashboard" className="backButton">
-            ← Dashboard
-          </Link>
-
-          <Link href="/messages" className="backButton">
-            Messages
-          </Link>
-
-          <Link href="/profile" className="backButton">
-            Profile
-          </Link>
+          <Link href="/dashboard" className="backButton">← Dashboard</Link>
+          <Link href="/messages" className="backButton">Messages</Link>
+          <Link href="/profile" className="backButton">Profile</Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Notifications</p>
-
-            <h1>
-              Notification <span>Center</span>
-            </h1>
-
+            <h1>Notification <span>Center</span></h1>
             <p className="subtitle">
               Track bookings, messages, ride updates, account alerts, reviews,
               payments and verification activity.
@@ -180,6 +175,11 @@ export default function NotificationsPage() {
           </div>
 
           <div className="bell">🔔</div>
+        </section>
+
+        <section className="debugCard">
+          <p><strong>Current User:</strong> {userEmail || "Not signed in"}</p>
+          <p><strong>Current User ID:</strong> {userId || "No user ID"}</p>
         </section>
 
         {status && <p className="status">{status}</p>}
@@ -222,8 +222,8 @@ export default function NotificationsPage() {
               <div className="emptyIcon">🔕</div>
               <h3>No notifications yet</h3>
               <p>
-                When you receive bookings, messages, ride updates, reviews or
-                account alerts, they will appear here.
+                If you just reserved a ride, remember: the notification appears
+                in the driver account, not the passenger account.
               </p>
 
               <Link href="/dashboard" className="mainButton">
@@ -248,7 +248,6 @@ export default function NotificationsPage() {
                     <div className="content">
                       <div className="titleRow">
                         <h3>{notification.title || "RoadLink Update"}</h3>
-
                         {isUnread ? (
                           <span className="unreadBadge">New</span>
                         ) : (
@@ -257,7 +256,6 @@ export default function NotificationsPage() {
                       </div>
 
                       <p>{notification.message || "You have a new RoadLink notification."}</p>
-
                       <span>{formatTime(notification.createdAt)}</span>
                     </div>
                   </button>
@@ -269,9 +267,7 @@ export default function NotificationsPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -306,14 +302,10 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .backButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .hero,
         .stat,
-        .card {
+        .card,
+        .debugCard {
           background: rgba(8,13,25,0.9);
           border: 1px solid rgba(255,255,255,0.1);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -328,6 +320,22 @@ export default function NotificationsPage() {
           padding: 35px;
           border-radius: 30px;
           margin-bottom: 20px;
+        }
+
+        .debugCard {
+          border-radius: 22px;
+          padding: 18px;
+          margin-bottom: 20px;
+        }
+
+        .debugCard p {
+          margin: 6px 0;
+          color: #d4d4d8;
+          overflow-wrap: anywhere;
+        }
+
+        .debugCard strong {
+          color: #22c55e;
         }
 
         .eyebrow {
@@ -498,11 +506,6 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.08);
           color: white;
           cursor: pointer;
-        }
-
-        .notification:hover {
-          border-color: rgba(34,197,94,0.4);
-          background: rgba(34,197,94,0.08);
         }
 
         .unread {
