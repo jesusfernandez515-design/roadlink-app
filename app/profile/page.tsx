@@ -21,6 +21,11 @@ type UserProfile = {
   role?: string;
   createdAt?: string;
   photoURL?: string;
+  bio?: string;
+  city?: string;
+  state?: string;
+  emailVerified?: boolean;
+  provider?: string;
 };
 
 export default function ProfilePage() {
@@ -31,9 +36,15 @@ export default function ProfilePage() {
     email: "",
     role: "member",
     photoURL: "",
+    bio: "",
+    city: "",
+    state: "",
   });
 
   const [nameInput, setNameInput] = useState("");
+  const [bioInput, setBioInput] = useState("");
+  const [cityInput, setCityInput] = useState("");
+  const [stateInput, setStateInput] = useState("");
   const [photoInput, setPhotoInput] = useState("");
 
   const [bookedTrips, setBookedTrips] = useState(0);
@@ -67,6 +78,11 @@ export default function ProfilePage() {
           role: "member",
           createdAt: new Date().toISOString(),
           photoURL: fallbackPhoto,
+          bio: "",
+          city: "",
+          state: "",
+          emailVerified: Boolean(user.emailVerified),
+          provider: "email",
         };
 
         if (userSnap.exists()) {
@@ -78,6 +94,11 @@ export default function ProfilePage() {
             role: userData.role || "member",
             createdAt: userData.createdAt || "",
             photoURL: userData.photoURL || fallbackPhoto,
+            bio: userData.bio || "",
+            city: userData.city || "",
+            state: userData.state || "",
+            emailVerified: Boolean(user.emailVerified),
+            provider: userData.provider || "email",
           };
         } else {
           await setDoc(userRef, finalProfile, { merge: true });
@@ -85,6 +106,9 @@ export default function ProfilePage() {
 
         setProfile(finalProfile);
         setNameInput(finalProfile.name || "");
+        setBioInput(finalProfile.bio || "");
+        setCityInput(finalProfile.city || "");
+        setStateInput(finalProfile.state || "");
         setPhotoInput(finalProfile.photoURL || "");
 
         const bookingsQuery = query(
@@ -161,6 +185,9 @@ export default function ProfilePage() {
       const updatedProfile: UserProfile = {
         ...profile,
         name: nameInput.trim() || "RoadLink User",
+        bio: bioInput.trim(),
+        city: cityInput.trim(),
+        state: stateInput.trim(),
         photoURL: photoInput.trim(),
       };
 
@@ -182,6 +209,10 @@ export default function ProfilePage() {
 
   const displayName = profile.name || "RoadLink User";
   const displayPhoto = profile.photoURL || "";
+  const location =
+    profile.city || profile.state
+      ? `${profile.city || ""}${profile.city && profile.state ? ", " : ""}${profile.state || ""}`
+      : "Location not added";
 
   return (
     <main className="page">
@@ -201,10 +232,14 @@ export default function ProfilePage() {
           )}
 
           <div>
-            <p className="eyebrow">RoadLink Member</p>
-            <h1>{displayName} <span>Profile</span></h1>
+            <p className="eyebrow">RoadLink Premium Profile</p>
+            <h1>{displayName}</h1>
             <p className="subtitle">{profile.email || "No email found"}</p>
-            <div className="verifiedBadge">✓ Verified RoadLink Member</div>
+
+            <div className="badgeRow">
+              <span className="verifiedBadge">✓ Verified Email</span>
+              <span className="roleBadge">{profile.role || "member"}</span>
+            </div>
           </div>
         </div>
 
@@ -215,13 +250,14 @@ export default function ProfilePage() {
         <Metric icon="⭐" label="Rating" value="New" />
         <Metric icon="🎟️" label="Booked Trips" value={String(bookedTrips)} />
         <Metric icon="🚘" label="Active Rides" value={String(activeRides)} />
+        <Metric icon="🛡️" label="Trust Level" value="Basic" />
       </section>
 
       <section className="detailsCard">
         <div className="sectionHeader">
           <div>
             <p className="eyebrow">Edit Profile</p>
-            <h2>Photo & Identity</h2>
+            <h2>Identity & Photo</h2>
           </div>
           <div className="shield">📸</div>
         </div>
@@ -243,6 +279,33 @@ export default function ProfilePage() {
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="Your name"
             />
+
+            <label>Bio</label>
+            <textarea
+              value={bioInput}
+              onChange={(e) => setBioInput(e.target.value)}
+              placeholder="Tell people who you are..."
+            />
+
+            <div className="twoGrid">
+              <div>
+                <label>City</label>
+                <input
+                  value={cityInput}
+                  onChange={(e) => setCityInput(e.target.value)}
+                  placeholder="City"
+                />
+              </div>
+
+              <div>
+                <label>State</label>
+                <input
+                  value={stateInput}
+                  onChange={(e) => setStateInput(e.target.value)}
+                  placeholder="State"
+                />
+              </div>
+            </div>
 
             <label>Upload Photo</label>
             <input
@@ -282,6 +345,7 @@ export default function ProfilePage() {
         <Info label="Full Name" value={displayName} icon="👤" />
         <Info label="Email" value={profile.email || "Not available"} icon="✉️" />
         <Info label="Account Type" value={profile.role || "member"} icon="🪪" />
+        <Info label="Location" value={location} icon="📍" />
         <Info
           label="Member Since"
           value={profile.createdAt ? profile.createdAt.slice(0, 10) : "2026"}
@@ -314,6 +378,7 @@ export default function ProfilePage() {
           <span>✓ Email Verified</span>
           <span>Phone Pending</span>
           <span>Driver Check Pending</span>
+          <span>Payment Pending</span>
         </div>
       </section>
 
@@ -328,6 +393,7 @@ export default function ProfilePage() {
           min-height: 100vh;
           background:
             radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -340,7 +406,7 @@ export default function ProfilePage() {
         .actionsCard,
         .safetyCard,
         .signOutButton {
-          max-width: 860px;
+          max-width: 900px;
           margin-left: auto;
           margin-right: auto;
         }
@@ -390,9 +456,9 @@ export default function ProfilePage() {
 
         .avatar,
         .avatarImage {
-          min-width: 92px;
-          width: 92px;
-          height: 92px;
+          min-width: 96px;
+          width: 96px;
+          height: 96px;
           border-radius: 50%;
           box-shadow: 0 16px 50px rgba(34,197,94,0.35);
           border: 2px solid rgba(34,197,94,0.45);
@@ -427,9 +493,9 @@ export default function ProfilePage() {
           letter-spacing: -1px;
         }
 
-        h1 span,
-        .metricValue {
-          color: #22c55e;
+        h2 {
+          font-size: 32px;
+          margin: 0;
         }
 
         .subtitle {
@@ -440,15 +506,32 @@ export default function ProfilePage() {
           overflow-wrap: anywhere;
         }
 
-        .verifiedBadge {
-          display: inline-flex;
+        .badgeRow {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
           margin-top: 16px;
+        }
+
+        .verifiedBadge,
+        .roleBadge {
+          display: inline-flex;
           padding: 10px 14px;
           border-radius: 999px;
+          font-weight: 900;
+        }
+
+        .verifiedBadge {
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
-          font-weight: 900;
+        }
+
+        .roleBadge {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: #e5e7eb;
+          text-transform: capitalize;
         }
 
         .message {
@@ -459,7 +542,7 @@ export default function ProfilePage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
           margin-bottom: 24px;
         }
@@ -490,6 +573,7 @@ export default function ProfilePage() {
         }
 
         .metricValue {
+          color: #22c55e;
           font-size: 28px;
           font-weight: 900;
         }
@@ -508,11 +592,6 @@ export default function ProfilePage() {
           gap: 18px;
           align-items: center;
           margin-bottom: 22px;
-        }
-
-        h2 {
-          font-size: 32px;
-          margin: 0;
         }
 
         .shield {
@@ -586,7 +665,8 @@ export default function ProfilePage() {
           margin-bottom: 8px;
         }
 
-        input {
+        input,
+        textarea {
           width: 100%;
           padding: 16px;
           border-radius: 16px;
@@ -596,15 +676,29 @@ export default function ProfilePage() {
           font-size: 16px;
           outline: none;
           margin-bottom: 16px;
+          font-family: Arial, sans-serif;
         }
 
-        input:focus {
+        textarea {
+          min-height: 110px;
+          resize: vertical;
+        }
+
+        input:focus,
+        textarea:focus {
           border-color: rgba(34,197,94,0.65);
           box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
         }
 
-        input::placeholder {
+        input::placeholder,
+        textarea::placeholder {
           color: #71717a;
+        }
+
+        .twoGrid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
         }
 
         .saveButton {
@@ -738,7 +832,8 @@ export default function ProfilePage() {
 
           .stats,
           .actions,
-          .editGrid {
+          .editGrid,
+          .twoGrid {
             grid-template-columns: 1fr;
           }
 
