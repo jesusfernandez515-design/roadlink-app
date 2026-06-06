@@ -90,21 +90,64 @@ export default function MessagesPage() {
     };
   }, [userId]);
 
+  function getConversationKey(chat: Chat) {
+    if (chat.rideId) {
+      return `ride_${chat.rideId}`;
+    }
+
+    const driver = chat.driverId || "no_driver";
+    const passenger = chat.passengerId || "no_passenger";
+
+    return `direct_${driver}_${passenger}`;
+  }
+
+  function getChatTime(chat: Chat) {
+    const date = new Date(chat.lastMessageTime || "");
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
   const conversations = useMemo(() => {
     const merged = new Map<string, Chat>();
 
     [...driverChats, ...passengerChats].forEach((chat) => {
-      const key = chat.chatId || chat.id;
-
-      if (key === "chat_abc123") return;
+      if (!chat) return;
+      if (chat.chatId === "chat_abc123") return;
       if (chat.driverId === "test-driver") return;
       if (chat.passengerId === "test-passenger") return;
+      if (!chat.driverId && !chat.passengerId) return;
 
-      merged.set(key, chat);
+      const key = getConversationKey(chat);
+      const existing = merged.get(key);
+
+      if (!existing) {
+        merged.set(key, chat);
+        return;
+      }
+
+      const existingTime = getChatTime(existing);
+      const currentTime = getChatTime(chat);
+
+      const combinedUnread =
+        Number(existing.unreadCount || 0) + Number(chat.unreadCount || 0);
+
+      const newestChat = currentTime >= existingTime ? chat : existing;
+      const olderChat = currentTime >= existingTime ? existing : chat;
+
+      merged.set(key, {
+        ...olderChat,
+        ...newestChat,
+        unreadCount: combinedUnread,
+        driverEmail: newestChat.driverEmail || olderChat.driverEmail || "",
+        passengerEmail: newestChat.passengerEmail || olderChat.passengerEmail || "",
+        lastMessage: newestChat.lastMessage || olderChat.lastMessage || "",
+        lastMessageTime: newestChat.lastMessageTime || olderChat.lastMessageTime || "",
+        lastSenderId: newestChat.lastSenderId || olderChat.lastSenderId || "",
+        lastSenderEmail: newestChat.lastSenderEmail || olderChat.lastSenderEmail || "",
+      });
     });
 
-    return Array.from(merged.values()).sort((a, b) =>
-      String(b.lastMessageTime || "").localeCompare(String(a.lastMessageTime || ""))
+    return Array.from(merged.values()).sort(
+      (a, b) => getChatTime(b) - getChatTime(a)
     );
   }, [driverChats, passengerChats]);
 
@@ -117,20 +160,18 @@ export default function MessagesPage() {
     const isDriver = chat.driverId === userId;
 
     if (isDriver) {
-      return chat.passengerEmail || "Passenger";
+      return chat.passengerEmail || chat.lastSenderEmail || "Passenger";
     }
 
     return chat.driverEmail || "Driver";
   }
 
   function getOpenChatUrl(chat: Chat) {
-    const currentChatId = chat.chatId || chat.id;
-
     if (chat.rideId) {
       return `/chat?rideId=${chat.rideId}&driverId=${chat.driverId || ""}&passengerId=${chat.passengerId || ""}`;
     }
 
-    return `/chat?driverId=${chat.driverId || ""}&passengerId=${chat.passengerId || ""}&chatId=${currentChatId}`;
+    return `/chat?driverId=${chat.driverId || ""}&passengerId=${chat.passengerId || ""}`;
   }
 
   function formatTime(value?: string) {
@@ -159,6 +200,7 @@ export default function MessagesPage() {
           <Link href="/dashboard" className="miniButton">← Dashboard</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
+          <Link href="/notifications" className="miniButton">Notifications</Link>
         </div>
 
         <section className="heroCard">
@@ -229,7 +271,7 @@ export default function MessagesPage() {
                   <Link
                     href={openChatUrl}
                     className={unread > 0 ? "conversation unreadConversation" : "conversation"}
-                    key={conversation.chatId || conversation.id}
+                    key={getConversationKey(conversation)}
                   >
                     <div className="conversationAvatar">
                       {otherUser.charAt(0).toUpperCase()}
@@ -238,7 +280,6 @@ export default function MessagesPage() {
                     <div className="conversationContent">
                       <div className="conversationTop">
                         <h3>{otherUser}</h3>
-
                         <span>{formatTime(conversation.lastMessageTime)}</span>
                       </div>
 
@@ -270,9 +311,7 @@ export default function MessagesPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
