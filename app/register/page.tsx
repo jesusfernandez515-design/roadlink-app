@@ -93,8 +93,7 @@ export default function RegisterPage() {
       const user = userCredential.user;
 
       await sendEmailVerification(user, {
-        url: "https://getroadlink.com/email-verified",
-        handleCodeInApp: false,
+url: "https://getroadlink.com/auth/action",        handleCodeInApp: false,
       });
 
       await setDoc(doc(db, "users", user.uid), {
