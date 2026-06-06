@@ -152,6 +152,17 @@ export default function FindRidePage() {
         createdAt: new Date().toISOString(),
       });
 
+      if (ride.driverId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: ride.driverId,
+          type: "booking",
+          title: "New Ride Booking",
+          message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
+          read: false,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       const newSeats = Number(ride.seats || 0) - 1;
 
       await updateDoc(doc(db, "rides", ride.id), {
@@ -163,7 +174,7 @@ export default function FindRidePage() {
         previous.includes(ride.id) ? previous : [...previous, ride.id]
       );
 
-      setMessage("Seat reserved successfully.");
+      setMessage("Seat reserved successfully. The driver has been notified.");
       await refreshPageData(userId);
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -197,8 +208,16 @@ export default function FindRidePage() {
             ← Back
           </button>
 
-          <Link href="/" className="miniButton">
-            Home
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
+
+          <Link href="/messages" className="miniButton">
+            Messages
+          </Link>
+
+          <Link href="/notifications" className="miniButton">
+            Notifications
           </Link>
 
           <Link href="/profile" className="miniButton">
@@ -210,12 +229,15 @@ export default function FindRidePage() {
           Road<span>Link</span>
         </div>
 
+        <p className="eyebrow">Verified Ride Marketplace</p>
+
         <h1>
           Find a <span>Ride</span>
         </h1>
 
         <p className="subtitle">
-          Discover available long-distance rides published by verified drivers.
+          Discover available long-distance rides from verified RoadLink drivers.
+          Reserve your seat and notify the driver instantly.
         </p>
 
         <div className="mainActions">
@@ -267,11 +289,7 @@ export default function FindRidePage() {
 
               <div className="infoGrid">
                 <Info label="Vehicle" value={ride.vehicle || "Not specified"} icon="🚘" />
-                <Info
-                  label="Driver"
-                  value={ride.driverEmail || "RoadLink Driver"}
-                  icon="👤"
-                />
+                <Info label="Driver" value={ride.driverEmail || "RoadLink Driver"} icon="👤" />
                 {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
               </div>
 
@@ -318,7 +336,8 @@ export default function FindRidePage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -327,18 +346,18 @@ export default function FindRidePage() {
 
         .hero,
         .results {
-          max-width: 820px;
+          max-width: 860px;
           margin-left: auto;
           margin-right: auto;
         }
 
         .hero {
-          background: rgba(8, 13, 25, 0.88);
+          background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 30px;
-          padding: 28px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
+          border-radius: 32px;
+          padding: 30px;
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
           margin-bottom: 28px;
         }
 
@@ -355,12 +374,17 @@ export default function FindRidePage() {
           justify-content: center;
           padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
           font-weight: 900;
           cursor: pointer;
+        }
+
+        .miniButton:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
         }
 
         .miniButton:disabled {
@@ -369,7 +393,7 @@ export default function FindRidePage() {
         }
 
         .logo {
-          font-size: 36px;
+          font-size: 38px;
           font-weight: 900;
           margin-bottom: 28px;
         }
@@ -377,12 +401,21 @@ export default function FindRidePage() {
         .logo span,
         h1 span,
         .active,
-        .priceBox strong {
+        .priceBox strong,
+        .eyebrow {
           color: #22c55e;
         }
 
+        .eyebrow {
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          margin: 0 0 10px;
+        }
+
         h1 {
-          font-size: 58px;
+          font-size: 60px;
           line-height: 1;
           margin: 0 0 16px;
           letter-spacing: -1px;
@@ -427,25 +460,21 @@ export default function FindRidePage() {
           color: white;
         }
 
-        .secondaryTopButton:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
         .message {
           text-align: center;
           color: #22c55e;
           font-weight: 900;
           margin: 26px 0;
+          line-height: 1.5;
         }
 
         .rideCard {
-          background: rgba(8, 13, 25, 0.88);
+          background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 28px;
+          border-radius: 30px;
           padding: 28px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
           margin-bottom: 24px;
         }
 
@@ -474,7 +503,7 @@ export default function FindRidePage() {
         }
 
         .priceBox {
-          min-width: 110px;
+          min-width: 120px;
           padding: 16px;
           border-radius: 20px;
           background: rgba(34,197,94,0.1);
@@ -575,6 +604,11 @@ export default function FindRidePage() {
           font-weight: 900;
         }
 
+        .outlineButton:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
+        }
+
         .reserve {
           width: 100%;
           padding: 18px;
@@ -650,4 +684,4 @@ function Info({
       </div>
     </div>
   );
-}
+      }
