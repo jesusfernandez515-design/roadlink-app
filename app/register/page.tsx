@@ -49,6 +49,8 @@ export default function RegisterPage() {
       setMessage("Please enter a valid Gmail address.");
     } else if (error.code === "auth/weak-password") {
       setMessage("Password must be at least 6 characters.");
+    } else if (error.code === "auth/operation-not-allowed") {
+      setMessage("Email/password registration is not enabled in Firebase.");
     } else if (error.code === "permission-denied") {
       setMessage("Firestore permission denied. Please check Firebase rules.");
     } else {
