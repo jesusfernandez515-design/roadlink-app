@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import {
   createUserWithEmailAndPassword,
@@ -22,11 +22,36 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [role, setRole] = useState("passenger");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const passwordRules = useMemo(() => {
+    return {
+      length: password.length >= 8,
+      uppercase: /[A-Z]/.test(password),
+      lowercase: /[a-z]/.test(password),
+      number: /[0-9]/.test(password),
+    };
+  }, [password]);
+
+  const passwordScore = Object.values(passwordRules).filter(Boolean).length;
+
+  const passwordStrength =
+    passwordScore <= 1
+      ? "Weak"
+      : passwordScore <= 3
+      ? "Medium"
+      : "Strong";
+
+  const passwordsMatch =
+    password.length > 0 &&
+    confirmPassword.length > 0 &&
+    password === confirmPassword;
 
   function isValidGmail(emailValue: string) {
     return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(emailValue);
@@ -53,7 +78,7 @@ export default function RegisterPage() {
     } else if (error.code === "auth/invalid-email") {
       setMessage("Please enter a valid Gmail address.");
     } else if (error.code === "auth/weak-password") {
-      setMessage("Password must be at least 6 characters.");
+      setMessage("Password must be stronger.");
     } else if (error.code === "auth/operation-not-allowed") {
       setMessage("Email/password registration is not enabled in Firebase.");
     } else if (error.code === "permission-denied") {
@@ -63,31 +88,44 @@ export default function RegisterPage() {
     }
   }
 
-  async function createAccount() {
+  function validateForm() {
     const cleanName = name.trim();
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPassword = password.trim();
-    const cleanConfirmPassword = confirmPassword.trim();
 
-    if (!cleanName || !cleanEmail || !cleanPassword || !cleanConfirmPassword) {
+    if (!cleanName || !cleanEmail || !password || !confirmPassword) {
       setMessage("Please complete all fields.");
-      return;
+      return false;
     }
 
     if (!isValidGmail(cleanEmail)) {
       setMessage("Please use a valid Gmail address ending in @gmail.com.");
-      return;
+      return false;
     }
 
-    if (cleanPassword.length < 6) {
-      setMessage("Password must be at least 6 characters.");
-      return;
+    if (passwordScore < 4) {
+      setMessage("Password must include 8+ characters, uppercase, lowercase, and a number.");
+      return false;
     }
 
-    if (cleanPassword !== cleanConfirmPassword) {
+    if (password !== confirmPassword) {
       setMessage("Passwords do not match. Please try again.");
-      return;
+      return false;
     }
+
+    if (!acceptedTerms) {
+      setMessage("Please accept the Terms of Service and Privacy Policy.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function createAccount() {
+    if (!validateForm()) return;
+
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
 
     try {
       setLoading(true);
@@ -116,6 +154,8 @@ export default function RegisterPage() {
         provider: "email",
         deviceId,
         photoURL: "",
+        acceptedTerms: true,
+        termsAcceptedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       });
 
@@ -145,6 +185,11 @@ export default function RegisterPage() {
   }
 
   async function continueWithGoogle() {
+    if (!acceptedTerms) {
+      setMessage("Please accept the Terms of Service and Privacy Policy.");
+      return;
+    }
+
     try {
       setLoading(true);
       setMessage("");
@@ -171,6 +216,8 @@ export default function RegisterPage() {
         provider: "google",
         deviceId,
         photoURL: user.photoURL || "",
+        acceptedTerms: true,
+        termsAcceptedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       });
 
@@ -207,7 +254,7 @@ export default function RegisterPage() {
         <h1>Create your account</h1>
 
         <p className="subtitle">
-          Join RoadLink with a real Gmail. Email verification is required before login.
+          Join RoadLink with a verified Gmail and a secure password.
         </p>
 
         <button className="social" onClick={continueWithGoogle} disabled={loading}>
@@ -241,9 +288,31 @@ export default function RegisterPage() {
             className="eyeButton"
             onClick={() => setShowPassword((previous) => !previous)}
           >
-            {showPassword ? "Hide" : "Show"}
+            {showPassword ? "🙈" : "👁️"}
           </button>
         </div>
+
+        {password && (
+          <div className="strengthBox">
+            <div className="strengthTop">
+              <span>Password strength</span>
+              <strong className={passwordStrength.toLowerCase()}>
+                {passwordStrength}
+              </strong>
+            </div>
+
+            <div className="strengthTrack">
+              <div className={`strengthFill score${passwordScore}`} />
+            </div>
+
+            <div className="rules">
+              <Rule active={passwordRules.length} text="At least 8 characters" />
+              <Rule active={passwordRules.uppercase} text="One uppercase letter" />
+              <Rule active={passwordRules.lowercase} text="One lowercase letter" />
+              <Rule active={passwordRules.number} text="One number" />
+            </div>
+          </div>
+        )}
 
         <div className="passwordWrap">
           <input
@@ -258,14 +327,32 @@ export default function RegisterPage() {
             className="eyeButton"
             onClick={() => setShowConfirmPassword((previous) => !previous)}
           >
-            {showConfirmPassword ? "Hide" : "Show"}
+            {showConfirmPassword ? "🙈" : "👁️"}
           </button>
         </div>
+
+        {confirmPassword && (
+          <p className={passwordsMatch ? "match good" : "match bad"}>
+            {passwordsMatch ? "✓ Passwords match" : "✗ Passwords do not match"}
+          </p>
+        )}
 
         <select value={role} onChange={(event) => setRole(event.target.value)}>
           <option value="passenger">Passenger</option>
           <option value="driver">Driver</option>
         </select>
+
+        <label className="terms">
+          <input
+            type="checkbox"
+            checked={acceptedTerms}
+            onChange={(event) => setAcceptedTerms(event.target.checked)}
+          />
+          <span>
+            I agree to the <Link href="/terms">Terms of Service</Link> and{" "}
+            <Link href="/privacy">Privacy Policy</Link>.
+          </span>
+        </label>
 
         <button className="primary" onClick={createAccount} disabled={loading}>
           {loading ? "Creating Account..." : "Create Account"}
@@ -275,9 +362,9 @@ export default function RegisterPage() {
 
         <div className="securityBox">
           <p>✅ Gmail verification required</p>
+          <p>✅ Strong password protection</p>
           <p>✅ Password confirmation required</p>
-          <p>✅ Show or hide password</p>
-          <p>✅ Google sign-in supported</p>
+          <p>✅ Terms acceptance required</p>
         </div>
 
         <p className="footer">
@@ -304,7 +391,7 @@ export default function RegisterPage() {
 
         .card {
           width: 100%;
-          max-width: 540px;
+          max-width: 560px;
           background: rgba(8, 13, 25, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 32px;
@@ -379,7 +466,7 @@ export default function RegisterPage() {
         }
 
         .passwordWrap input {
-          padding-right: 82px;
+          padding-right: 74px;
         }
 
         button {
@@ -401,14 +488,14 @@ export default function RegisterPage() {
           position: absolute;
           right: 10px;
           top: 22px;
-          width: auto;
-          padding: 8px 12px;
+          width: 48px;
+          height: 36px;
+          padding: 0;
           border-radius: 999px;
           border: 1px solid rgba(34,197,94,0.35);
           background: rgba(34,197,94,0.12);
           color: #22c55e;
-          font-size: 12px;
-          font-weight: 900;
+          font-size: 15px;
         }
 
         .social {
@@ -446,6 +533,94 @@ export default function RegisterPage() {
           flex: 1;
           height: 1px;
           background: rgba(255,255,255,0.12);
+        }
+
+        .strengthBox {
+          margin-top: 14px;
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .strengthTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          color: #a1a1aa;
+          font-weight: 900;
+          margin-bottom: 10px;
+        }
+
+        .weak { color: #f87171; }
+        .medium { color: #fbbf24; }
+        .strong { color: #22c55e; }
+
+        .strengthTrack {
+          height: 10px;
+          width: 100%;
+          background: rgba(255,255,255,0.08);
+          border-radius: 999px;
+          overflow: hidden;
+          margin-bottom: 14px;
+        }
+
+        .strengthFill {
+          height: 100%;
+          border-radius: 999px;
+          transition: width 0.25s ease;
+        }
+
+        .score0 { width: 0%; background: #ef4444; }
+        .score1 { width: 25%; background: #ef4444; }
+        .score2 { width: 50%; background: #f59e0b; }
+        .score3 { width: 75%; background: #fbbf24; }
+        .score4 { width: 100%; background: #22c55e; }
+
+        .rules {
+          display: grid;
+          gap: 8px;
+        }
+
+        .rule {
+          color: #71717a;
+          font-weight: 800;
+          font-size: 14px;
+        }
+
+        .rule.active {
+          color: #22c55e;
+        }
+
+        .match {
+          margin: 10px 0 0;
+          font-weight: 900;
+          font-size: 14px;
+        }
+
+        .match.good { color: #22c55e; }
+        .match.bad { color: #f87171; }
+
+        .terms {
+          display: grid;
+          grid-template-columns: 22px 1fr;
+          gap: 12px;
+          align-items: start;
+          margin-top: 18px;
+          color: #d4d4d8;
+          font-weight: 800;
+          line-height: 1.5;
+        }
+
+        .terms input {
+          width: 18px;
+          height: 18px;
+          margin: 3px 0 0;
+          accent-color: #22c55e;
+        }
+
+        .terms a {
+          color: #22c55e;
         }
 
         .message {
@@ -498,5 +673,13 @@ export default function RegisterPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+function Rule({ active, text }: { active: boolean; text: string }) {
+  return (
+    <div className={active ? "rule active" : "rule"}>
+      {active ? "✓" : "✗"} {text}
+    </div>
   );
 }
