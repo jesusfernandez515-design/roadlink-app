@@ -434,4 +434,4 @@ export default function RegisterPage() {
       `}</style>
     </main>
   );
-            }
+          }
