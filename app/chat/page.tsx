@@ -70,7 +70,7 @@ export default function ChatPage() {
     const generatedChatId = currentRideId
       ? `chat_${currentRideId}`
       : currentDriverId
-      ? `driver_chat_${currentDriverId}`
+      ? `driver_chat_${currentDriverId}_${currentPassengerId || "direct"}`
       : "";
 
     setChatId(generatedChatId);
@@ -199,8 +199,9 @@ export default function ChatPage() {
       const finalPassengerId =
         passengerId || (userId !== finalDriverId ? userId : "");
 
+      const receiverId = userId === finalDriverId ? finalPassengerId : finalDriverId;
+
       const now = new Date().toISOString();
-      const receiverIsDriver = userId !== finalDriverId;
 
       await addDoc(collection(db, "messages"), {
         chatId,
@@ -223,7 +224,7 @@ export default function ChatPage() {
           driverId: finalDriverId,
           passengerId: finalPassengerId,
           driverEmail: ride?.driverEmail || driver?.email || "",
-          passengerEmail: receiverIsDriver ? userEmail : "",
+          passengerEmail: userId === finalDriverId ? "" : userEmail,
           lastMessage: cleanText,
           lastMessageTime: now,
           lastSenderId: userId,
@@ -232,6 +233,17 @@ export default function ChatPage() {
         },
         { merge: true }
       );
+
+      if (receiverId && receiverId !== userId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: receiverId,
+          type: "message",
+          title: "New Message",
+          message: `${userEmail} sent you a message.`,
+          read: false,
+          createdAt: now,
+        });
+      }
 
       setText("");
       setStatus("");
@@ -255,6 +267,7 @@ export default function ChatPage() {
           <div className="topActions">
             <Link href="/messages" className="miniButton">← Inbox</Link>
             <Link href="/dashboard" className="miniButton">Dashboard</Link>
+            <Link href="/notifications" className="miniButton">Notifications</Link>
             <Link href="/my-bookings" className="miniButton">My Bookings</Link>
           </div>
 
@@ -272,6 +285,7 @@ export default function ChatPage() {
                 {ride?.date && <span>📅 {ride.date}</span>}
                 {ride?.time && <span>🕒 {ride.time}</span>}
                 <span>🛡️ Secure Chat</span>
+                <span>🔔 Message Notifications</span>
               </div>
             </div>
           </div>
