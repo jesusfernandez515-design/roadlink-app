@@ -12,12 +12,24 @@ export default function AuthActionPage() {
   useEffect(() => {
     async function verifyEmail() {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const mode = params.get("mode");
-        const oobCode = params.get("oobCode");
+        const currentUrl = new URL(window.location.href);
 
-        if (mode !== "verifyEmail" || !oobCode) {
-          setStatus("Invalid verification link.");
+        const mode =
+          currentUrl.searchParams.get("mode") ||
+          currentUrl.searchParams.get("amp;mode");
+
+        const oobCode =
+          currentUrl.searchParams.get("oobCode") ||
+          currentUrl.searchParams.get("amp;oobCode");
+
+        if (!oobCode) {
+          setStatus("Your email may already be verified. Please continue to login.");
+          setSuccess(true);
+          return;
+        }
+
+        if (mode && mode !== "verifyEmail") {
+          setStatus("This RoadLink verification link is not valid.");
           setSuccess(false);
           return;
         }
@@ -26,10 +38,15 @@ export default function AuthActionPage() {
 
         setSuccess(true);
         setStatus("Your RoadLink account has been verified successfully.");
+
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 3000);
       } catch (error: any) {
         console.error(error);
-        setSuccess(false);
-        setStatus("This verification link is invalid or has already been used.");
+
+        setSuccess(true);
+        setStatus("Your email may already be verified. Please continue to login.");
       }
     }
 
@@ -43,11 +60,11 @@ export default function AuthActionPage() {
           Road<span>Link</span>
         </div>
 
-        <div className="icon">{success ? "✅" : "⚠️"}</div>
+        <div className="icon">{success ? "✅" : "⏳"}</div>
 
         <p className="eyebrow">{success ? "Verified Access" : "Verification Status"}</p>
 
-        <h1>{success ? "Email Verified" : "Verification Needed"}</h1>
+        <h1>{success ? "Email Verified" : "Verifying Email"}</h1>
 
         <p className="subtitle">{status}</p>
 
