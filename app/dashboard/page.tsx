@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  onSnapshot,
+  query,
+  where,
+} from "firebase/firestore";
 
 type Ride = {
   id: string;
@@ -42,17 +48,30 @@ export default function DashboardPage() {
   const [earnings, setEarnings] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
   const [conversationCount, setConversationCount] = useState(0);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading dashboard...");
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeNotifications: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setMessage("Please sign in to view your dashboard.");
         return;
       }
 
       setAvatar((user.email || "R").charAt(0).toUpperCase());
+
+      const notificationsQuery = query(
+        collection(db, "notifications"),
+        where("userId", "==", user.uid),
+        where("read", "==", false)
+      );
+
+      unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+        setNotificationCount(snapshot.size);
+      });
 
       try {
         const ridesQuery = query(
@@ -152,7 +171,10 @@ export default function DashboardPage() {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeNotifications) unsubscribeNotifications();
+    };
   }, []);
 
   const upcomingTrip = bookings[0];
@@ -164,9 +186,15 @@ export default function DashboardPage() {
           <Link href="/" className="miniButton">Home</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/messages" className="miniButton">
-            Messages {messageCount > 0 ? `(${messageCount})` : ""}
+
+          <Link href="/messages" className={messageCount > 0 ? "miniButton alertNav" : "miniButton"}>
+            Messages {messageCount > 0 && <span className="navBadge">{messageCount}</span>}
           </Link>
+
+          <Link href="/notifications" className={notificationCount > 0 ? "miniButton alertNav" : "miniButton"}>
+            Notifications {notificationCount > 0 && <span className="navBadge">{notificationCount}</span>}
+          </Link>
+
           <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
@@ -177,7 +205,7 @@ export default function DashboardPage() {
               Welcome back, <span>driver.</span>
             </h1>
             <p className="subtitle">
-              Manage your rides, bookings, earnings, messages, and upcoming trips from one powerful control center.
+              Manage rides, bookings, earnings, messages, notifications, and upcoming trips from one premium control center.
             </p>
           </div>
 
@@ -195,6 +223,13 @@ export default function DashboardPage() {
             value={messageCount > 0 ? String(messageCount) : String(conversationCount)}
             href="/messages"
             alert={messageCount > 0}
+          />
+          <Metric
+            icon="🔔"
+            title={notificationCount > 0 ? "New Notifications" : "Notifications"}
+            value={String(notificationCount)}
+            href="/notifications"
+            alert={notificationCount > 0}
           />
           <Metric icon="💵" title="Earnings" value={`$${earnings}`} href="/dashboard/driver" />
         </section>
@@ -259,9 +294,14 @@ export default function DashboardPage() {
             <h2>Control Center</h2>
 
             <div className="actions">
+              <Link href="/notifications" className={notificationCount > 0 ? "alertAction" : ""}>
+                🔔 Notifications {notificationCount > 0 ? `(${notificationCount} new)` : ""}
+              </Link>
+
               <Link href="/messages" className={messageCount > 0 ? "alertAction" : ""}>
                 💬 Messages {messageCount > 0 ? `(${messageCount} new)` : conversationCount > 0 ? `(${conversationCount})` : ""}
               </Link>
+
               <Link href="/find-ride">🔎 Find a Ride</Link>
               <Link href="/offer-ride">➕ Offer a Ride</Link>
               <Link href="/my-bookings">📋 My Bookings</Link>
@@ -303,6 +343,10 @@ export default function DashboardPage() {
         }
 
         .miniButton {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
           padding: 11px 18px;
           border-radius: 999px;
           background: rgba(255,255,255,0.05);
@@ -315,6 +359,26 @@ export default function DashboardPage() {
         .miniButton:hover {
           border-color: rgba(34,197,94,0.45);
           background: rgba(34,197,94,0.12);
+        }
+
+        .alertNav {
+          border-color: rgba(239,68,68,0.45);
+          background: rgba(239,68,68,0.12);
+        }
+
+        .navBadge {
+          min-width: 22px;
+          height: 22px;
+          padding: 0 7px;
+          border-radius: 999px;
+          background: #ef4444;
+          color: white;
+          font-size: 12px;
+          font-weight: 900;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 0 18px rgba(239,68,68,0.75);
         }
 
         .heroCard,
@@ -387,7 +451,7 @@ export default function DashboardPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(5, 1fr);
           gap: 16px;
           margin-bottom: 24px;
         }
@@ -583,11 +647,6 @@ export default function DashboardPage() {
           transition: all 0.25s ease;
         }
 
-        .actions a:first-child {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .actions a.alertAction {
           border-color: rgba(239,68,68,0.45);
           background: rgba(239,68,68,0.12);
@@ -597,6 +656,12 @@ export default function DashboardPage() {
         .actions a:hover {
           transform: translateX(4px);
           border-color: rgba(34,197,94,0.4);
+        }
+
+        @media (max-width: 1000px) {
+          .stats {
+            grid-template-columns: repeat(2, 1fr);
+          }
         }
 
         @media (max-width: 800px) {
@@ -618,16 +683,16 @@ export default function DashboardPage() {
             font-size: 18px;
           }
 
-          .stats {
-            grid-template-columns: 1fr 1fr;
-          }
-
           .premiumGrid {
             grid-template-columns: 1fr;
           }
         }
 
         @media (max-width: 480px) {
+          .stats {
+            grid-template-columns: 1fr;
+          }
+
           .metric {
             padding: 18px;
           }
