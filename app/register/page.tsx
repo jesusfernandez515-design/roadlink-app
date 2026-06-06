@@ -19,9 +19,14 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
   const [role, setRole] = useState("passenger");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   function isValidGmail(emailValue: string) {
     return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(emailValue);
@@ -62,8 +67,9 @@ export default function RegisterPage() {
     const cleanName = name.trim();
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
+    const cleanConfirmPassword = confirmPassword.trim();
 
-    if (!cleanName || !cleanEmail || !cleanPassword) {
+    if (!cleanName || !cleanEmail || !cleanPassword || !cleanConfirmPassword) {
       setMessage("Please complete all fields.");
       return;
     }
@@ -75,6 +81,11 @@ export default function RegisterPage() {
 
     if (cleanPassword.length < 6) {
       setMessage("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (cleanPassword !== cleanConfirmPassword) {
+      setMessage("Passwords do not match. Please try again.");
       return;
     }
 
@@ -93,7 +104,8 @@ export default function RegisterPage() {
       const user = userCredential.user;
 
       await sendEmailVerification(user, {
-url: "https://getroadlink.com/auth/action",        handleCodeInApp: false,
+        url: "https://getroadlink.com/auth/action",
+        handleCodeInApp: false,
       });
 
       await setDoc(doc(db, "users", user.uid), {
@@ -216,12 +228,39 @@ url: "https://getroadlink.com/auth/action",        handleCodeInApp: false,
           onChange={(event) => setEmail(event.target.value)}
         />
 
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
+        <div className="passwordWrap">
+          <input
+            placeholder="Password"
+            type={showPassword ? "text" : "password"}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+
+          <button
+            type="button"
+            className="eyeButton"
+            onClick={() => setShowPassword((previous) => !previous)}
+          >
+            {showPassword ? "Hide" : "Show"}
+          </button>
+        </div>
+
+        <div className="passwordWrap">
+          <input
+            placeholder="Confirm password"
+            type={showConfirmPassword ? "text" : "password"}
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+          />
+
+          <button
+            type="button"
+            className="eyeButton"
+            onClick={() => setShowConfirmPassword((previous) => !previous)}
+          >
+            {showConfirmPassword ? "Hide" : "Show"}
+          </button>
+        </div>
 
         <select value={role} onChange={(event) => setRole(event.target.value)}>
           <option value="passenger">Passenger</option>
@@ -236,8 +275,8 @@ url: "https://getroadlink.com/auth/action",        handleCodeInApp: false,
 
         <div className="securityBox">
           <p>✅ Gmail verification required</p>
-          <p>✅ Premium verification page</p>
-          <p>✅ Auto redirect to login</p>
+          <p>✅ Password confirmation required</p>
+          <p>✅ Show or hide password</p>
           <p>✅ Google sign-in supported</p>
         </div>
 
@@ -335,6 +374,14 @@ url: "https://getroadlink.com/auth/action",        handleCodeInApp: false,
           color: black;
         }
 
+        .passwordWrap {
+          position: relative;
+        }
+
+        .passwordWrap input {
+          padding-right: 82px;
+        }
+
         button {
           width: 100%;
           padding: 16px;
@@ -350,11 +397,30 @@ url: "https://getroadlink.com/auth/action",        handleCodeInApp: false,
           cursor: not-allowed;
         }
 
+        .eyeButton {
+          position: absolute;
+          right: 10px;
+          top: 22px;
+          width: auto;
+          padding: 8px 12px;
+          border-radius: 999px;
+          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(34,197,94,0.12);
+          color: #22c55e;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
         .social {
           margin-top: 26px;
           background: rgba(255,255,255,0.06);
           border: 1px solid rgba(255,255,255,0.14);
           color: white;
+        }
+
+        .social:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
         }
 
         .primary {
