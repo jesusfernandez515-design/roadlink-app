@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -25,7 +25,7 @@ type Ride = {
   driverEmail?: string;
 };
 
-type Driver = {
+type UserProfile = {
   name?: string;
   email?: string;
 };
@@ -38,9 +38,11 @@ type Message = {
   passengerId?: string;
   senderId?: string;
   senderEmail?: string;
+  receiverId?: string;
   text?: string;
   createdAt?: string;
   read?: boolean;
+  status?: string;
 };
 
 export default function ChatPage() {
@@ -51,7 +53,7 @@ export default function ChatPage() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [ride, setRide] = useState<Ride | null>(null);
-  const [driver, setDriver] = useState<Driver | null>(null);
+  const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [status, setStatus] = useState("Loading chat...");
@@ -59,21 +61,15 @@ export default function ChatPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+
     const currentRideId = params.get("rideId") || "";
     const currentDriverId = params.get("driverId") || "";
     const currentPassengerId = params.get("passengerId") || "";
+    const currentChatId = params.get("chatId") || "";
 
     setRideId(currentRideId);
     setDriverId(currentDriverId);
     setPassengerId(currentPassengerId);
-
-    const generatedChatId = currentRideId
-      ? `chat_${currentRideId}`
-      : currentDriverId
-      ? `driver_chat_${currentDriverId}_${currentPassengerId || "direct"}`
-      : "";
-
-    setChatId(generatedChatId);
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -84,12 +80,15 @@ export default function ChatPage() {
       setUserId(user.uid);
       setUserEmail(user.email || "");
 
-      if (!currentRideId && !currentDriverId) {
+      if (!currentRideId && !currentDriverId && !currentChatId) {
         setStatus("No ride or driver selected.");
         return;
       }
 
       try {
+        let finalDriverId = currentDriverId;
+        let finalPassengerId = currentPassengerId;
+
         if (currentRideId) {
           const rideRef = doc(db, "rides", currentRideId);
           const rideSnap = await getDoc(rideRef);
@@ -98,18 +97,41 @@ export default function ChatPage() {
             const rideData = rideSnap.data() as Ride;
             setRide(rideData);
 
-            if (rideData.driverId) {
-              setDriverId(rideData.driverId);
-            }
+            finalDriverId = currentDriverId || rideData.driverId || "";
           }
         }
 
-        if (currentDriverId) {
-          const driverRef = doc(db, "users", currentDriverId);
-          const driverSnap = await getDoc(driverRef);
+        if (!finalPassengerId && user.uid !== finalDriverId) {
+          finalPassengerId = user.uid;
+        }
 
-          if (driverSnap.exists()) {
-            setDriver(driverSnap.data() as Driver);
+        setDriverId(finalDriverId);
+        setPassengerId(finalPassengerId);
+
+        const finalChatId =
+          currentChatId ||
+          (currentRideId && finalDriverId && finalPassengerId
+            ? `chat_${currentRideId}_${finalDriverId}_${finalPassengerId}`
+            : finalDriverId && finalPassengerId
+            ? `direct_${finalDriverId}_${finalPassengerId}`
+            : "");
+
+        if (!finalChatId) {
+          setStatus("Chat information is incomplete.");
+          return;
+        }
+
+        setChatId(finalChatId);
+
+        const receiverId =
+          user.uid === finalDriverId ? finalPassengerId : finalDriverId;
+
+        if (receiverId) {
+          const userRef = doc(db, "users", receiverId);
+          const userSnap = await getDoc(userRef);
+
+          if (userSnap.exists()) {
+            setOtherUser(userSnap.data() as UserProfile);
           }
         }
 
@@ -123,7 +145,7 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || !userId) return;
 
     const messagesQuery = query(
       collection(db, "messages"),
@@ -134,8 +156,8 @@ export default function ChatPage() {
       messagesQuery,
       async (snapshot) => {
         const data = snapshot.docs.map((document) => ({
-          id: document.id,
           ...document.data(),
+          id: document.id,
         })) as Message[];
 
         data.sort((a, b) =>
@@ -144,29 +166,29 @@ export default function ChatPage() {
 
         setMessages(data);
 
-        if (userId) {
-          const unreadIncoming = data.filter(
-            (message) => message.senderId !== userId && message.read === false
-          );
+        const unreadIncoming = data.filter(
+          (message) => message.senderId !== userId && message.read === false
+        );
 
+        if (unreadIncoming.length > 0) {
           await Promise.all(
             unreadIncoming.map((message) =>
               updateDoc(doc(db, "messages", message.id), {
                 read: true,
                 status: "read",
+                readAt: new Date().toISOString(),
               })
             )
           );
 
-          if (unreadIncoming.length > 0) {
-            await setDoc(
-              doc(db, "chats", chatId),
-              {
-                unreadCount: 0,
-              },
-              { merge: true }
-            );
-          }
+          await setDoc(
+            doc(db, "chats", chatId),
+            {
+              unreadCount: 0,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
         }
       },
       (error) => {
@@ -176,6 +198,12 @@ export default function ChatPage() {
 
     return () => unsubscribeMessages();
   }, [chatId, userId]);
+
+  const unreadOutgoingCount = useMemo(() => {
+    return messages.filter(
+      (message) => message.senderId === userId && message.read === false
+    ).length;
+  }, [messages, userId]);
 
   async function sendMessage() {
     const cleanText = text.trim();
@@ -194,12 +222,19 @@ export default function ChatPage() {
 
     try {
       setSending(true);
+      setStatus("");
 
       const finalDriverId = driverId || ride?.driverId || "";
       const finalPassengerId =
         passengerId || (userId !== finalDriverId ? userId : "");
 
-      const receiverId = userId === finalDriverId ? finalPassengerId : finalDriverId;
+      if (!finalDriverId || !finalPassengerId) {
+        setStatus("Chat participants are missing.");
+        return;
+      }
+
+      const receiverId =
+        userId === finalDriverId ? finalPassengerId : finalDriverId;
 
       const now = new Date().toISOString();
 
@@ -210,6 +245,7 @@ export default function ChatPage() {
         passengerId: finalPassengerId,
         senderId: userId,
         senderEmail: userEmail,
+        receiverId,
         text: cleanText,
         createdAt: now,
         status: "sent",
@@ -223,13 +259,14 @@ export default function ChatPage() {
           rideId: rideId || "",
           driverId: finalDriverId,
           passengerId: finalPassengerId,
-          driverEmail: ride?.driverEmail || driver?.email || "",
-          passengerEmail: userId === finalDriverId ? "" : userEmail,
+          driverEmail: ride?.driverEmail || "",
+          passengerEmail: userId === finalPassengerId ? userEmail : "",
           lastMessage: cleanText,
           lastMessageTime: now,
           lastSenderId: userId,
           lastSenderEmail: userEmail,
           unreadCount: 1,
+          updatedAt: now,
         },
         { merge: true }
       );
@@ -246,7 +283,6 @@ export default function ChatPage() {
       }
 
       setText("");
-      setStatus("");
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
@@ -254,10 +290,27 @@ export default function ChatPage() {
     }
   }
 
+  function formatTime(value?: string) {
+    if (!value) return "";
+
+    try {
+      const date = new Date(value);
+
+      if (Number.isNaN(date.getTime())) return value.slice(11, 16);
+
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return value.slice(11, 16);
+    }
+  }
+
   const chatTitle = ride
     ? `${ride.from || "Starting point"} → ${ride.to || "Destination"}`
-    : driver
-    ? `Chat with ${driver.name || driver.email || "RoadLink Driver"}`
+    : otherUser
+    ? `Chat with ${otherUser.name || otherUser.email || "RoadLink User"}`
     : "Coordinate your trip safely.";
 
   return (
@@ -265,13 +318,26 @@ export default function ChatPage() {
       <section className="chatShell">
         <header className="header">
           <div className="topActions">
-            <Link href="/messages" className="miniButton">← Inbox</Link>
-            <Link href="/dashboard" className="miniButton">Dashboard</Link>
-            <Link href="/notifications" className="miniButton">Notifications</Link>
-            <Link href="/my-bookings" className="miniButton">My Bookings</Link>
+            <Link href="/messages" className="miniButton">
+              ← Inbox
+            </Link>
+
+            <Link href="/dashboard" className="miniButton">
+              Dashboard
+            </Link>
+
+            <Link href="/notifications" className="miniButton">
+              Notifications
+            </Link>
+
+            <Link href="/my-bookings" className="miniButton">
+              My Bookings
+            </Link>
           </div>
 
-          <div className="brand">Road<span>Link</span></div>
+          <div className="brand">
+            Road<span>Link</span>
+          </div>
 
           <div className="routeCard">
             <div className="avatar">💬</div>
@@ -285,7 +351,8 @@ export default function ChatPage() {
                 {ride?.date && <span>📅 {ride.date}</span>}
                 {ride?.time && <span>🕒 {ride.time}</span>}
                 <span>🛡️ Secure Chat</span>
-                <span>🔔 Message Notifications</span>
+                <span>🔔 Live Messages</span>
+                {unreadOutgoingCount > 0 && <span>{unreadOutgoingCount} unread</span>}
               </div>
             </div>
           </div>
@@ -298,19 +365,25 @@ export default function ChatPage() {
             <div className="empty">
               <div className="emptyIcon">💬</div>
               <h2>No messages yet</h2>
-              <p>Start the conversation about pickup time, location, luggage, or trip details.</p>
+              <p>
+                Start the conversation about pickup time, location, luggage, or trip details.
+              </p>
             </div>
           ) : (
             messages.map((message) => {
               const isMine = message.senderId === userId;
 
               return (
-                <div key={message.id} className={isMine ? "messageRow mine" : "messageRow"}>
+                <div
+                  key={message.id}
+                  className={isMine ? "messageRow mine" : "messageRow"}
+                >
                   <div className={isMine ? "bubble myBubble" : "bubble"}>
                     <p>{message.text}</p>
+
                     <small>
                       {isMine ? "You" : message.senderEmail || "RoadLink User"}
-                      {message.createdAt ? ` • ${message.createdAt.slice(11, 16)}` : ""}
+                      {message.createdAt ? ` • ${formatTime(message.createdAt)}` : ""}
                       {isMine && message.read ? " • Read" : ""}
                     </small>
                   </div>
@@ -323,8 +396,15 @@ export default function ChatPage() {
         <section className="composer">
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(event) => setText(event.target.value)}
             placeholder="Write a message..."
+            aria-label="Write a message"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+              }
+            }}
           />
 
           <button onClick={sendMessage} disabled={sending || !text.trim()}>
