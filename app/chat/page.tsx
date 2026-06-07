@@ -721,4 +721,4 @@ export default function ChatPage() {
       `}</style>
     </main>
   );
-}
+      }
