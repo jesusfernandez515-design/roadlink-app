@@ -9,7 +9,6 @@ import {
   addDoc,
   collection,
   doc,
-  getDocs,
   onSnapshot,
   query,
   updateDoc,
@@ -54,7 +53,7 @@ export default function MyRidesPage() {
     let unsubscribeRides: (() => void) | undefined;
     let unsubscribeBookings: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setCurrentUser(null);
         setMessage("Please sign in to view your rides.");
@@ -83,9 +82,7 @@ export default function MyRidesPage() {
           );
 
           setRides(ridesData);
-          setMessage(
-            ridesData.length ? "" : "You have not published any rides yet."
-          );
+          setMessage(ridesData.length ? "" : "You have not published any rides yet.");
         },
         (error) => setMessage(error.message)
       );
@@ -111,7 +108,6 @@ export default function MyRidesPage() {
 
     return () => {
       unsubscribeAuth();
-
       if (unsubscribeRides) unsubscribeRides();
       if (unsubscribeBookings) unsubscribeBookings();
     };
@@ -137,13 +133,6 @@ export default function MyRidesPage() {
       active: rides.filter((ride) => ride.status === "active" || ride.status === "full"),
       completed: rides.filter((ride) => ride.status === "completed"),
       cancelled: rides.filter((ride) => ride.status === "cancelled"),
-      other: rides.filter(
-        (ride) =>
-          ride.status !== "active" &&
-          ride.status !== "full" &&
-          ride.status !== "completed" &&
-          ride.status !== "cancelled"
-      ),
     };
   }, [rides]);
 
@@ -154,20 +143,9 @@ export default function MyRidesPage() {
   }
 
   async function updateRideStatus(ride: Ride, status: "completed" | "cancelled" | "active") {
-    if (!currentUser) {
-      setMessage("Please sign in to update rides.");
-      return;
-    }
+    if (!currentUser) return;
 
-    const actionText =
-      status === "completed"
-        ? "complete"
-        : status === "cancelled"
-        ? "cancel"
-        : "reactivate";
-
-    const confirmed = confirm(`Are you sure you want to ${actionText} this ride?`);
-
+    const confirmed = confirm(`Are you sure you want to ${status} this ride?`);
     if (!confirmed) return;
 
     try {
@@ -183,19 +161,10 @@ export default function MyRidesPage() {
 
       await Promise.all(
         ridePassengers.map(async (booking) => {
-          if (status === "completed") {
-            await updateDoc(doc(db, "bookings", booking.id), {
-              status: "completed",
-              completedAt: new Date().toISOString(),
-            });
-          }
-
-          if (status === "cancelled") {
-            await updateDoc(doc(db, "bookings", booking.id), {
-              status: "cancelled",
-              cancelledAt: new Date().toISOString(),
-            });
-          }
+          await updateDoc(doc(db, "bookings", booking.id), {
+            status,
+            updatedAt: new Date().toISOString(),
+          });
 
           if (booking.passengerId) {
             await addDoc(collection(db, "notifications"), {
@@ -209,9 +178,9 @@ export default function MyRidesPage() {
                   : "Ride Updated",
               message:
                 status === "completed"
-                  ? `Your trip from ${ride.from} to ${ride.to} was marked as completed.`
+                  ? `Your trip from ${ride.from} to ${ride.to} was completed.`
                   : status === "cancelled"
-                  ? `Your trip from ${ride.from} to ${ride.to} was cancelled by the driver.`
+                  ? `Your trip from ${ride.from} to ${ride.to} was cancelled.`
                   : `Your trip from ${ride.from} to ${ride.to} was updated.`,
               read: false,
               createdAt: new Date().toISOString(),
@@ -220,13 +189,7 @@ export default function MyRidesPage() {
         })
       );
 
-      setMessage(
-        status === "completed"
-          ? "Ride marked as completed."
-          : status === "cancelled"
-          ? "Ride cancelled successfully."
-          : "Ride reactivated successfully."
-      );
+      setMessage(`Ride ${status} successfully.`);
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
@@ -244,7 +207,6 @@ export default function MyRidesPage() {
 
   function RideCard({ ride }: { ride: Ride }) {
     const passengers = getPassengersForRide(ride.id);
-    const passengerCount = passengers.length;
     const isLoading = loadingRideId === ride.id;
     const isFinal = ride.status === "completed" || ride.status === "cancelled";
 
@@ -253,9 +215,7 @@ export default function MyRidesPage() {
         <div className="routeHeader">
           <div>
             <p className="eyebrow">Published Ride</p>
-            <h2>
-              {ride.from} <span>→</span> {ride.to}
-            </h2>
+            <h2>{ride.from} <span>→</span> {ride.to}</h2>
           </div>
 
           <div className="priceBox">
@@ -268,17 +228,13 @@ export default function MyRidesPage() {
           <div className="chip">📅 {ride.date}</div>
           <div className="chip">🕒 {ride.time}</div>
           <div className="chip">💺 {ride.seats} seats left</div>
-          <div className="chip">🎟️ {passengerCount} passenger{passengerCount === 1 ? "" : "s"}</div>
-          <div className={getStatusClass(ride.status)}>● {ride.status || "active"}</div>
+          <div className="chip">🎟️ {passengers.length} passenger{passengers.length === 1 ? "" : "s"}</div>
+          <div className={getStatusClass(ride.status)}>● {ride.status}</div>
         </div>
 
         <div className="infoGrid">
           <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not specified"} />
-          <Info
-            icon="👤"
-            label="Driver"
-            value={ride.driverEmail || currentUser?.email || "RoadLink Driver"}
-          />
+          <Info icon="👤" label="Driver" value={ride.driverEmail || currentUser?.email || "RoadLink Driver"} />
           {ride.notes && <Info icon="📝" label="Notes" value={ride.notes} />}
         </div>
 
@@ -292,12 +248,6 @@ export default function MyRidesPage() {
                 <strong>{booking.status || "reserved"}</strong>
               </div>
             ))}
-
-            {passengers.length > 3 && (
-              <p className="morePassengers">
-                +{passengers.length - 3} more passenger{passengers.length - 3 === 1 ? "" : "s"}
-              </p>
-            )}
           </div>
         )}
 
@@ -324,7 +274,7 @@ export default function MyRidesPage() {
             </button>
           )}
 
-          {ride.status !== "cancelled" && ride.status !== "completed" && (
+          {!isFinal && (
             <button
               className="cancelButton"
               onClick={() => updateRideStatus(ride, "cancelled")}
@@ -352,10 +302,7 @@ export default function MyRidesPage() {
     <main className="page">
       <section className="hero">
         <div className="topActions">
-          <button className="miniButton" onClick={() => router.back()}>
-            ← Back
-          </button>
-
+          <button className="miniButton" onClick={() => router.back()}>← Back</button>
           <Link href="/dashboard" className="miniButton">Dashboard</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
@@ -363,26 +310,17 @@ export default function MyRidesPage() {
         </div>
 
         <div className="logo">Road<span>Link</span></div>
-
         <p className="eyebrow">Driver Control Center</p>
 
-        <h1>
-          My <span>Rides</span>
-        </h1>
+        <h1>My <span>Rides</span></h1>
 
         <p className="subtitle">
-          Manage your published routes, passengers, availability, cancellations,
-          completed trips, and driver activity from one premium dashboard.
+          Manage your published routes, passengers, availability, completed trips, and cancellations.
         </p>
 
         <div className="mainActions">
-          <Link href="/offer-ride" className="primaryButton">
-            Offer New Ride
-          </Link>
-
-          <Link href="/dashboard" className="secondaryTopButton">
-            Back to Dashboard
-          </Link>
+          <Link href="/offer-ride" className="primaryButton">Offer New Ride</Link>
+          <Link href="/dashboard" className="secondaryTopButton">Back to Dashboard</Link>
         </div>
       </section>
 
@@ -402,44 +340,26 @@ export default function MyRidesPage() {
           <div className="empty">
             <div className="emptyIcon">🚘</div>
             <h2>No rides published yet</h2>
-            <p>
-              Publish your first ride and start connecting with passengers.
-            </p>
-            <Link href="/offer-ride" className="primaryButton">
-              Offer Your First Ride
-            </Link>
+            <p>Publish your first ride and start connecting with passengers.</p>
+            <Link href="/offer-ride" className="primaryButton">Offer Your First Ride</Link>
           </div>
         ) : (
           <>
             {groupedRides.active.length > 0 && (
               <RideGroup title="Active Rides" count={groupedRides.active.length}>
-                {groupedRides.active.map((ride) => (
-                  <RideCard key={ride.id} ride={ride} />
-                ))}
+                {groupedRides.active.map((ride) => <RideCard key={ride.id} ride={ride} />)}
               </RideGroup>
             )}
 
             {groupedRides.completed.length > 0 && (
               <RideGroup title="Completed Rides" count={groupedRides.completed.length}>
-                {groupedRides.completed.map((ride) => (
-                  <RideCard key={ride.id} ride={ride} />
-                ))}
+                {groupedRides.completed.map((ride) => <RideCard key={ride.id} ride={ride} />)}
               </RideGroup>
             )}
 
             {groupedRides.cancelled.length > 0 && (
               <RideGroup title="Cancelled Rides" count={groupedRides.cancelled.length}>
-                {groupedRides.cancelled.map((ride) => (
-                  <RideCard key={ride.id} ride={ride} />
-                ))}
-              </RideGroup>
-            )}
-
-            {groupedRides.other.length > 0 && (
-              <RideGroup title="Other Rides" count={groupedRides.other.length}>
-                {groupedRides.other.map((ride) => (
-                  <RideCard key={ride.id} ride={ride} />
-                ))}
+                {groupedRides.cancelled.map((ride) => <RideCard key={ride.id} ride={ride} />)}
               </RideGroup>
             )}
           </>
@@ -460,18 +380,13 @@ export default function MyRidesPage() {
           font-family: Arial, sans-serif;
         }
 
-        .hero,
-        .stats,
-        .results {
+        .hero, .stats, .results {
           max-width: 900px;
           margin-left: auto;
           margin-right: auto;
         }
 
-        .hero,
-        .rideCard,
-        .metric,
-        .empty {
+        .hero, .rideCard, .metric, .empty {
           background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -492,9 +407,6 @@ export default function MyRidesPage() {
         }
 
         .miniButton {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
           padding: 11px 18px;
           border-radius: 999px;
           background: rgba(255,255,255,0.04);
@@ -511,12 +423,7 @@ export default function MyRidesPage() {
           margin-bottom: 28px;
         }
 
-        .logo span,
-        h1 span,
-        h2 span,
-        .eyebrow,
-        .priceBox strong,
-        .metricValue {
+        .logo span, h1 span, h2 span, .eyebrow, .priceBox strong, .metricValue {
           color: #22c55e;
         }
 
@@ -532,7 +439,6 @@ export default function MyRidesPage() {
           font-size: 58px;
           line-height: 1;
           margin: 0 0 16px;
-          letter-spacing: -1px;
         }
 
         .subtitle {
@@ -542,15 +448,14 @@ export default function MyRidesPage() {
           margin: 0;
         }
 
-        .mainActions {
+        .mainActions, .cardButtons {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 14px;
           margin-top: 30px;
         }
 
-        .primaryButton,
-        .secondaryTopButton {
+        .primaryButton, .secondaryTopButton {
           width: 100%;
           padding: 18px;
           border-radius: 999px;
@@ -558,14 +463,12 @@ export default function MyRidesPage() {
           text-decoration: none;
           font-size: 17px;
           font-weight: 900;
-          cursor: pointer;
         }
 
         .primaryButton {
           background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
           border: none;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
         .secondaryTopButton {
@@ -621,8 +524,6 @@ export default function MyRidesPage() {
         .groupHeader {
           display: flex;
           justify-content: space-between;
-          gap: 16px;
-          align-items: center;
           margin: 30px 0 16px;
         }
 
@@ -650,14 +551,7 @@ export default function MyRidesPage() {
           display: grid;
           grid-template-columns: 1fr auto;
           gap: 18px;
-          align-items: start;
           margin-bottom: 20px;
-        }
-
-        h2 {
-          font-size: 34px;
-          line-height: 1.15;
-          margin: 0;
         }
 
         .priceBox {
@@ -669,19 +563,6 @@ export default function MyRidesPage() {
           text-align: center;
         }
 
-        .priceBox small {
-          display: block;
-          color: #a1a1aa;
-          font-size: 11px;
-          font-weight: 900;
-          margin-bottom: 6px;
-        }
-
-        .priceBox strong {
-          font-size: 32px;
-          font-weight: 900;
-        }
-
         .chips {
           display: flex;
           flex-wrap: wrap;
@@ -689,8 +570,7 @@ export default function MyRidesPage() {
           margin-bottom: 20px;
         }
 
-        .chip,
-        .status {
+        .chip, .status {
           padding: 10px 14px;
           border-radius: 14px;
           background: rgba(255,255,255,0.06);
@@ -702,25 +582,21 @@ export default function MyRidesPage() {
         .activeStatus {
           color: #22c55e;
           border-color: rgba(34,197,94,0.35);
-          background: rgba(34,197,94,0.1);
         }
 
         .fullStatus {
           color: #fbbf24;
           border-color: rgba(251,191,36,0.35);
-          background: rgba(251,191,36,0.1);
         }
 
         .completedStatus {
           color: #38bdf8;
           border-color: rgba(56,189,248,0.35);
-          background: rgba(56,189,248,0.1);
         }
 
         .cancelledStatus {
           color: #fca5a5;
           border-color: rgba(239,68,68,0.35);
-          background: rgba(239,68,68,0.1);
         }
 
         .infoGrid {
@@ -749,12 +625,6 @@ export default function MyRidesPage() {
           background: rgba(34,197,94,0.15);
         }
 
-        .infoText strong {
-          display: block;
-          color: #e5e7eb;
-          margin-bottom: 4px;
-        }
-
         .infoText span {
           color: #a1a1aa;
           overflow-wrap: anywhere;
@@ -773,54 +643,23 @@ export default function MyRidesPage() {
           justify-content: space-between;
           gap: 12px;
           padding: 10px 0;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
         }
 
-        .passengerRow:last-child {
-          border-bottom: none;
-        }
-
-        .passengerRow span {
-          color: #d4d4d8;
-          overflow-wrap: anywhere;
-        }
-
-        .passengerRow strong,
-        .morePassengers {
+        .passengerRow strong {
           color: #22c55e;
-          font-weight: 900;
         }
 
-        .morePassengers {
-          margin: 10px 0 0;
-        }
-
-        .cardButtons {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-top: 24px;
-        }
-
-        .outlineButton,
-        .completeButton,
-        .cancelButton,
-        .reactivateButton {
-          display: block;
+        .outlineButton, .completeButton, .cancelButton, .reactivateButton {
           width: 100%;
           padding: 15px;
           border-radius: 999px;
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
           text-align: center;
           text-decoration: none;
-          font-size: 15px;
           font-weight: 900;
-          cursor: pointer;
-        }
-
-        .outlineButton {
+          color: white;
+          border: 1px solid rgba(255,255,255,0.12);
           background: rgba(255,255,255,0.04);
+          cursor: pointer;
         }
 
         .completeButton {
@@ -849,57 +688,23 @@ export default function MyRidesPage() {
           text-align: center;
         }
 
-        .emptyIcon {
-          width: 86px;
-          height: 86px;
-          border-radius: 50%;
-          margin: 0 auto 18px;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 38px;
-        }
-
-        .empty h2 {
-          margin-bottom: 10px;
-        }
-
-        .empty p {
-          color: #a1a1aa;
-          line-height: 1.5;
-          margin-bottom: 22px;
-        }
-
         @media (max-width: 700px) {
           .page { padding: 16px; }
 
-          .hero,
-          .rideCard,
-          .empty {
+          .hero, .rideCard, .empty {
             padding: 24px;
             border-radius: 28px;
           }
 
           h1 { font-size: 50px; }
 
-          h2 { font-size: 32px; }
-
-          .stats,
-          .routeHeader,
-          .cardButtons,
-          .mainActions {
+          .stats, .routeHeader, .cardButtons, .mainActions {
             grid-template-columns: 1fr;
           }
 
-          .priceBox {
-            text-align: left;
-          }
-
           .groupHeader {
-            align-items: flex-start;
             flex-direction: column;
+            gap: 10px;
           }
         }
       `}</style>
@@ -922,7 +727,6 @@ function RideGroup({
         <h2>{title}</h2>
         <div className="groupPill">{count}</div>
       </div>
-
       {children}
     </section>
   );
