@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -23,11 +24,18 @@ type NotificationItem = {
   type?: string;
   read?: boolean;
   createdAt?: any;
+  rideId?: string;
+  bookingId?: string;
+  chatId?: string;
+  driverId?: string;
+  passengerId?: string;
+  actionUrl?: string;
 };
 
 export default function NotificationsPage() {
+  const router = useRouter();
+
   const [userId, setUserId] = useState("");
-  const [userEmail, setUserEmail] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [status, setStatus] = useState("Loading notifications...");
   const [saving, setSaving] = useState(false);
@@ -36,19 +44,18 @@ export default function NotificationsPage() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setUserId("");
-        setUserEmail("");
         setNotifications([]);
         setStatus("Please sign in to view your notifications.");
+        router.push("/login");
         return;
       }
 
       setUserId(user.uid);
-      setUserEmail(user.email || "");
       setStatus("");
     });
 
     return () => unsubscribeAuth();
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!userId) return;
@@ -63,8 +70,8 @@ export default function NotificationsPage() {
       notificationsQuery,
       (snapshot) => {
         const data = snapshot.docs.map((document) => ({
-          id: document.id,
           ...document.data(),
+          id: document.id,
         })) as NotificationItem[];
 
         setNotifications(data);
@@ -98,13 +105,7 @@ export default function NotificationsPage() {
     if (!value) return "Now";
 
     try {
-      let date: Date;
-
-      if (value?.toDate) {
-        date = value.toDate();
-      } else {
-        date = new Date(value);
-      }
+      const date = value?.toDate ? value.toDate() : new Date(value);
 
       if (Number.isNaN(date.getTime())) return "Recently";
 
@@ -119,15 +120,56 @@ export default function NotificationsPage() {
     }
   }
 
+  function getNotificationUrl(notification: NotificationItem) {
+    if (notification.actionUrl) return notification.actionUrl;
+
+    if (notification.type === "message") {
+      if (notification.chatId) {
+        return `/chat?chatId=${notification.chatId}&rideId=${notification.rideId || ""}&driverId=${notification.driverId || ""}&passengerId=${notification.passengerId || ""}`;
+      }
+
+      if (notification.rideId || notification.driverId || notification.passengerId) {
+        return `/chat?rideId=${notification.rideId || ""}&driverId=${notification.driverId || ""}&passengerId=${notification.passengerId || ""}`;
+      }
+
+      return "/messages";
+    }
+
+    if (notification.type === "booking") {
+      if (notification.rideId) return `/ride-passengers?rideId=${notification.rideId}`;
+      return "/my-rides";
+    }
+
+    if (notification.type === "ride") {
+      if (notification.rideId) return `/ride-details?rideId=${notification.rideId}`;
+      return "/my-bookings";
+    }
+
+    if (notification.type === "review") {
+      if (notification.driverId) return `/driver-profile?driverId=${notification.driverId}`;
+      return "/reviews";
+    }
+
+    return "/dashboard";
+  }
+
   async function markOneAsRead(notificationId: string) {
     try {
       await updateDoc(doc(db, "notifications", notificationId), {
         read: true,
         readAt: new Date().toISOString(),
       });
-    } catch (error: any) {
-      setStatus(error.message || "Could not update notification.");
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not update notification.");
     }
+  }
+
+  async function openNotification(notification: NotificationItem) {
+    if (!notification.read) {
+      await markOneAsRead(notification.id);
+    }
+
+    router.push(getNotificationUrl(notification));
   }
 
   async function markAllAsRead() {
@@ -148,8 +190,8 @@ export default function NotificationsPage() {
 
       await batch.commit();
       setStatus("All notifications marked as read.");
-    } catch (error: any) {
-      setStatus(error.message || "Could not mark notifications as read.");
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not mark notifications as read.");
     } finally {
       setSaving(false);
     }
@@ -159,27 +201,41 @@ export default function NotificationsPage() {
     <main className="page">
       <section className="container">
         <div className="topBar">
-          <Link href="/dashboard" className="backButton">← Dashboard</Link>
-          <Link href="/messages" className="backButton">Messages</Link>
-          <Link href="/profile" className="backButton">Profile</Link>
+          <Link href="/dashboard" className="backButton">
+            ← Dashboard
+          </Link>
+
+          <Link href="/messages" className="backButton">
+            Messages
+          </Link>
+
+          <Link href="/my-rides" className="backButton">
+            My Rides
+          </Link>
+
+          <Link href="/profile" className="backButton">
+            Profile
+          </Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Notifications</p>
-            <h1>Notification <span>Center</span></h1>
+
+            <h1>
+              Notification <span>Center</span>
+            </h1>
+
             <p className="subtitle">
-              Track bookings, messages, ride updates, account alerts, reviews,
-              payments and verification activity.
+              Track bookings, messages, ride updates, reviews, account alerts,
+              and important RoadLink activity.
             </p>
           </div>
 
-          <div className="bell">🔔</div>
-        </section>
-
-        <section className="debugCard">
-          <p><strong>Current User:</strong> {userEmail || "Not signed in"}</p>
-          <p><strong>Current User ID:</strong> {userId || "No user ID"}</p>
+          <div className={totalUnread > 0 ? "bell activeBell" : "bell"}>
+            🔔
+            {totalUnread > 0 && <span>{totalUnread}</span>}
+          </div>
         </section>
 
         {status && <p className="status">{status}</p>}
@@ -220,10 +276,11 @@ export default function NotificationsPage() {
           {notifications.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">🔕</div>
+
               <h3>No notifications yet</h3>
+
               <p>
-                If you just reserved a ride, remember: the notification appears
-                in the driver account, not the passenger account.
+                Bookings, messages, ride updates and reviews will appear here.
               </p>
 
               <Link href="/dashboard" className="mainButton">
@@ -238,16 +295,16 @@ export default function NotificationsPage() {
                 return (
                   <button
                     key={notification.id}
+                    type="button"
                     className={isUnread ? "notification unread" : "notification"}
-                    onClick={() => {
-                      if (isUnread) markOneAsRead(notification.id);
-                    }}
+                    onClick={() => openNotification(notification)}
                   >
                     <div className="icon">{getIcon(notification.type)}</div>
 
                     <div className="content">
                       <div className="titleRow">
                         <h3>{notification.title || "RoadLink Update"}</h3>
+
                         {isUnread ? (
                           <span className="unreadBadge">New</span>
                         ) : (
@@ -255,8 +312,15 @@ export default function NotificationsPage() {
                         )}
                       </div>
 
-                      <p>{notification.message || "You have a new RoadLink notification."}</p>
-                      <span>{formatTime(notification.createdAt)}</span>
+                      <p>
+                        {notification.message ||
+                          "You have a new RoadLink notification."}
+                      </p>
+
+                      <div className="metaRow">
+                        <span>{formatTime(notification.createdAt)}</span>
+                        <strong>Open</strong>
+                      </div>
                     </div>
                   </button>
                 );
@@ -267,7 +331,9 @@ export default function NotificationsPage() {
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .page {
           min-height: 100vh;
@@ -302,10 +368,14 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.1);
         }
 
+        .backButton:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
+        }
+
         .hero,
         .stat,
-        .card,
-        .debugCard {
+        .card {
           background: rgba(8,13,25,0.9);
           border: 1px solid rgba(255,255,255,0.1);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -320,22 +390,6 @@ export default function NotificationsPage() {
           padding: 35px;
           border-radius: 30px;
           margin-bottom: 20px;
-        }
-
-        .debugCard {
-          border-radius: 22px;
-          padding: 18px;
-          margin-bottom: 20px;
-        }
-
-        .debugCard p {
-          margin: 6px 0;
-          color: #d4d4d8;
-          overflow-wrap: anywhere;
-        }
-
-        .debugCard strong {
-          color: #22c55e;
         }
 
         .eyebrow {
@@ -367,6 +421,7 @@ export default function NotificationsPage() {
         }
 
         .bell {
+          position: relative;
           min-width: 100px;
           height: 100px;
           border-radius: 50%;
@@ -377,6 +432,34 @@ export default function NotificationsPage() {
           background: rgba(34,197,94,0.15);
           border: 1px solid rgba(34,197,94,0.3);
           box-shadow: 0 18px 55px rgba(34,197,94,0.2);
+        }
+
+        .activeBell {
+          animation: pulse 1.6s infinite;
+        }
+
+        .bell span {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          min-width: 34px;
+          height: 34px;
+          padding: 0 9px;
+          border-radius: 999px;
+          background: #ef4444;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+          font-weight: 900;
+          border: 2px solid #020617;
+        }
+
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.35); }
+          70% { box-shadow: 0 0 0 14px rgba(34,197,94,0); }
+          100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
         }
 
         .status {
@@ -508,6 +591,11 @@ export default function NotificationsPage() {
           cursor: pointer;
         }
 
+        .notification:hover {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.1);
+        }
+
         .unread {
           border-color: rgba(34,197,94,0.4);
           background: rgba(34,197,94,0.08);
@@ -543,9 +631,16 @@ export default function NotificationsPage() {
           line-height: 1.5;
         }
 
-        .content span {
-          display: block;
+        .metaRow {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
           margin-top: 10px;
+        }
+
+        .metaRow span,
+        .metaRow strong {
           color: #22c55e;
           font-size: 13px;
           font-weight: 900;
@@ -604,6 +699,15 @@ export default function NotificationsPage() {
           }
 
           .titleRow {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          .notification {
+            grid-template-columns: 1fr;
+          }
+
+          .metaRow {
             flex-direction: column;
             align-items: flex-start;
           }
