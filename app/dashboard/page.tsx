@@ -1,37 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  getDocs,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 
 type Ride = {
   id: string;
-  from: string;
-  to: string;
-  date: string;
-  time: string;
-  price: number;
-  seats: number;
-  status: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  time?: string;
+  price?: number;
+  seats?: number;
+  status?: string;
+  driverId?: string;
+  driverEmail?: string;
+  createdAt?: string;
 };
 
 type Booking = {
   id: string;
-  from: string;
-  to: string;
-  date: string;
-  time: string;
-  price: number;
-  driverEmail: string;
-  status: string;
+  rideId?: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  time?: string;
+  price?: number;
+  driverId?: string;
+  driverEmail?: string;
+  passengerId?: string;
+  passengerEmail?: string;
+  status?: string;
+  seatsBooked?: number;
+  createdAt?: string;
 };
 
 type Chat = {
@@ -40,197 +43,349 @@ type Chat = {
   driverId?: string;
   passengerId?: string;
   unreadCount?: number;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  lastSenderId?: string;
+};
+
+type NotificationItem = {
+  id: string;
+  title?: string;
+  message?: string;
+  type?: string;
+  read?: boolean;
+  createdAt?: any;
+  actionUrl?: string;
 };
 
 export default function DashboardPage() {
-  const [activeRides, setActiveRides] = useState<Ride[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [earnings, setEarnings] = useState(0);
-  const [messageCount, setMessageCount] = useState(0);
-  const [conversationCount, setConversationCount] = useState(0);
-  const [notificationCount, setNotificationCount] = useState(0);
+  const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [avatar, setAvatar] = useState("R");
+
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [passengerBookings, setPassengerBookings] = useState<Booking[]>([]);
+  const [driverBookings, setDriverBookings] = useState<Booking[]>([]);
+  const [driverChats, setDriverChats] = useState<Chat[]>([]);
+  const [passengerChats, setPassengerChats] = useState<Chat[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [message, setMessage] = useState("Loading dashboard...");
 
   useEffect(() => {
+    let unsubscribeRides: (() => void) | undefined;
+    let unsubscribePassengerBookings: (() => void) | undefined;
+    let unsubscribeDriverBookings: (() => void) | undefined;
+    let unsubscribeDriverChats: (() => void) | undefined;
+    let unsubscribePassengerChats: (() => void) | undefined;
     let unsubscribeNotifications: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
+        setUserId("");
+        setUserEmail("");
+        setAvatar("R");
         setMessage("Please sign in to view your dashboard.");
         return;
       }
 
+      setUserId(user.uid);
+      setUserEmail(user.email || "");
       setAvatar((user.email || "R").charAt(0).toUpperCase());
+      setMessage("");
+
+      const ridesQuery = query(
+        collection(db, "rides"),
+        where("driverId", "==", user.uid)
+      );
+
+      unsubscribeRides = onSnapshot(
+        ridesQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            ...document.data(),
+            id: document.id,
+          })) as Ride[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setRides(data);
+        },
+        (error) => setMessage(error.message)
+      );
+
+      const passengerBookingsQuery = query(
+        collection(db, "bookings"),
+        where("passengerId", "==", user.uid)
+      );
+
+      unsubscribePassengerBookings = onSnapshot(
+        passengerBookingsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            ...document.data(),
+            id: document.id,
+          })) as Booking[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setPassengerBookings(data);
+        },
+        (error) => setMessage(error.message)
+      );
+
+      const driverBookingsQuery = query(
+        collection(db, "bookings"),
+        where("driverId", "==", user.uid)
+      );
+
+      unsubscribeDriverBookings = onSnapshot(
+        driverBookingsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            ...document.data(),
+            id: document.id,
+          })) as Booking[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setDriverBookings(data);
+        },
+        (error) => setMessage(error.message)
+      );
+
+      const driverChatsQuery = query(
+        collection(db, "chats"),
+        where("driverId", "==", user.uid)
+      );
+
+      unsubscribeDriverChats = onSnapshot(
+        driverChatsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            ...document.data(),
+            id: document.id,
+          })) as Chat[];
+
+          setDriverChats(data);
+        },
+        (error) => setMessage(error.message)
+      );
+
+      const passengerChatsQuery = query(
+        collection(db, "chats"),
+        where("passengerId", "==", user.uid)
+      );
+
+      unsubscribePassengerChats = onSnapshot(
+        passengerChatsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            ...document.data(),
+            id: document.id,
+          })) as Chat[];
+
+          setPassengerChats(data);
+        },
+        (error) => setMessage(error.message)
+      );
 
       const notificationsQuery = query(
         collection(db, "notifications"),
-        where("userId", "==", user.uid),
-        where("read", "==", false)
+        where("userId", "==", user.uid)
       );
 
-      unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-        setNotificationCount(snapshot.size);
-      });
-
-      try {
-        const ridesQuery = query(
-          collection(db, "rides"),
-          where("driverId", "==", user.uid)
-        );
-
-        const ridesSnapshot = await getDocs(ridesQuery);
-
-        const ridesData = ridesSnapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Ride[];
-
-        const bookingsQuery = query(
-          collection(db, "bookings"),
-          where("passengerId", "==", user.uid),
-          where("status", "==", "reserved")
-        );
-
-        const bookingsSnapshot = await getDocs(bookingsQuery);
-
-        const bookingsData = bookingsSnapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Booking[];
-
-        const driverBookingsQuery = query(
-          collection(db, "bookings"),
-          where("driverId", "==", user.uid),
-          where("status", "==", "reserved")
-        );
-
-        const driverBookingsSnapshot = await getDocs(driverBookingsQuery);
-
-        const totalEarnings = driverBookingsSnapshot.docs.reduce(
-          (total, document) => total + Number(document.data().price || 0),
-          0
-        );
-
-        const driverChatsQuery = query(
-          collection(db, "chats"),
-          where("driverId", "==", user.uid)
-        );
-
-        const passengerChatsQuery = query(
-          collection(db, "chats"),
-          where("passengerId", "==", user.uid)
-        );
-
-        const driverChatsSnapshot = await getDocs(driverChatsQuery);
-        const passengerChatsSnapshot = await getDocs(passengerChatsQuery);
-
-        const chatsMap = new Map<string, Chat>();
-
-        driverChatsSnapshot.docs.forEach((document) => {
-          const data = {
-            id: document.id,
+      unsubscribeNotifications = onSnapshot(
+        notificationsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
             ...document.data(),
-          } as Chat;
-
-          const key = data.chatId || data.id;
-
-          if (key !== "chat_abc123" && data.driverId !== "test-driver") {
-            chatsMap.set(key, data);
-          }
-        });
-
-        passengerChatsSnapshot.docs.forEach((document) => {
-          const data = {
             id: document.id,
-            ...document.data(),
-          } as Chat;
+          })) as NotificationItem[];
 
-          const key = data.chatId || data.id;
+          data.sort((a, b) =>
+            getNotificationTime(b.createdAt) - getNotificationTime(a.createdAt)
+          );
 
-          if (key !== "chat_abc123" && data.passengerId !== "test-passenger") {
-            chatsMap.set(key, data);
-          }
-        });
-
-        const chatsData = Array.from(chatsMap.values());
-
-        const unreadMessages = chatsData.reduce(
-          (total, chat) => total + Number(chat.unreadCount || 0),
-          0
-        );
-
-        setActiveRides(ridesData);
-        setBookings(bookingsData);
-        setEarnings(totalEarnings);
-        setConversationCount(chatsData.length);
-        setMessageCount(unreadMessages);
-        setMessage("");
-      } catch (error: any) {
-        setMessage(error.message);
-      }
+          setNotifications(data);
+        },
+        (error) => setMessage(error.message)
+      );
     });
 
     return () => {
       unsubscribeAuth();
+      if (unsubscribeRides) unsubscribeRides();
+      if (unsubscribePassengerBookings) unsubscribePassengerBookings();
+      if (unsubscribeDriverBookings) unsubscribeDriverBookings();
+      if (unsubscribeDriverChats) unsubscribeDriverChats();
+      if (unsubscribePassengerChats) unsubscribePassengerChats();
       if (unsubscribeNotifications) unsubscribeNotifications();
     };
   }, []);
 
-  const upcomingTrip = bookings[0];
+  function getNotificationTime(value?: any) {
+    try {
+      const date = value?.toDate ? value.toDate() : new Date(value || "");
+      return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+    } catch {
+      return 0;
+    }
+  }
+
+  function formatActivityTime(value?: any) {
+    if (!value) return "Recently";
+
+    try {
+      const date = value?.toDate ? value.toDate() : new Date(value);
+
+      if (Number.isNaN(date.getTime())) return "Recently";
+
+      return date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Recently";
+    }
+  }
+
+  function getActivityIcon(type?: string) {
+    if (type === "message") return "💬";
+    if (type === "booking") return "🎟️";
+    if (type === "ride") return "🚘";
+    if (type === "review") return "⭐";
+    if (type === "payment") return "💵";
+    return "🔔";
+  }
+
+  const chats = useMemo(() => {
+    const map = new Map<string, Chat>();
+
+    [...driverChats, ...passengerChats].forEach((chat) => {
+      const key = chat.chatId || chat.id;
+
+      if (!key) return;
+      if (key === "chat_abc123") return;
+      if (chat.driverId === "test-driver") return;
+      if (chat.passengerId === "test-passenger") return;
+
+      map.set(key, chat);
+    });
+
+    return Array.from(map.values());
+  }, [driverChats, passengerChats]);
+
+  const activeRides = rides.filter(
+    (ride) => ride.status === "active" || ride.status === "full"
+  );
+
+  const completedRides = rides.filter((ride) => ride.status === "completed");
+
+  const activePassengerBookings = passengerBookings.filter(
+    (booking) => booking.status === "reserved"
+  );
+
+  const activeDriverBookings = driverBookings.filter(
+    (booking) => booking.status === "reserved"
+  );
+
+  const unreadMessages = chats.reduce(
+    (total, chat) => total + Number(chat.unreadCount || 0),
+    0
+  );
+
+  const unreadNotifications = notifications.filter(
+    (notification) => !notification.read
+  ).length;
+
+  const earnings = driverBookings
+    .filter(
+      (booking) =>
+        booking.status === "reserved" || booking.status === "completed"
+    )
+    .reduce(
+      (total, booking) =>
+        total + Number(booking.price || 0) * Number(booking.seatsBooked || 1),
+      0
+    );
+
+  const passengersTransported = driverBookings
+    .filter(
+      (booking) =>
+        booking.status === "reserved" || booking.status === "completed"
+    )
+    .reduce((total, booking) => total + Number(booking.seatsBooked || 1), 0);
+
+  const upcomingTrip = activePassengerBookings[0];
+  const recentActivity = notifications.slice(0, 5);
+
+  const greetingName =
+    userEmail?.split("@")[0]?.replace(/[._-]/g, " ") || "RoadLink User";
 
   return (
     <main className="page">
       <section className="dashboard">
-        <div className="topNav">
+        <nav className="topNav">
           <Link href="/" className="miniButton">Home</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
 
-          <Link href="/messages" className={messageCount > 0 ? "miniButton alertNav" : "miniButton"}>
-            Messages {messageCount > 0 && <span className="navBadge">{messageCount}</span>}
+          <Link href="/messages" className={unreadMessages > 0 ? "miniButton alertNav" : "miniButton"}>
+            Messages {unreadMessages > 0 && <span className="navBadge">{unreadMessages}</span>}
           </Link>
 
-          <Link href="/notifications" className={notificationCount > 0 ? "miniButton alertNav" : "miniButton"}>
-            Notifications {notificationCount > 0 && <span className="navBadge">{notificationCount}</span>}
+          <Link href="/notifications" className={unreadNotifications > 0 ? "miniButton alertNav" : "miniButton"}>
+            Notifications {unreadNotifications > 0 && <span className="navBadge">{unreadNotifications}</span>}
           </Link>
 
           <Link href="/profile" className="miniButton">Profile</Link>
-        </div>
+        </nav>
 
         <section className="heroCard">
           <div>
-            <p className="eyebrow">RoadLink Premium Dashboard</p>
+            <p className="eyebrow">RoadLink Executive Dashboard</p>
             <h1>
-              Welcome back, <span>driver.</span>
+              Welcome back, <span>{greetingName}.</span>
             </h1>
             <p className="subtitle">
-              Manage rides, bookings, earnings, messages, notifications, and upcoming trips from one premium control center.
+              Your premium command center for rides, bookings, messages,
+              notifications, earnings, and passenger activity.
             </p>
+
+            <div className="heroActions">
+              <Link href="/offer-ride" className="heroPrimary">➕ Offer Ride</Link>
+              <Link href="/find-ride" className="heroSecondary">🔎 Find Ride</Link>
+            </div>
           </div>
 
-          <div className="avatar">{avatar}</div>
+          <div className="profileOrb">
+            <div className="avatar">{avatar}</div>
+            {(unreadMessages > 0 || unreadNotifications > 0) && (
+              <div className="orbBadge">
+                {unreadMessages + unreadNotifications}
+              </div>
+            )}
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚗" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
-          <Metric icon="🎟️" title="Booked Trips" value={String(bookings.length)} href="/my-bookings" />
-          <Metric
-            icon="💬"
-            title={messageCount > 0 ? "Unread Messages" : "Messages"}
-            value={messageCount > 0 ? String(messageCount) : String(conversationCount)}
-            href="/messages"
-            alert={messageCount > 0}
-          />
-          <Metric
-            icon="🔔"
-            title={notificationCount > 0 ? "New Notifications" : "Notifications"}
-            value={String(notificationCount)}
-            href="/notifications"
-            alert={notificationCount > 0}
-          />
+          <Metric icon="🚘" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
+          <Metric icon="🎟️" title="Reservations" value={String(activeDriverBookings.length)} href="/ride-passengers" />
+          <Metric icon="💬" title="Unread Messages" value={String(unreadMessages)} href="/messages" alert={unreadMessages > 0} />
+          <Metric icon="🔔" title="Notifications" value={String(unreadNotifications)} href="/notifications" alert={unreadNotifications > 0} />
+          <Metric icon="✅" title="Completed Trips" value={String(completedRides.length)} href="/my-rides" />
+          <Metric icon="👥" title="Passengers" value={String(passengersTransported)} href="/my-rides" />
+          <Metric icon="📋" title="My Bookings" value={String(activePassengerBookings.length)} href="/my-bookings" />
           <Metric icon="💵" title="Earnings" value={`$${earnings}`} href="/dashboard/driver" />
         </section>
 
@@ -241,7 +396,8 @@ export default function DashboardPage() {
                 <p className="eyebrow">Next Reservation</p>
                 <h2>Upcoming Trip</h2>
               </div>
-              <div className="statusPill">Active</div>
+
+              <div className="statusPill">Live</div>
             </div>
 
             {upcomingTrip ? (
@@ -255,17 +411,17 @@ export default function DashboardPage() {
 
                   <div>
                     <span>FROM</span>
-                    <h3>{upcomingTrip.from}</h3>
+                    <h3>{upcomingTrip.from || "Starting point"}</h3>
 
                     <span>TO</span>
-                    <h3>{upcomingTrip.to}</h3>
+                    <h3>{upcomingTrip.to || "Destination"}</h3>
                   </div>
                 </div>
 
                 <div className="chips">
-                  <div className="chip">📅 {upcomingTrip.date}</div>
-                  <div className="chip">🕒 {upcomingTrip.time}</div>
-                  <div className="chip green">${upcomingTrip.price}</div>
+                  <div className="chip">📅 {upcomingTrip.date || "Date"}</div>
+                  <div className="chip">🕒 {upcomingTrip.time || "Time"}</div>
+                  <div className="chip green">${upcomingTrip.price || 0}</div>
                 </div>
 
                 <p className="driver">
@@ -280,7 +436,7 @@ export default function DashboardPage() {
               <div className="emptyTrip">
                 <h3>No upcoming trips yet.</h3>
                 <p>
-                  Reserve your next long-distance ride and it will appear here automatically.
+                  Reserve your next ride and your trip summary will appear here.
                 </p>
                 <Link className="mainButton" href="/find-ride">
                   Find a Ride
@@ -289,26 +445,65 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="actionsCard">
-            <p className="eyebrow">Quick Actions</p>
-            <h2>Control Center</h2>
+          <div className="activityCard">
+            <div className="sectionHeader">
+              <div>
+                <p className="eyebrow">Recent Activity</p>
+                <h2>Live Feed</h2>
+              </div>
 
-            <div className="actions">
-              <Link href="/notifications" className={notificationCount > 0 ? "alertAction" : ""}>
-                🔔 Notifications {notificationCount > 0 ? `(${notificationCount} new)` : ""}
+              <Link href="/notifications" className="smallLink">
+                View All
               </Link>
-
-              <Link href="/messages" className={messageCount > 0 ? "alertAction" : ""}>
-                💬 Messages {messageCount > 0 ? `(${messageCount} new)` : conversationCount > 0 ? `(${conversationCount})` : ""}
-              </Link>
-
-              <Link href="/find-ride">🔎 Find a Ride</Link>
-              <Link href="/offer-ride">➕ Offer a Ride</Link>
-              <Link href="/my-bookings">📋 My Bookings</Link>
-              <Link href="/my-rides">🚘 My Rides</Link>
-              <Link href="/dashboard/driver">📊 Driver Dashboard</Link>
-              <Link href="/profile">👤 Profile</Link>
             </div>
+
+            {recentActivity.length === 0 ? (
+              <div className="emptyActivity">
+                <div className="emptyIcon">🔕</div>
+                <h3>No activity yet</h3>
+                <p>Your messages, bookings and ride alerts will show here.</p>
+              </div>
+            ) : (
+              <div className="activityList">
+                {recentActivity.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={item.actionUrl || "/notifications"}
+                    className={item.read ? "activityItem" : "activityItem unreadActivity"}
+                  >
+                    <div className="activityIcon">{getActivityIcon(item.type)}</div>
+
+                    <div>
+                      <strong>{item.title || "RoadLink Update"}</strong>
+                      <p>{item.message || "New activity available."}</p>
+                      <span>{formatActivityTime(item.createdAt)}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="actionsCard">
+          <p className="eyebrow">Quick Actions</p>
+          <h2>Premium Control Center</h2>
+
+          <div className="actions">
+            <Link href="/notifications" className={unreadNotifications > 0 ? "alertAction" : ""}>
+              🔔 Notifications {unreadNotifications > 0 ? `(${unreadNotifications} new)` : ""}
+            </Link>
+
+            <Link href="/messages" className={unreadMessages > 0 ? "alertAction" : ""}>
+              💬 Messages {unreadMessages > 0 ? `(${unreadMessages} new)` : chats.length > 0 ? `(${chats.length})` : ""}
+            </Link>
+
+            <Link href="/find-ride">🔎 Find a Ride</Link>
+            <Link href="/offer-ride">➕ Offer a Ride</Link>
+            <Link href="/my-bookings">📋 My Bookings</Link>
+            <Link href="/my-rides">🚘 My Rides</Link>
+            <Link href="/dashboard/driver">📊 Driver Dashboard</Link>
+            <Link href="/profile">👤 Profile</Link>
           </div>
         </section>
       </section>
@@ -331,7 +526,7 @@ export default function DashboardPage() {
 
         .dashboard {
           width: 100%;
-          max-width: 1120px;
+          max-width: 1180px;
           margin: 0 auto;
         }
 
@@ -366,10 +561,11 @@ export default function DashboardPage() {
           background: rgba(239,68,68,0.12);
         }
 
-        .navBadge {
-          min-width: 22px;
-          height: 22px;
-          padding: 0 7px;
+        .navBadge,
+        .orbBadge {
+          min-width: 24px;
+          height: 24px;
+          padding: 0 8px;
           border-radius: 999px;
           background: #ef4444;
           color: white;
@@ -383,6 +579,7 @@ export default function DashboardPage() {
 
         .heroCard,
         .tripCard,
+        .activityCard,
         .actionsCard,
         .metric {
           background: rgba(8, 13, 25, 0.9);
@@ -392,13 +589,26 @@ export default function DashboardPage() {
         }
 
         .heroCard {
-          border-radius: 32px;
-          padding: 34px;
+          border-radius: 34px;
+          padding: 36px;
           display: flex;
           justify-content: space-between;
           align-items: center;
           gap: 24px;
           margin-bottom: 24px;
+          overflow: hidden;
+          position: relative;
+        }
+
+        .heroCard::after {
+          content: "";
+          position: absolute;
+          inset: auto -80px -120px auto;
+          width: 260px;
+          height: 260px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          filter: blur(4px);
         }
 
         .eyebrow {
@@ -415,31 +625,71 @@ export default function DashboardPage() {
           line-height: 1;
           margin: 0 0 16px;
           letter-spacing: -1px;
+          max-width: 760px;
         }
 
         h1 span {
           color: #22c55e;
+          text-transform: capitalize;
         }
 
         .subtitle {
-          max-width: 680px;
+          max-width: 720px;
           color: #a1a1aa;
           font-size: 20px;
           line-height: 1.5;
           margin: 0;
         }
 
+        .heroActions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-top: 26px;
+        }
+
+        .heroPrimary,
+        .heroSecondary {
+          padding: 16px 22px;
+          border-radius: 999px;
+          font-weight: 900;
+          text-decoration: none;
+        }
+
+        .heroPrimary {
+          color: white;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
+        }
+
+        .heroSecondary {
+          color: white;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .profileOrb {
+          position: relative;
+          z-index: 1;
+        }
+
         .avatar {
-          min-width: 90px;
-          height: 90px;
+          min-width: 96px;
+          height: 96px;
           border-radius: 50%;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 40px;
+          font-size: 42px;
           font-weight: 900;
           box-shadow: 0 18px 55px rgba(34,197,94,0.35);
+        }
+
+        .orbBadge {
+          position: absolute;
+          top: -5px;
+          right: -5px;
         }
 
         .message {
@@ -451,7 +701,7 @@ export default function DashboardPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
           margin-bottom: 24px;
         }
@@ -519,11 +769,13 @@ export default function DashboardPage() {
 
         .premiumGrid {
           display: grid;
-          grid-template-columns: 1.2fr 0.8fr;
+          grid-template-columns: 1.1fr 0.9fr;
           gap: 24px;
+          margin-bottom: 24px;
         }
 
         .tripCard,
+        .activityCard,
         .actionsCard {
           border-radius: 30px;
           padding: 30px;
@@ -542,13 +794,15 @@ export default function DashboardPage() {
           margin: 0;
         }
 
-        .statusPill {
+        .statusPill,
+        .smallLink {
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
           border-radius: 999px;
           padding: 10px 16px;
           font-weight: 900;
+          text-decoration: none;
         }
 
         .route {
@@ -610,7 +864,8 @@ export default function DashboardPage() {
         }
 
         .driver,
-        .emptyTrip p {
+        .emptyTrip p,
+        .emptyActivity p {
           color: #a1a1aa;
           line-height: 1.5;
         }
@@ -629,8 +884,76 @@ export default function DashboardPage() {
           box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
+        .emptyActivity {
+          text-align: center;
+          padding: 34px 12px;
+        }
+
+        .emptyIcon {
+          width: 70px;
+          height: 70px;
+          margin: 0 auto 16px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 32px;
+        }
+
+        .activityList {
+          display: grid;
+          gap: 12px;
+        }
+
+        .activityItem {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 12px;
+          padding: 14px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+          text-decoration: none;
+          color: white;
+        }
+
+        .unreadActivity {
+          background: rgba(34,197,94,0.08);
+          border-color: rgba(34,197,94,0.28);
+        }
+
+        .activityIcon {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .activityItem strong {
+          display: block;
+          margin-bottom: 5px;
+        }
+
+        .activityItem p {
+          color: #d4d4d8;
+          margin: 0 0 6px;
+          line-height: 1.4;
+        }
+
+        .activityItem span {
+          color: #22c55e;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
         .actions {
           display: grid;
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
           margin-top: 24px;
         }
@@ -645,6 +968,7 @@ export default function DashboardPage() {
           text-decoration: none;
           font-weight: 900;
           transition: all 0.25s ease;
+          text-align: center;
         }
 
         .actions a.alertAction {
@@ -654,17 +978,22 @@ export default function DashboardPage() {
         }
 
         .actions a:hover {
-          transform: translateX(4px);
+          transform: translateY(-3px);
           border-color: rgba(34,197,94,0.4);
         }
 
         @media (max-width: 1000px) {
-          .stats {
+          .stats,
+          .actions {
             grid-template-columns: repeat(2, 1fr);
+          }
+
+          .premiumGrid {
+            grid-template-columns: 1fr;
           }
         }
 
-        @media (max-width: 800px) {
+        @media (max-width: 700px) {
           .page {
             padding: 16px;
           }
@@ -676,20 +1005,30 @@ export default function DashboardPage() {
           }
 
           h1 {
-            font-size: 48px;
+            font-size: 44px;
           }
 
           .subtitle {
             font-size: 18px;
           }
 
-          .premiumGrid {
-            grid-template-columns: 1fr;
+          .avatar {
+            min-width: 82px;
+            height: 82px;
+            font-size: 34px;
+          }
+
+          .tripCard,
+          .activityCard,
+          .actionsCard {
+            padding: 24px;
+            border-radius: 28px;
           }
         }
 
         @media (max-width: 480px) {
-          .stats {
+          .stats,
+          .actions {
             grid-template-columns: 1fr;
           }
 
@@ -701,10 +1040,9 @@ export default function DashboardPage() {
             font-size: 28px;
           }
 
-          .tripCard,
-          .actionsCard {
-            padding: 24px;
-            border-radius: 28px;
+          .sectionHeader {
+            flex-direction: column;
+            align-items: flex-start;
           }
         }
       `}</style>
@@ -744,4 +1082,4 @@ function Metric({
   }
 
   return <div className={className}>{content}</div>;
-}
+        }
