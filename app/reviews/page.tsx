@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query } from "firebase/firestore";
-import { db } from "../../lib/firebase";
+import { auth, db } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 
 type Rating = {
   id: string;
@@ -13,52 +14,105 @@ type Rating = {
   reviewerEmail?: string;
   passengerEmail?: string;
   driverEmail?: string;
+  driverId?: string;
+  passengerId?: string;
   from?: string;
   to?: string;
+  vehicle?: string;
   createdAt?: string;
 };
 
 export default function ReviewsPage() {
-  const [reviews, setReviews] = useState<Rating[]>([]);
+  const [userId, setUserId] = useState("");
+  const [allReviews, setAllReviews] = useState<Rating[]>([]);
+  const [myDriverReviews, setMyDriverReviews] = useState<Rating[]>([]);
   const [status, setStatus] = useState("Loading reviews...");
+  const [viewMode, setViewMode] = useState<"mine" | "all">("mine");
 
   useEffect(() => {
-    const reviewsQuery = query(collection(db, "ratings"));
+    let unsubscribeAll: (() => void) | undefined;
+    let unsubscribeMine: (() => void) | undefined;
 
-    const unsubscribe = onSnapshot(
-      reviewsQuery,
-      (snapshot) => {
-        const data = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Rating[];
-
-        data.sort((a, b) =>
-          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-        );
-
-        setReviews(data);
-        setStatus("");
-      },
-      (error) => {
-        setStatus(error.message);
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setUserId("");
+        setStatus("Please sign in to view reviews.");
+        return;
       }
-    );
 
-    return () => unsubscribe();
+      setUserId(user.uid);
+      setStatus("");
+
+      const allReviewsQuery = query(collection(db, "ratings"));
+
+      unsubscribeAll = onSnapshot(
+        allReviewsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Rating[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setAllReviews(data);
+        },
+        (error) => setStatus(error.message)
+      );
+
+      const myReviewsQuery = query(
+        collection(db, "ratings"),
+        where("driverId", "==", user.uid)
+      );
+
+      unsubscribeMine = onSnapshot(
+        myReviewsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Rating[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setMyDriverReviews(data);
+        },
+        (error) => setStatus(error.message)
+      );
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeAll) unsubscribeAll();
+      if (unsubscribeMine) unsubscribeMine();
+    };
   }, []);
+
+  const visibleReviews = viewMode === "mine" ? myDriverReviews : allReviews;
 
   function getStars(review: Rating) {
     return Number(review.stars || review.rating || 0);
   }
 
   const average = useMemo(() => {
-    if (reviews.length === 0) return 0;
+    if (visibleReviews.length === 0) return 0;
 
-    const total = reviews.reduce((sum, item) => sum + getStars(item), 0);
+    const total = visibleReviews.reduce((sum, item) => sum + getStars(item), 0);
 
-    return Number((total / reviews.length).toFixed(1));
-  }, [reviews]);
+    return Number((total / visibleReviews.length).toFixed(1));
+  }, [visibleReviews]);
+
+  const fiveStarReviews = visibleReviews.filter((review) => getStars(review) === 5).length;
+  const fourPlusReviews = visibleReviews.filter((review) => getStars(review) >= 4).length;
+
+  const excellentRate =
+    visibleReviews.length > 0
+      ? Math.round((fourPlusReviews / visibleReviews.length) * 100)
+      : 0;
 
   function formatDate(value?: string) {
     if (!value) return "Recently";
@@ -80,109 +134,129 @@ export default function ReviewsPage() {
   }
 
   function renderStars(count: number) {
-    const safeCount = Math.max(0, Math.min(5, count));
+    const safeCount = Math.max(0, Math.min(5, Math.round(count)));
 
     return "★".repeat(safeCount) + "☆".repeat(5 - safeCount);
+  }
+
+  function getInitial(review: Rating) {
+    return (review.reviewerEmail || review.passengerEmail || "R")
+      .charAt(0)
+      .toUpperCase();
   }
 
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/dashboard" className="button">
-            Dashboard
-          </Link>
-
-          <Link href="/profile" className="button">
-            Profile
-          </Link>
-
-          <Link href="/notifications" className="button">
-            Notifications
-          </Link>
+          <Link href="/dashboard" className="button">Dashboard</Link>
+          <Link href="/profile" className="button">Profile</Link>
+          <Link href="/rate-driver" className="button">Rate Driver</Link>
+          <Link href="/notifications" className="button">Notifications</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Community</p>
+            <p className="eyebrow">RoadLink Reputation Center</p>
 
             <h1>
-              Driver <span>Reviews</span>
+              Premium <span>Reviews</span>
             </h1>
 
             <p className="subtitle">
-              Real rider feedback, trusted driver reputation, and public review history.
+              Track driver reputation, passenger feedback, trusted trip history,
+              and real RoadLink community reviews.
             </p>
+
+            <div className="modeButtons">
+              <button
+                className={viewMode === "mine" ? "modeButton activeMode" : "modeButton"}
+                onClick={() => setViewMode("mine")}
+              >
+                My Driver Reviews
+              </button>
+
+              <button
+                className={viewMode === "all" ? "modeButton activeMode" : "modeButton"}
+                onClick={() => setViewMode("all")}
+              >
+                Community Reviews
+              </button>
+            </div>
           </div>
 
-          <div className="heroIcon">⭐</div>
+          <div className="heroScore">
+            <strong>{visibleReviews.length > 0 ? average : "New"}</strong>
+            <span>{visibleReviews.length} review{visibleReviews.length === 1 ? "" : "s"}</span>
+          </div>
         </section>
 
         {status && <p className="status">{status}</p>}
 
         <section className="stats">
-          <div className="card">
-            <small>Average Rating</small>
-            <h2>⭐ {average}</h2>
-          </div>
-
-          <div className="card">
-            <small>Total Reviews</small>
-            <h2>{reviews.length}</h2>
-          </div>
-
-          <div className="card">
-            <small>Status</small>
-            <h2>{reviews.length > 0 ? "Live" : "New"}</h2>
-          </div>
+          <Metric label="Average Rating" value={visibleReviews.length ? `${average}/5` : "New"} icon="⭐" />
+          <Metric label="Total Reviews" value={String(visibleReviews.length)} icon="📝" />
+          <Metric label="5-Star Reviews" value={String(fiveStarReviews)} icon="🏆" />
+          <Metric label="Excellent Rate" value={`${excellentRate}%`} icon="📈" />
         </section>
 
         <section className="reviewsSection">
           <div className="sectionHeader">
             <div>
-              <p className="eyebrow">Recent Feedback</p>
-              <h2>Reviews</h2>
+              <p className="eyebrow">
+                {viewMode === "mine" ? "Your Reputation" : "Community Reputation"}
+              </p>
+
+              <h2>
+                {viewMode === "mine" ? "Reviews About You" : "All Reviews"}
+              </h2>
             </div>
 
             <div className="ratingPill">
-              {average > 0 ? `${average} / 5` : "No rating yet"}
+              {visibleReviews.length > 0 ? `${average} / 5` : "No rating yet"}
             </div>
           </div>
 
-          {reviews.length === 0 ? (
+          {visibleReviews.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">⭐</div>
+
               <h3>No reviews yet</h3>
+
               <p>
-                When passengers rate drivers, their reviews will appear here.
+                When passengers rate completed trips, reviews will appear here
+                and improve your RoadLink reputation.
               </p>
+
+              <Link href="/dashboard" className="mainButton">
+                Back to Dashboard
+              </Link>
             </div>
           ) : (
             <div className="reviewsGrid">
-              {reviews.map((review) => {
+              {visibleReviews.map((review) => {
                 const stars = getStars(review);
 
                 return (
                   <article className="reviewCard" key={review.id}>
                     <div className="reviewTop">
                       <div className="reviewAvatar">
-                        {(review.reviewerEmail || review.passengerEmail || "R")
-                          .charAt(0)
-                          .toUpperCase()}
+                        {getInitial(review)}
                       </div>
 
                       <div>
                         <h3>{renderStars(stars)}</h3>
+
                         <p className="reviewer">
                           {review.reviewerEmail ||
                             review.passengerEmail ||
-                            "RoadLink User"}
+                            "RoadLink Passenger"}
                         </p>
                       </div>
                     </div>
 
                     <p className="comment">
-                      {review.comment?.trim() || "No comment provided."}
+                      {review.comment?.trim() || "No written comment provided."}
                     </p>
 
                     <div className="meta">
@@ -196,6 +270,8 @@ export default function ReviewsPage() {
                         <span>RoadLink trip</span>
                       )}
 
+                      {review.vehicle && <span>🚘 {review.vehicle}</span>}
+
                       <span>{formatDate(review.createdAt)}</span>
                     </div>
 
@@ -203,6 +279,15 @@ export default function ReviewsPage() {
                       <p className="driver">
                         Driver: {review.driverEmail}
                       </p>
+                    )}
+
+                    {review.driverId && (
+                      <Link
+                        href={`/driver-profile?driverId=${review.driverId}`}
+                        className="profileLink"
+                      >
+                        View Driver Profile
+                      </Link>
                     )}
                   </article>
                 );
@@ -220,7 +305,7 @@ export default function ReviewsPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 32%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.24), transparent 32%),
             radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           padding: 24px;
@@ -229,7 +314,7 @@ export default function ReviewsPage() {
         }
 
         .container {
-          max-width: 1050px;
+          max-width: 1080px;
           margin: auto;
         }
 
@@ -250,13 +335,8 @@ export default function ReviewsPage() {
           font-weight: 900;
         }
 
-        .button:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .hero,
-        .card,
+        .metric,
         .reviewsSection,
         .reviewCard {
           background: rgba(8, 13, 25, 0.9);
@@ -266,7 +346,7 @@ export default function ReviewsPage() {
         }
 
         .hero {
-          border-radius: 32px;
+          border-radius: 34px;
           padding: 34px;
           margin-bottom: 20px;
           display: flex;
@@ -297,23 +377,59 @@ export default function ReviewsPage() {
 
         .subtitle {
           color: #a1a1aa;
-          max-width: 660px;
+          max-width: 680px;
           font-size: 18px;
           line-height: 1.5;
           margin: 0;
         }
 
-        .heroIcon {
-          min-width: 96px;
-          height: 96px;
+        .modeButtons {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 24px;
+        }
+
+        .modeButton {
+          padding: 12px 16px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.05);
+          color: white;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .activeMode {
+          background: rgba(34,197,94,0.14);
+          border-color: rgba(34,197,94,0.4);
+          color: #22c55e;
+        }
+
+        .heroScore {
+          min-width: 120px;
+          height: 120px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           border: 1px solid rgba(34,197,94,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 42px;
+          flex-direction: column;
           box-shadow: 0 18px 55px rgba(34,197,94,0.25);
+          text-align: center;
+        }
+
+        .heroScore strong {
+          color: #22c55e;
+          font-size: 32px;
+          font-weight: 900;
+        }
+
+        .heroScore span {
+          color: #d4d4d8;
+          font-size: 12px;
+          font-weight: 900;
         }
 
         .status {
@@ -324,25 +440,40 @@ export default function ReviewsPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
           margin-bottom: 20px;
         }
 
-        .card {
+        .metric {
           border-radius: 24px;
-          padding: 24px;
+          padding: 22px;
         }
 
-        .card small {
+        .metricIcon {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 24px;
+          margin-bottom: 14px;
+        }
+
+        .metricLabel {
           color: #a1a1aa;
+          font-size: 13px;
           font-weight: 900;
+          display: block;
+          margin-bottom: 8px;
         }
 
-        .card h2 {
+        .metricValue {
           color: #22c55e;
-          font-size: 36px;
-          margin: 10px 0 0;
+          font-size: 30px;
+          font-weight: 900;
         }
 
         .reviewsSection {
@@ -404,6 +535,17 @@ export default function ReviewsPage() {
           max-width: 520px;
           line-height: 1.5;
           margin: 0;
+        }
+
+        .mainButton {
+          display: inline-flex;
+          margin-top: 22px;
+          padding: 16px 28px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          font-weight: 900;
+          text-decoration: none;
         }
 
         .reviewsGrid {
@@ -480,7 +622,19 @@ export default function ReviewsPage() {
           overflow-wrap: anywhere;
         }
 
-        @media (max-width: 700px) {
+        .profileLink {
+          display: inline-flex;
+          margin-top: 16px;
+          padding: 12px 16px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          font-weight: 900;
+          text-decoration: none;
+        }
+
+        @media (max-width: 800px) {
           .page {
             padding: 16px;
           }
@@ -493,6 +647,11 @@ export default function ReviewsPage() {
 
           h1 {
             font-size: 46px;
+          }
+
+          .heroScore {
+            min-width: 100px;
+            height: 100px;
           }
 
           .stats {
@@ -516,5 +675,23 @@ export default function ReviewsPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+function Metric({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="metric">
+      <div className="metricIcon">{icon}</div>
+      <span className="metricLabel">{label}</span>
+      <div className="metricValue">{value}</div>
+    </div>
   );
 }
