@@ -29,6 +29,8 @@ type NotificationItem = {
   chatId?: string;
   driverId?: string;
   passengerId?: string;
+  senderId?: string;
+  receiverId?: string;
   actionUrl?: string;
 };
 
@@ -165,11 +167,33 @@ export default function NotificationsPage() {
   }
 
   async function openNotification(notification: NotificationItem) {
-    if (!notification.read) {
-      await markOneAsRead(notification.id);
-    }
+    try {
+      if (notification.type === "message" && notification.chatId) {
+        const batch = writeBatch(db);
 
-    router.push(getNotificationUrl(notification));
+        notifications
+          .filter(
+            (item) =>
+              item.type === "message" &&
+              item.chatId === notification.chatId &&
+              !item.read
+          )
+          .forEach((item) => {
+            batch.update(doc(db, "notifications", item.id), {
+              read: true,
+              readAt: new Date().toISOString(),
+            });
+          });
+
+        await batch.commit();
+      } else if (!notification.read) {
+        await markOneAsRead(notification.id);
+      }
+
+      router.push(getNotificationUrl(notification));
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not open notification.");
+    }
   }
 
   async function markAllAsRead() {
@@ -368,11 +392,6 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .backButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .hero,
         .stat,
         .card {
@@ -431,7 +450,6 @@ export default function NotificationsPage() {
           font-size: 45px;
           background: rgba(34,197,94,0.15);
           border: 1px solid rgba(34,197,94,0.3);
-          box-shadow: 0 18px 55px rgba(34,197,94,0.2);
         }
 
         .activeBell {
@@ -505,11 +523,6 @@ export default function NotificationsPage() {
           margin-bottom: 22px;
         }
 
-        .header h2 {
-          margin: 0;
-          font-size: 34px;
-        }
-
         .readButton {
           width: auto;
           padding: 12px 18px;
@@ -569,7 +582,6 @@ export default function NotificationsPage() {
           color: white;
           font-weight: 900;
           text-decoration: none;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
         .list {
@@ -589,11 +601,6 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.08);
           color: white;
           cursor: pointer;
-        }
-
-        .notification:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.1);
         }
 
         .unread {
