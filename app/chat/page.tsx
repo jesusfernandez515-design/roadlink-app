@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -58,6 +58,8 @@ export default function ChatPage() {
   const [text, setText] = useState("");
   const [status, setStatus] = useState("Loading chat...");
   const [sending, setSending] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -198,6 +200,13 @@ export default function ChatPage() {
 
     return () => unsubscribeMessages();
   }, [chatId, userId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [messages]);
 
   const unreadOutgoingCount = useMemo(() => {
     return messages.filter(
@@ -370,26 +379,30 @@ export default function ChatPage() {
               </p>
             </div>
           ) : (
-            messages.map((message) => {
-              const isMine = message.senderId === userId;
+            <>
+              {messages.map((message) => {
+                const isMine = message.senderId === userId;
 
-              return (
-                <div
-                  key={message.id}
-                  className={isMine ? "messageRow mine" : "messageRow"}
-                >
-                  <div className={isMine ? "bubble myBubble" : "bubble"}>
-                    <p>{message.text}</p>
+                return (
+                  <div
+                    key={message.id}
+                    className={isMine ? "messageRow mine" : "messageRow"}
+                  >
+                    <div className={isMine ? "bubble myBubble" : "bubble"}>
+                      <p>{message.text}</p>
 
-                    <small>
-                      {isMine ? "You" : message.senderEmail || "RoadLink User"}
-                      {message.createdAt ? ` • ${formatTime(message.createdAt)}` : ""}
-                      {isMine && message.read ? " • Read" : ""}
-                    </small>
+                      <small>
+                        {isMine ? "You" : message.senderEmail || "RoadLink User"}
+                        {message.createdAt ? ` • ${formatTime(message.createdAt)}` : ""}
+                        {isMine && message.read ? " • Read" : ""}
+                      </small>
+                    </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+
+              <div ref={messagesEndRef} />
+            </>
           )}
         </section>
 
@@ -550,6 +563,7 @@ export default function ChatPage() {
           border-radius: 30px;
           padding: 24px;
           margin-bottom: 18px;
+          scroll-behavior: smooth;
         }
 
         .empty {
