@@ -286,8 +286,15 @@ export default function ChatPage() {
           type: "message",
           title: "New Message",
           message: `${userEmail} sent you a message.`,
+          chatId,
+          rideId: rideId || "",
+          driverId: finalDriverId,
+          passengerId: finalPassengerId,
+          senderId: userId,
+          receiverId,
           read: false,
           createdAt: now,
+          actionUrl: `/chat?chatId=${chatId}&rideId=${rideId || ""}&driverId=${finalDriverId}&passengerId=${finalPassengerId}`,
         });
       }
 
@@ -477,11 +484,6 @@ export default function ChatPage() {
           font-weight: 900;
         }
 
-        .miniButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .brand {
           font-size: 36px;
           font-weight: 900;
@@ -509,7 +511,6 @@ export default function ChatPage() {
           align-items: center;
           justify-content: center;
           font-size: 36px;
-          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
         }
 
         .eyebrow {
@@ -660,11 +661,6 @@ export default function ChatPage() {
           resize: vertical;
         }
 
-        textarea:focus {
-          border-color: rgba(34,197,94,0.65);
-          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
-        }
-
         textarea::placeholder {
           color: #71717a;
         }
@@ -679,13 +675,11 @@ export default function ChatPage() {
           font-size: 16px;
           font-weight: 900;
           cursor: pointer;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
         button:disabled {
           opacity: 0.55;
           cursor: not-allowed;
-          box-shadow: none;
         }
 
         @media (max-width: 700px) {
@@ -735,4 +729,4 @@ export default function ChatPage() {
       `}</style>
     </main>
   );
-}
+    }
