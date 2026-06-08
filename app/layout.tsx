@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import BottomNavigation from "./components/BottomNavigation";
 
 export const metadata: Metadata = {
   title: "RoadLink - Long Distance Ride Sharing",
@@ -31,7 +32,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <BottomNavigation />
+      </body>
     </html>
   );
 }
