@@ -27,7 +27,35 @@ export default function BottomNavigation() {
     let unsubscribeNotifications: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setUnreadMessages(0);
+      setUnreadNotifications(0);
+
       if (!user) return;
+
+      let driverChats: Chat[] = [];
+      let passengerChats: Chat[] = [];
+
+      function calculateUnreadMessages() {
+        const chatMap = new Map<string, Chat>();
+
+        [...driverChats, ...passengerChats].forEach((chat) => {
+          const key = chat.chatId || chat.id;
+
+          if (!key) return;
+          if (key === "chat_abc123") return;
+          if (chat.driverId === "test-driver") return;
+          if (chat.passengerId === "test-passenger") return;
+
+          chatMap.set(key, chat);
+        });
+
+        const total = Array.from(chatMap.values()).reduce(
+          (sum, chat) => sum + Number(chat.unreadCount || 0),
+          0
+        );
+
+        setUnreadMessages(total);
+      }
 
       const driverChatsQuery = query(
         collection(db, "chats"),
@@ -39,33 +67,13 @@ export default function BottomNavigation() {
         where("passengerId", "==", user.uid)
       );
 
-      let driverChats: Chat[] = [];
-      let passengerChats: Chat[] = [];
-
-      function calculateUnread() {
-        const map = new Map<string, Chat>();
-
-        [...driverChats, ...passengerChats].forEach((chat) => {
-          const key = chat.chatId || chat.id;
-          if (!key) return;
-          map.set(key, chat);
-        });
-
-        const total = Array.from(map.values()).reduce(
-          (sum, chat) => sum + Number(chat.unreadCount || 0),
-          0
-        );
-
-        setUnreadMessages(total);
-      }
-
       unsubscribeDriverChats = onSnapshot(driverChatsQuery, (snapshot) => {
         driverChats = snapshot.docs.map((document) => ({
           id: document.id,
           ...document.data(),
         })) as Chat[];
 
-        calculateUnread();
+        calculateUnreadMessages();
       });
 
       unsubscribePassengerChats = onSnapshot(passengerChatsQuery, (snapshot) => {
@@ -74,7 +82,7 @@ export default function BottomNavigation() {
           ...document.data(),
         })) as Chat[];
 
-        calculateUnread();
+        calculateUnreadMessages();
       });
 
       const notificationsQuery = query(
@@ -137,7 +145,7 @@ export default function BottomNavigation() {
       <style jsx global>{`
         body {
           margin: 0;
-          padding-bottom: 88px;
+          padding-bottom: 92px;
           background: #020617;
         }
 
@@ -148,14 +156,14 @@ export default function BottomNavigation() {
           transform: translateX(-50%);
           width: calc(100% - 24px);
           max-width: 520px;
-          height: 72px;
+          height: 74px;
           z-index: 9999;
           display: grid;
           grid-template-columns: repeat(5, 1fr);
           gap: 6px;
           padding: 8px;
           border-radius: 28px;
-          background: rgba(8, 13, 25, 0.92);
+          background: rgba(8, 13, 25, 0.94);
           border: 1px solid rgba(255, 255, 255, 0.14);
           box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65);
           backdrop-filter: blur(18px);
@@ -191,7 +199,7 @@ export default function BottomNavigation() {
         .bottomBadge {
           position: absolute;
           top: 5px;
-          right: 10px;
+          right: 9px;
           min-width: 20px;
           height: 20px;
           padding: 0 6px;
