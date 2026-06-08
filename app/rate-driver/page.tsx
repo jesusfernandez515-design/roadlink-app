@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -11,6 +11,7 @@ import {
   getDoc,
   getDocs,
   query,
+  setDoc,
   where,
 } from "firebase/firestore";
 
@@ -22,6 +23,25 @@ type Ride = {
   driverId?: string;
   driverEmail?: string;
   vehicle?: string;
+  status?: string;
+};
+
+type UserProfile = {
+  name?: string;
+  email?: string;
+  photoURL?: string;
+  verified?: boolean;
+  emailVerified?: boolean;
+};
+
+type RatingItem = {
+  id: string;
+  driverId?: string;
+  rideId?: string;
+  passengerId?: string;
+  rating?: number;
+  stars?: number;
+  comment?: string;
 };
 
 export default function RateDriverPage() {
@@ -30,6 +50,8 @@ export default function RateDriverPage() {
   const [passengerId, setPassengerId] = useState("");
   const [passengerEmail, setPassengerEmail] = useState("");
   const [ride, setRide] = useState<Ride | null>(null);
+  const [driver, setDriver] = useState<UserProfile | null>(null);
+  const [driverRatings, setDriverRatings] = useState<RatingItem[]>([]);
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [comment, setComment] = useState("");
@@ -74,6 +96,18 @@ export default function RateDriverPage() {
         const finalDriverId = currentDriverId || rideData.driverId || "";
         setDriverId(finalDriverId);
 
+        if (!finalDriverId) {
+          setMessage("Driver information is missing.");
+          return;
+        }
+
+        const driverRef = doc(db, "users", finalDriverId);
+        const driverSnap = await getDoc(driverRef);
+
+        if (driverSnap.exists()) {
+          setDriver(driverSnap.data() as UserProfile);
+        }
+
         const ratingQuery = query(
           collection(db, "ratings"),
           where("rideId", "==", currentRideId),
@@ -85,10 +119,23 @@ export default function RateDriverPage() {
         if (!ratingSnapshot.empty) {
           setAlreadyRated(true);
           setMessage("You already rated this driver.");
-          return;
+        } else {
+          setMessage("");
         }
 
-        setMessage("");
+        const driverRatingsQuery = query(
+          collection(db, "ratings"),
+          where("driverId", "==", finalDriverId)
+        );
+
+        const driverRatingsSnapshot = await getDocs(driverRatingsQuery);
+
+        const ratingsData = driverRatingsSnapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as RatingItem[];
+
+        setDriverRatings(ratingsData);
       } catch (error: unknown) {
         setMessage(error instanceof Error ? error.message : "Something went wrong.");
       }
@@ -96,6 +143,33 @@ export default function RateDriverPage() {
 
     return () => unsubscribe();
   }, []);
+
+  const averageRating = useMemo(() => {
+    if (!driverRatings.length) return 0;
+
+    return (
+      driverRatings.reduce(
+        (total, item) => total + Number(item.rating || item.stars || 0),
+        0
+      ) / driverRatings.length
+    );
+  }, [driverRatings]);
+
+  const averageDisplay = driverRatings.length ? averageRating.toFixed(1) : "New";
+  const visibleRating = hoverRating || rating;
+
+  const ratingLabel =
+    visibleRating === 0
+      ? "Choose your rating"
+      : visibleRating === 1
+      ? "Poor experience"
+      : visibleRating === 2
+      ? "Could be better"
+      : visibleRating === 3
+      ? "Good experience"
+      : visibleRating === 4
+      ? "Great experience"
+      : "Excellent driver";
 
   async function submitRating() {
     setMessage("");
@@ -126,10 +200,24 @@ export default function RateDriverPage() {
       const finalDriverId = driverId || ride?.driverId || "";
       const now = new Date().toISOString();
 
+      const duplicateQuery = query(
+        collection(db, "ratings"),
+        where("rideId", "==", rideId),
+        where("passengerId", "==", passengerId)
+      );
+
+      const duplicateSnapshot = await getDocs(duplicateQuery);
+
+      if (!duplicateSnapshot.empty) {
+        setAlreadyRated(true);
+        setMessage("You already rated this driver.");
+        return;
+      }
+
       await addDoc(collection(db, "ratings"), {
         rideId,
         driverId: finalDriverId,
-        driverEmail: ride?.driverEmail || "",
+        driverEmail: ride?.driverEmail || driver?.email || "",
         passengerId,
         passengerEmail,
         reviewerEmail: passengerEmail,
@@ -142,19 +230,52 @@ export default function RateDriverPage() {
         createdAt: now,
       });
 
+      const updatedRatingsQuery = query(
+        collection(db, "ratings"),
+        where("driverId", "==", finalDriverId)
+      );
+
+      const updatedRatingsSnapshot = await getDocs(updatedRatingsQuery);
+
+      const updatedRatings = updatedRatingsSnapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      })) as RatingItem[];
+
+      const newAverage =
+        updatedRatings.reduce(
+          (total, item) => total + Number(item.rating || item.stars || 0),
+          0
+        ) / Math.max(updatedRatings.length, 1);
+
+      await setDoc(
+        doc(db, "users", finalDriverId),
+        {
+          ratingAverage: Number(newAverage.toFixed(2)),
+          ratingCount: updatedRatings.length,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
       if (finalDriverId) {
         await addDoc(collection(db, "notifications"), {
           userId: finalDriverId,
           type: "review",
           title: "New Review",
           message: `${passengerEmail} rated you ${rating} star${rating === 1 ? "" : "s"}.`,
+          rideId,
+          driverId: finalDriverId,
+          passengerId,
           read: false,
           createdAt: now,
+          actionUrl: `/driver-profile?driverId=${finalDriverId}`,
         });
       }
 
       setAlreadyRated(true);
       setComment("");
+      setDriverRatings(updatedRatings);
       setMessage("Rating submitted successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -163,7 +284,10 @@ export default function RateDriverPage() {
     }
   }
 
-  const visibleRating = hoverRating || rating;
+  const driverName =
+    driver?.name || ride?.driverEmail?.split("@")[0] || "RoadLink Driver";
+
+  const driverPhoto = driver?.photoURL || "";
 
   return (
     <main className="page">
@@ -177,76 +301,97 @@ export default function RateDriverPage() {
 
         <div className="logo">Road<span>Link</span></div>
 
-        <h1>Rate <span>Driver</span></h1>
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Ratings</p>
+            <h1>Rate <span>Driver</span></h1>
+            <p className="subtitle">
+              Share your experience and help RoadLink build a safer, more trusted ride community.
+            </p>
+          </div>
 
-        <p className="subtitle">
-          Share your experience and help RoadLink build trust.
-        </p>
+          <div className="scoreOrb">
+            <strong>{averageDisplay}</strong>
+            <span>{driverRatings.length} review{driverRatings.length === 1 ? "" : "s"}</span>
+          </div>
+        </section>
 
         {ride && (
           <div className="tripBox">
-            <p className="eyebrow">Trip</p>
+            <p className="eyebrow">Trip Summary</p>
+
             <h2>{ride.from || "Starting point"} → {ride.to || "Destination"}</h2>
-            <p>{ride.date || "Date"} • {ride.time || "Time"}</p>
-            <p>{ride.vehicle || "Vehicle not provided"}</p>
+
+            <div className="chips">
+              <span>📅 {ride.date || "Date"}</span>
+              <span>🕒 {ride.time || "Time"}</span>
+              <span>🚘 {ride.vehicle || "Vehicle not provided"}</span>
+              <span>🛡️ {ride.status || "Completed"}</span>
+            </div>
           </div>
         )}
 
         <div className="driverBox">
-          <div className="avatar">D</div>
+          {driverPhoto ? (
+            <img src={driverPhoto} alt={driverName} className="driverPhoto" />
+          ) : (
+            <div className="avatar">
+              {driverName.charAt(0).toUpperCase()}
+            </div>
+          )}
 
           <div>
             <p className="eyebrow">Driver</p>
-            <h2>RoadLink Driver</h2>
-            <p>{ride?.driverEmail || "Verified RoadLink Driver"}</p>
+            <h2>{driverName}</h2>
+            <p>{ride?.driverEmail || driver?.email || "Verified RoadLink Driver"}</p>
+
             <div className="verified">✓ Verified Member</div>
           </div>
         </div>
 
-        <div className="stars">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={star}
-              type="button"
-              className={star <= visibleRating ? "star activeStar" : "star"}
-              onClick={() => setRating(star)}
-              onMouseEnter={() => setHoverRating(star)}
-              onMouseLeave={() => setHoverRating(0)}
-              disabled={alreadyRated || loading}
-            >
-              ★
-            </button>
-          ))}
-        </div>
+        <section className="ratingPanel">
+          <p className="eyebrow">Your Rating</p>
 
-        <h3>
-          {visibleRating === 0
-            ? "Choose your rating"
-            : visibleRating === 1
-            ? "Poor experience"
-            : visibleRating === 2
-            ? "Could be better"
-            : visibleRating === 3
-            ? "Good experience"
-            : visibleRating === 4
-            ? "Great experience"
-            : "Excellent driver"}
-        </h3>
+          <div className="stars" aria-label="Rate driver from 1 to 5 stars">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <button
+                key={star}
+                type="button"
+                aria-label={`${star} star rating`}
+                className={star <= visibleRating ? "star activeStar" : "star"}
+                onClick={() => setRating(star)}
+                onMouseEnter={() => setHoverRating(star)}
+                onMouseLeave={() => setHoverRating(0)}
+                disabled={alreadyRated || loading}
+              >
+                ★
+              </button>
+            ))}
+          </div>
 
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Write a short comment about the driver..."
-          disabled={alreadyRated || loading}
-        />
+          <h3>{ratingLabel}</h3>
 
-        <button
-          className="submitButton"
-          onClick={submitRating}
-          disabled={loading || alreadyRated}
-        >
-          {loading ? "Submitting..." : alreadyRated ? "Rating Submitted" : "Submit Rating"}
-        </button>
+          <textarea
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="Write a short comment about the driver..."
+            disabled={alreadyRated || loading}
+          />
+
+          <button
+            className="submitButton"
+            onClick={submitRating}
+            disabled={loading || alreadyRated}
+          >
+            {loading ? "Submitting..." : alreadyRated ? "Rating Submitted" : "Submit Rating"}
+          </button>
+
+          {driverId && (
+            <Link href={`/driver-profile?driverId=${driverId}`} className="outlineButton">
+              View Driver Profile
+            </Link>
+          )}
+        </section>
 
         {message && <p className="message">{message}</p>}
       </section>
@@ -257,7 +402,8 @@ export default function RateDriverPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -265,13 +411,14 @@ export default function RateDriverPage() {
         }
 
         .card {
-          max-width: 860px;
+          max-width: 900px;
           margin: 0 auto;
-          background: rgba(8, 13, 25, 0.88);
+          background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 32px;
+          border-radius: 34px;
           padding: 30px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
         }
 
         .topActions {
@@ -301,14 +448,24 @@ export default function RateDriverPage() {
         h1 span,
         .eyebrow,
         .activeStar,
-        .message {
+        .message,
+        .scoreOrb strong {
           color: #22c55e;
+        }
+
+        .hero {
+          display: flex;
+          justify-content: space-between;
+          gap: 24px;
+          align-items: center;
+          margin-bottom: 24px;
         }
 
         h1 {
           font-size: 58px;
           line-height: 1;
           margin: 0 0 16px;
+          letter-spacing: -1px;
         }
 
         .subtitle,
@@ -317,8 +474,34 @@ export default function RateDriverPage() {
           line-height: 1.5;
         }
 
+        .scoreOrb {
+          min-width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          box-shadow: 0 16px 50px rgba(34,197,94,0.18);
+        }
+
+        .scoreOrb strong {
+          font-size: 32px;
+          font-weight: 900;
+        }
+
+        .scoreOrb span {
+          color: #d4d4d8;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
         .tripBox,
-        .driverBox {
+        .driverBox,
+        .ratingPanel {
           margin-top: 24px;
           padding: 22px;
           border-radius: 24px;
@@ -332,16 +515,26 @@ export default function RateDriverPage() {
           align-items: center;
         }
 
-        .avatar {
+        .avatar,
+        .driverPhoto {
           min-width: 76px;
+          width: 76px;
           height: 76px;
           border-radius: 50%;
+          border: 2px solid rgba(34,197,94,0.45);
+        }
+
+        .avatar {
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 34px;
           font-weight: 900;
+        }
+
+        .driverPhoto {
+          object-fit: cover;
         }
 
         .eyebrow {
@@ -355,6 +548,22 @@ export default function RateDriverPage() {
         h2 {
           font-size: 30px;
           margin: 0 0 8px;
+        }
+
+        .chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 16px;
+        }
+
+        .chips span {
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: #e5e7eb;
+          font-weight: 800;
         }
 
         .verified {
@@ -371,15 +580,16 @@ export default function RateDriverPage() {
         .stars {
           display: flex;
           gap: 8px;
-          margin: 30px 0 12px;
+          margin: 8px 0 12px;
         }
 
         .star {
           background: transparent;
           border: none;
           color: rgba(255,255,255,0.22);
-          font-size: 48px;
+          font-size: 52px;
           cursor: pointer;
+          padding: 0;
         }
 
         .activeStar {
@@ -402,19 +612,38 @@ export default function RateDriverPage() {
           font-size: 16px;
           outline: none;
           resize: vertical;
+          font-family: Arial, sans-serif;
+        }
+
+        textarea:focus {
+          border-color: rgba(34,197,94,0.65);
+          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
+        }
+
+        .submitButton,
+        .outlineButton {
+          width: 100%;
+          display: block;
+          margin-top: 18px;
+          padding: 18px;
+          border-radius: 999px;
+          font-size: 17px;
+          font-weight: 900;
+          text-align: center;
+          text-decoration: none;
         }
 
         .submitButton {
-          width: 100%;
-          margin-top: 24px;
-          padding: 20px;
-          border-radius: 999px;
           border: none;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
-          font-size: 19px;
-          font-weight: 900;
           cursor: pointer;
+        }
+
+        .outlineButton {
+          color: white;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
         }
 
         .submitButton:disabled {
@@ -436,15 +665,29 @@ export default function RateDriverPage() {
             border-radius: 28px;
           }
 
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
           h1 { font-size: 48px; }
 
           .driverBox { align-items: flex-start; }
 
-          .stars { justify-content: space-between; }
+          .stars {
+            justify-content: space-between;
+          }
 
-          .star { font-size: 42px; }
+          .star {
+            font-size: 42px;
+          }
+
+          .scoreOrb {
+            min-width: 100px;
+            height: 100px;
+          }
         }
       `}</style>
     </main>
   );
-}
+                 }
