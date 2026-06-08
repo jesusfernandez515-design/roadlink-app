@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  orderBy,
+} from "firebase/firestore";
 
 type Chat = {
   id: string;
@@ -19,6 +25,8 @@ type Chat = {
   lastSenderId?: string;
   lastSenderEmail?: string;
   unreadCount?: number;
+  unreadByDriver?: number;
+  unreadByPassenger?: number;
 };
 
 export default function MessagesPage() {
@@ -31,6 +39,8 @@ export default function MessagesPage() {
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
+        setUserId("");
+        setUserEmail("");
         setStatus("Please sign in to view your messages.");
         return;
       }
@@ -48,12 +58,14 @@ export default function MessagesPage() {
 
     const driverChatsQuery = query(
       collection(db, "chats"),
-      where("driverId", "==", userId)
+      where("driverId", "==", userId),
+      orderBy("lastMessageTime", "desc")
     );
 
     const passengerChatsQuery = query(
       collection(db, "chats"),
-      where("passengerId", "==", userId)
+      where("passengerId", "==", userId),
+      orderBy("lastMessageTime", "desc")
     );
 
     const unsubscribeDriver = onSnapshot(
@@ -91,9 +103,8 @@ export default function MessagesPage() {
   }, [userId]);
 
   function getConversationKey(chat: Chat) {
-    if (chat.rideId) {
-      return `ride_${chat.rideId}`;
-    }
+    if (chat.chatId) return chat.chatId;
+    if (chat.rideId) return `ride_${chat.rideId}`;
 
     const driver = chat.driverId || "no_driver";
     const passenger = chat.passengerId || "no_passenger";
@@ -102,8 +113,26 @@ export default function MessagesPage() {
   }
 
   function getChatTime(chat: Chat) {
-    const date = new Date(chat.lastMessageTime || "");
+    if (!chat.lastMessageTime) return 0;
+
+    const date = new Date(chat.lastMessageTime);
     return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+  function getUnreadForUser(chat: Chat) {
+    const isDriver = chat.driverId === userId;
+
+    if (isDriver && chat.unreadByDriver !== undefined) {
+      return Number(chat.unreadByDriver || 0);
+    }
+
+    if (!isDriver && chat.unreadByPassenger !== undefined) {
+      return Number(chat.unreadByPassenger || 0);
+    }
+
+    if (chat.lastSenderId === userId) return 0;
+
+    return Number(chat.unreadCount || 0);
   }
 
   const conversations = useMemo(() => {
@@ -111,6 +140,7 @@ export default function MessagesPage() {
 
     [...driverChats, ...passengerChats].forEach((chat) => {
       if (!chat) return;
+
       if (chat.chatId === "chat_abc123") return;
       if (chat.driverId === "test-driver") return;
       if (chat.passengerId === "test-passenger") return;
@@ -126,33 +156,43 @@ export default function MessagesPage() {
 
       const existingTime = getChatTime(existing);
       const currentTime = getChatTime(chat);
-
-      const combinedUnread =
-        Number(existing.unreadCount || 0) + Number(chat.unreadCount || 0);
-
       const newestChat = currentTime >= existingTime ? chat : existing;
       const olderChat = currentTime >= existingTime ? existing : chat;
 
       merged.set(key, {
         ...olderChat,
         ...newestChat,
-        unreadCount: combinedUnread,
+        unreadCount: Math.max(
+          Number(existing.unreadCount || 0),
+          Number(chat.unreadCount || 0)
+        ),
+        unreadByDriver: Math.max(
+          Number(existing.unreadByDriver || 0),
+          Number(chat.unreadByDriver || 0)
+        ),
+        unreadByPassenger: Math.max(
+          Number(existing.unreadByPassenger || 0),
+          Number(chat.unreadByPassenger || 0)
+        ),
         driverEmail: newestChat.driverEmail || olderChat.driverEmail || "",
-        passengerEmail: newestChat.passengerEmail || olderChat.passengerEmail || "",
+        passengerEmail:
+          newestChat.passengerEmail || olderChat.passengerEmail || "",
         lastMessage: newestChat.lastMessage || olderChat.lastMessage || "",
-        lastMessageTime: newestChat.lastMessageTime || olderChat.lastMessageTime || "",
+        lastMessageTime:
+          newestChat.lastMessageTime || olderChat.lastMessageTime || "",
         lastSenderId: newestChat.lastSenderId || olderChat.lastSenderId || "",
-        lastSenderEmail: newestChat.lastSenderEmail || olderChat.lastSenderEmail || "",
+        lastSenderEmail:
+          newestChat.lastSenderEmail || olderChat.lastSenderEmail || "",
       });
     });
 
     return Array.from(merged.values()).sort(
       (a, b) => getChatTime(b) - getChatTime(a)
     );
-  }, [driverChats, passengerChats]);
+  }, [driverChats, passengerChats, userId]);
 
   const totalUnread = conversations.reduce(
-    (total, chat) => total + Number(chat.unreadCount || 0),
+    (total, chat) => total + getUnreadForUser(chat),
     0
   );
 
@@ -163,15 +203,26 @@ export default function MessagesPage() {
       return chat.passengerEmail || chat.lastSenderEmail || "Passenger";
     }
 
-    return chat.driverEmail || "Driver";
+    return chat.driverEmail || chat.lastSenderEmail || "Driver";
+  }
+
+  function getInitial(name: string) {
+    return name?.charAt(0)?.toUpperCase() || "R";
+  }
+
+  function getRole(chat: Chat) {
+    return chat.driverId === userId ? "Driver inbox" : "Passenger inbox";
   }
 
   function getOpenChatUrl(chat: Chat) {
-    if (chat.rideId) {
-      return `/chat?rideId=${chat.rideId}&driverId=${chat.driverId || ""}&passengerId=${chat.passengerId || ""}`;
-    }
+    const params = new URLSearchParams();
 
-    return `/chat?driverId=${chat.driverId || ""}&passengerId=${chat.passengerId || ""}`;
+    if (chat.chatId) params.set("chatId", chat.chatId);
+    if (chat.rideId) params.set("rideId", chat.rideId);
+    if (chat.driverId) params.set("driverId", chat.driverId);
+    if (chat.passengerId) params.set("passengerId", chat.passengerId);
+
+    return `/chat?${params.toString()}`;
   }
 
   function formatTime(value?: string) {
@@ -181,7 +232,7 @@ export default function MessagesPage() {
       const date = new Date(value);
 
       if (Number.isNaN(date.getTime())) {
-        return value.slice(11, 16);
+        return value.slice(11, 16) || "Now";
       }
 
       return date.toLocaleTimeString([], {
@@ -189,7 +240,7 @@ export default function MessagesPage() {
         minute: "2-digit",
       });
     } catch {
-      return value.slice(11, 16);
+      return value.slice(11, 16) || "Now";
     }
   }
 
@@ -197,10 +248,18 @@ export default function MessagesPage() {
     <main className="page">
       <section className="inbox">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">← Dashboard</Link>
-          <Link href="/find-ride" className="miniButton">Find Ride</Link>
-          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/notifications" className="miniButton">Notifications</Link>
+          <Link href="/dashboard" className="miniButton">
+            ← Dashboard
+          </Link>
+          <Link href="/find-ride" className="miniButton">
+            Find Ride
+          </Link>
+          <Link href="/offer-ride" className="miniButton">
+            Offer Ride
+          </Link>
+          <Link href="/notifications" className="miniButton">
+            Notifications
+          </Link>
         </div>
 
         <section className="heroCard">
@@ -210,11 +269,12 @@ export default function MessagesPage() {
               Your <span>messages.</span>
             </h1>
             <p className="subtitle">
-              Manage ride conversations, unread messages, and trip coordination from one premium inbox.
+              Manage ride conversations, unread messages, and trip coordination
+              from one premium inbox.
             </p>
           </div>
 
-          <div className="avatar">💬</div>
+          <div className="heroBubble">💬</div>
         </section>
 
         {status && <p className="status">{status}</p>}
@@ -243,7 +303,11 @@ export default function MessagesPage() {
               <h2>Inbox</h2>
             </div>
 
-            <div className={totalUnread > 0 ? "statusPill unreadLive" : "statusPill"}>
+            <div
+              className={
+                totalUnread > 0 ? "statusPill unreadLive" : "statusPill"
+              }
+            >
               {totalUnread > 0 ? `${totalUnread} New` : "Live"}
             </div>
           </div>
@@ -253,7 +317,8 @@ export default function MessagesPage() {
               <div className="emptyIcon">💬</div>
               <h3>No conversations yet</h3>
               <p>
-                When someone messages you about a ride, the conversation will appear here.
+                When someone messages you about a ride, the conversation will
+                appear here.
               </p>
               <Link href="/find-ride" className="mainButton">
                 Find a Ride
@@ -262,7 +327,7 @@ export default function MessagesPage() {
           ) : (
             <div className="conversationList">
               {conversations.map((conversation) => {
-                const unread = Number(conversation.unreadCount || 0);
+                const unread = getUnreadForUser(conversation);
                 const otherUser = getOtherUser(conversation);
                 const openChatUrl = getOpenChatUrl(conversation);
                 const isLastMessageMine = conversation.lastSenderId === userId;
@@ -270,11 +335,15 @@ export default function MessagesPage() {
                 return (
                   <Link
                     href={openChatUrl}
-                    className={unread > 0 ? "conversation unreadConversation" : "conversation"}
+                    className={
+                      unread > 0
+                        ? "conversation unreadConversation"
+                        : "conversation"
+                    }
                     key={getConversationKey(conversation)}
                   >
                     <div className="conversationAvatar">
-                      {otherUser.charAt(0).toUpperCase()}
+                      {getInitial(otherUser)}
                     </div>
 
                     <div className="conversationContent">
@@ -283,18 +352,20 @@ export default function MessagesPage() {
                         <span>{formatTime(conversation.lastMessageTime)}</span>
                       </div>
 
-                      <p>
+                      <p className={unread > 0 ? "messagePreview strong" : "messagePreview"}>
                         {isLastMessageMine ? "You: " : ""}
                         {conversation.lastMessage || "New conversation"}
                       </p>
 
                       <div className="conversationMeta">
-                        <span>Ride chat</span>
+                        <span>{getRole(conversation)}</span>
+
+                        {conversation.rideId && (
+                          <span>Ride #{conversation.rideId.slice(0, 6)}</span>
+                        )}
 
                         {unread > 0 ? (
-                          <span className="unreadBadge">
-                            {unread} new
-                          </span>
+                          <span className="unreadBadge">{unread} new</span>
                         ) : (
                           <span>Opened</span>
                         )}
@@ -311,13 +382,15 @@ export default function MessagesPage() {
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 32%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.24), transparent 32%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.14), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -340,15 +413,16 @@ export default function MessagesPage() {
         .miniButton {
           padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.06);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
           font-weight: 900;
+          font-size: 14px;
         }
 
         .miniButton:hover {
-          border-color: rgba(34,197,94,0.45);
+          border-color: rgba(34,197,94,0.48);
           background: rgba(34,197,94,0.12);
         }
 
@@ -399,7 +473,7 @@ export default function MessagesPage() {
           margin: 0;
         }
 
-        .avatar {
+        .heroBubble {
           min-width: 90px;
           height: 90px;
           border-radius: 50%;
@@ -467,6 +541,7 @@ export default function MessagesPage() {
           border-radius: 999px;
           padding: 10px 16px;
           font-weight: 900;
+          white-space: nowrap;
         }
 
         .unreadLive {
@@ -541,8 +616,9 @@ export default function MessagesPage() {
         }
 
         .unreadConversation {
-          border-color: rgba(239,68,68,0.4);
-          background: rgba(239,68,68,0.08);
+          border-color: rgba(239,68,68,0.45);
+          background:
+            linear-gradient(135deg, rgba(239,68,68,0.12), rgba(255,255,255,0.05));
         }
 
         .conversation:hover {
@@ -563,6 +639,7 @@ export default function MessagesPage() {
           font-size: 22px;
           font-weight: 900;
           color: #22c55e;
+          flex-shrink: 0;
         }
 
         .conversationTop {
@@ -576,19 +653,30 @@ export default function MessagesPage() {
         .conversationTop h3 {
           margin: 0;
           font-size: 18px;
+          overflow-wrap: anywhere;
         }
 
         .conversationTop span {
           color: #22c55e;
           font-size: 13px;
           font-weight: 900;
+          white-space: nowrap;
         }
 
-        .conversationContent p {
+        .messagePreview {
           color: #d4d4d8;
           margin: 0 0 10px;
           line-height: 1.4;
           overflow-wrap: anywhere;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .messagePreview.strong {
+          color: white;
+          font-weight: 900;
         }
 
         .conversationMeta {
@@ -624,18 +712,31 @@ export default function MessagesPage() {
             padding: 16px;
           }
 
+          .topNav {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+          }
+
+          .miniButton {
+            text-align: center;
+            padding: 12px 10px;
+            font-size: 13px;
+          }
+
           .heroCard {
             flex-direction: column;
             align-items: flex-start;
             padding: 28px;
+            border-radius: 28px;
           }
 
           h1 {
-            font-size: 48px;
+            font-size: 46px;
           }
 
           .subtitle {
-            font-size: 18px;
+            font-size: 17px;
           }
 
           .summaryGrid {
@@ -647,8 +748,17 @@ export default function MessagesPage() {
             border-radius: 28px;
           }
 
+          .sectionHeader {
+            align-items: flex-start;
+          }
+
+          .sectionHeader h2 {
+            font-size: 30px;
+          }
+
           .conversation {
             grid-template-columns: auto 1fr;
+            padding: 16px;
           }
 
           .openIcon {
@@ -658,6 +768,13 @@ export default function MessagesPage() {
           .conversationTop {
             flex-direction: column;
             align-items: flex-start;
+            gap: 4px;
+          }
+
+          .conversationAvatar {
+            width: 48px;
+            height: 48px;
+            font-size: 20px;
           }
         }
       `}</style>
