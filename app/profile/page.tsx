@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db, storage } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   collection,
   doc,
-  getDoc,
-  getDocs,
+  onSnapshot,
   query,
   setDoc,
   where,
@@ -26,6 +25,27 @@ type UserProfile = {
   state?: string;
   emailVerified?: boolean;
   provider?: string;
+  verified?: boolean;
+  phoneVerified?: boolean;
+  driverVerified?: boolean;
+};
+
+type Booking = {
+  id: string;
+  status?: string;
+  seatsBooked?: number;
+};
+
+type Ride = {
+  id: string;
+  status?: string;
+};
+
+type Rating = {
+  id: string;
+  driverId?: string;
+  rating?: number;
+  comment?: string;
 };
 
 export default function ProfilePage() {
@@ -47,15 +67,22 @@ export default function ProfilePage() {
   const [stateInput, setStateInput] = useState("");
   const [photoInput, setPhotoInput] = useState("");
 
-  const [bookedTrips, setBookedTrips] = useState(0);
-  const [activeRides, setActiveRides] = useState(0);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [ratings, setRatings] = useState<Rating[]>([]);
+
   const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading profile...");
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeProfile: (() => void) | undefined;
+    let unsubscribeBookings: (() => void) | undefined;
+    let unsubscribeRides: (() => void) | undefined;
+    let unsubscribeRatings: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setMessage("Please sign in to view your profile.");
         return;
@@ -68,75 +95,149 @@ export default function ProfilePage() {
       setUserId(user.uid);
       setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
 
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
+      const userRef = doc(db, "users", user.uid);
 
-        let finalProfile: UserProfile = {
+      await setDoc(
+        userRef,
+        {
           name: fallbackName,
           email: userEmail,
           role: "member",
           createdAt: new Date().toISOString(),
           photoURL: fallbackPhoto,
-          bio: "",
-          city: "",
-          state: "",
           emailVerified: Boolean(user.emailVerified),
           provider: "email",
-        };
+        },
+        { merge: true }
+      );
 
-        if (userSnap.exists()) {
-          const userData = userSnap.data() as UserProfile;
+      unsubscribeProfile = onSnapshot(
+        userRef,
+        (snapshot) => {
+          const data = snapshot.data() as UserProfile;
 
-          finalProfile = {
-            name: userData.name || fallbackName,
-            email: userData.email || userEmail,
-            role: userData.role || "member",
-            createdAt: userData.createdAt || "",
-            photoURL: userData.photoURL || fallbackPhoto,
-            bio: userData.bio || "",
-            city: userData.city || "",
-            state: userData.state || "",
+          const finalProfile: UserProfile = {
+            name: data?.name || fallbackName,
+            email: data?.email || userEmail,
+            role: data?.role || "member",
+            createdAt: data?.createdAt || new Date().toISOString(),
+            photoURL: data?.photoURL || fallbackPhoto,
+            bio: data?.bio || "",
+            city: data?.city || "",
+            state: data?.state || "",
             emailVerified: Boolean(user.emailVerified),
-            provider: userData.provider || "email",
+            provider: data?.provider || "email",
+            verified: Boolean(data?.verified),
+            phoneVerified: Boolean(data?.phoneVerified),
+            driverVerified: Boolean(data?.driverVerified),
           };
-        } else {
-          await setDoc(userRef, finalProfile, { merge: true });
-        }
 
-        setProfile(finalProfile);
-        setNameInput(finalProfile.name || "");
-        setBioInput(finalProfile.bio || "");
-        setCityInput(finalProfile.city || "");
-        setStateInput(finalProfile.state || "");
-        setPhotoInput(finalProfile.photoURL || "");
+          setProfile(finalProfile);
+          setNameInput(finalProfile.name || "");
+          setBioInput(finalProfile.bio || "");
+          setCityInput(finalProfile.city || "");
+          setStateInput(finalProfile.state || "");
+          setPhotoInput(finalProfile.photoURL || "");
+          setMessage("");
+        },
+        (error) => setMessage(error.message)
+      );
 
-        const bookingsQuery = query(
-          collection(db, "bookings"),
-          where("passengerEmail", "==", userEmail),
-          where("status", "==", "reserved")
-        );
+      const bookingsQuery = query(
+        collection(db, "bookings"),
+        where("passengerId", "==", user.uid)
+      );
 
-        const bookingsSnapshot = await getDocs(bookingsQuery);
-        setBookedTrips(bookingsSnapshot.size);
+      unsubscribeBookings = onSnapshot(
+        bookingsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Booking[];
 
-        const ridesQuery = query(
-          collection(db, "rides"),
-          where("driverEmail", "==", userEmail),
-          where("status", "==", "active")
-        );
+          setBookings(data);
+        },
+        (error) => setMessage(error.message)
+      );
 
-        const ridesSnapshot = await getDocs(ridesQuery);
-        setActiveRides(ridesSnapshot.size);
+      const ridesQuery = query(
+        collection(db, "rides"),
+        where("driverId", "==", user.uid)
+      );
 
-        setMessage("");
-      } catch (error: unknown) {
-        setMessage(error instanceof Error ? error.message : "Something went wrong.");
-      }
+      unsubscribeRides = onSnapshot(
+        ridesQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Ride[];
+
+          setRides(data);
+        },
+        (error) => setMessage(error.message)
+      );
+
+      const ratingsQuery = query(
+        collection(db, "ratings"),
+        where("driverId", "==", user.uid)
+      );
+
+      unsubscribeRatings = onSnapshot(
+        ratingsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Rating[];
+
+          setRatings(data);
+        },
+        (error) => setMessage(error.message)
+      );
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribeBookings) unsubscribeBookings();
+      if (unsubscribeRides) unsubscribeRides();
+      if (unsubscribeRatings) unsubscribeRatings();
+    };
   }, []);
+
+  const bookedTrips = bookings.filter((booking) => booking.status === "reserved").length;
+  const completedBookings = bookings.filter((booking) => booking.status === "completed").length;
+  const activeRides = rides.filter((ride) => ride.status === "active" || ride.status === "full").length;
+  const completedRides = rides.filter((ride) => ride.status === "completed").length;
+
+  const passengersTransported = bookings
+    .filter((booking) => booking.status === "reserved" || booking.status === "completed")
+    .reduce((total, booking) => total + Number(booking.seatsBooked || 1), 0);
+
+  const averageRating = useMemo(() => {
+    if (!ratings.length) return 0;
+
+    return (
+      ratings.reduce((total, item) => total + Number(item.rating || 0), 0) /
+      ratings.length
+    );
+  }, [ratings]);
+
+  const ratingDisplay = ratings.length ? averageRating.toFixed(1) : "New";
+
+  const trustScore = Math.min(
+    100,
+    40 +
+      (profile.emailVerified ? 15 : 0) +
+      (profile.phoneVerified ? 15 : 0) +
+      (profile.driverVerified ? 15 : 0) +
+      Math.min(completedRides * 3, 15)
+  );
+
+  const trustLevel =
+    trustScore >= 85 ? "Premium" : trustScore >= 65 ? "Trusted" : "Basic";
 
   async function uploadProfilePhoto(file: File) {
     if (!userId) {
@@ -155,14 +256,15 @@ export default function ProfilePage() {
 
       const downloadURL = await getDownloadURL(photoRef);
 
-      const updatedProfile: UserProfile = {
-        ...profile,
-        photoURL: downloadURL,
-      };
+      await setDoc(
+        doc(db, "users", userId),
+        {
+          photoURL: downloadURL,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
-      await setDoc(doc(db, "users", userId), updatedProfile, { merge: true });
-
-      setProfile(updatedProfile);
       setPhotoInput(downloadURL);
       setMessage("Profile photo uploaded successfully.");
     } catch (error: unknown) {
@@ -182,18 +284,20 @@ export default function ProfilePage() {
       setSaving(true);
       setMessage("");
 
-      const updatedProfile: UserProfile = {
-        ...profile,
-        name: nameInput.trim() || "RoadLink User",
-        bio: bioInput.trim(),
-        city: cityInput.trim(),
-        state: stateInput.trim(),
-        photoURL: photoInput.trim(),
-      };
+      await setDoc(
+        doc(db, "users", userId),
+        {
+          ...profile,
+          name: nameInput.trim() || "RoadLink User",
+          bio: bioInput.trim(),
+          city: cityInput.trim(),
+          state: stateInput.trim(),
+          photoURL: photoInput.trim(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
-      await setDoc(doc(db, "users", userId), updatedProfile, { merge: true });
-
-      setProfile(updatedProfile);
       setMessage("Profile updated successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -209,6 +313,7 @@ export default function ProfilePage() {
 
   const displayName = profile.name || "RoadLink User";
   const displayPhoto = profile.photoURL || "";
+
   const location =
     profile.city || profile.state
       ? `${profile.city || ""}${profile.city && profile.state ? ", " : ""}${profile.state || ""}`
@@ -221,7 +326,8 @@ export default function ProfilePage() {
           <Link href="/dashboard" className="miniButton">Dashboard</Link>
           <Link href="/find-ride" className="miniButton">Find Ride</Link>
           <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/my-bookings" className="miniButton">My Bookings</Link>
+          <Link href="/messages" className="miniButton">Messages</Link>
+          <Link href="/notifications" className="miniButton">Notifications</Link>
         </div>
 
         <div className="profileHeader">
@@ -231,14 +337,15 @@ export default function ProfilePage() {
             <div className="avatar">{avatar}</div>
           )}
 
-          <div>
+          <div className="profileIntro">
             <p className="eyebrow">RoadLink Premium Profile</p>
             <h1>{displayName}</h1>
             <p className="subtitle">{profile.email || "No email found"}</p>
 
             <div className="badgeRow">
-              <span className="verifiedBadge">✓ Verified Email</span>
+              <span className="verifiedBadge">✓ Email Verified</span>
               <span className="roleBadge">{profile.role || "member"}</span>
+              <span className="trustBadge">{trustLevel} Trust</span>
             </div>
           </div>
         </div>
@@ -247,10 +354,12 @@ export default function ProfilePage() {
       </section>
 
       <section className="stats">
-        <Metric icon="⭐" label="Rating" value="New" />
+        <Metric icon="⭐" label="Rating" value={String(ratingDisplay)} />
         <Metric icon="🎟️" label="Booked Trips" value={String(bookedTrips)} />
         <Metric icon="🚘" label="Active Rides" value={String(activeRides)} />
-        <Metric icon="🛡️" label="Trust Level" value="Basic" />
+        <Metric icon="✅" label="Completed" value={String(completedRides + completedBookings)} />
+        <Metric icon="👥" label="Passengers" value={String(passengersTransported)} />
+        <Metric icon="🛡️" label="Trust Score" value={`${trustScore}/100`} />
       </section>
 
       <section className="detailsCard">
@@ -259,6 +368,7 @@ export default function ProfilePage() {
             <p className="eyebrow">Edit Profile</p>
             <h2>Identity & Photo</h2>
           </div>
+
           <div className="shield">📸</div>
         </div>
 
@@ -269,22 +379,23 @@ export default function ProfilePage() {
             ) : (
               <div className="previewAvatar">{avatar}</div>
             )}
-            <p>Profile Photo Preview</p>
+
+            <p>Premium Profile Photo</p>
           </div>
 
           <div className="formBox">
             <label>Display Name</label>
             <input
               value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
+              onChange={(event) => setNameInput(event.target.value)}
               placeholder="Your name"
             />
 
             <label>Bio</label>
             <textarea
               value={bioInput}
-              onChange={(e) => setBioInput(e.target.value)}
-              placeholder="Tell people who you are..."
+              onChange={(event) => setBioInput(event.target.value)}
+              placeholder="Tell passengers and drivers who you are..."
             />
 
             <div className="twoGrid">
@@ -292,7 +403,7 @@ export default function ProfilePage() {
                 <label>City</label>
                 <input
                   value={cityInput}
-                  onChange={(e) => setCityInput(e.target.value)}
+                  onChange={(event) => setCityInput(event.target.value)}
                   placeholder="City"
                 />
               </div>
@@ -301,7 +412,7 @@ export default function ProfilePage() {
                 <label>State</label>
                 <input
                   value={stateInput}
-                  onChange={(e) => setStateInput(e.target.value)}
+                  onChange={(event) => setStateInput(event.target.value)}
                   placeholder="State"
                 />
               </div>
@@ -311,8 +422,8 @@ export default function ProfilePage() {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
+              onChange={(event) => {
+                const file = event.target.files?.[0];
                 if (file) uploadProfilePhoto(file);
               }}
             />
@@ -320,7 +431,7 @@ export default function ProfilePage() {
             <label>Photo URL</label>
             <input
               value={photoInput}
-              onChange={(e) => setPhotoInput(e.target.value)}
+              onChange={(event) => setPhotoInput(event.target.value)}
               placeholder="https://example.com/photo.jpg"
             />
 
@@ -339,6 +450,7 @@ export default function ProfilePage() {
             <p className="eyebrow">Account</p>
             <h2>Profile Details</h2>
           </div>
+
           <div className="shield">✓</div>
         </div>
 
@@ -351,7 +463,35 @@ export default function ProfilePage() {
           value={profile.createdAt ? profile.createdAt.slice(0, 10) : "2026"}
           icon="📅"
         />
-        <Info label="Verification" value="Email Verified" icon="🛡️" />
+        <Info label="Verification" value={profile.emailVerified ? "Email Verified" : "Pending"} icon="🛡️" />
+      </section>
+
+      <section className="safetyCard">
+        <div>
+          <p className="eyebrow">Trust & Safety</p>
+          <h2>Verification Status</h2>
+          <p className="trustText">
+            Your RoadLink Trust Score improves as you verify your account and complete trips.
+          </p>
+        </div>
+
+        <div className="trustMeter">
+          <div className="trustTop">
+            <strong>{trustScore}/100</strong>
+            <span>{trustLevel}</span>
+          </div>
+
+          <div className="bar">
+            <div style={{ width: `${trustScore}%` }} />
+          </div>
+        </div>
+
+        <div className="badges">
+          <span className={profile.emailVerified ? "goodBadge" : ""}>✓ Email Verified</span>
+          <span className={profile.phoneVerified ? "goodBadge" : ""}>Phone Pending</span>
+          <span className={profile.driverVerified ? "goodBadge" : ""}>Driver Check Pending</span>
+          <span>Payment Pending</span>
+        </div>
       </section>
 
       <section className="actionsCard">
@@ -368,20 +508,6 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      <section className="safetyCard">
-        <div>
-          <p className="eyebrow">Trust & Safety</p>
-          <h2>Verification Status</h2>
-        </div>
-
-        <div className="badges">
-          <span>✓ Email Verified</span>
-          <span>Phone Pending</span>
-          <span>Driver Check Pending</span>
-          <span>Payment Pending</span>
-        </div>
-      </section>
-
       <button onClick={handleSignOut} className="signOutButton">
         Sign Out
       </button>
@@ -392,7 +518,7 @@ export default function ProfilePage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 34%),
             radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
@@ -406,7 +532,7 @@ export default function ProfilePage() {
         .actionsCard,
         .safetyCard,
         .signOutButton {
-          max-width: 900px;
+          max-width: 960px;
           margin-left: auto;
           margin-right: auto;
         }
@@ -416,15 +542,15 @@ export default function ProfilePage() {
         .detailsCard,
         .actionsCard,
         .safetyCard {
-          background: rgba(8, 13, 25, 0.88);
+          background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
         }
 
         .hero {
-          border-radius: 32px;
-          padding: 30px;
+          border-radius: 34px;
+          padding: 32px;
           margin-bottom: 22px;
         }
 
@@ -456,12 +582,12 @@ export default function ProfilePage() {
 
         .avatar,
         .avatarImage {
-          min-width: 96px;
-          width: 96px;
-          height: 96px;
+          min-width: 104px;
+          width: 104px;
+          height: 104px;
           border-radius: 50%;
-          box-shadow: 0 16px 50px rgba(34,197,94,0.35);
-          border: 2px solid rgba(34,197,94,0.45);
+          box-shadow: 0 16px 55px rgba(34,197,94,0.4);
+          border: 2px solid rgba(34,197,94,0.5);
         }
 
         .avatar {
@@ -469,7 +595,7 @@ export default function ProfilePage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 42px;
+          font-size: 44px;
           font-weight: 900;
         }
 
@@ -514,14 +640,16 @@ export default function ProfilePage() {
         }
 
         .verifiedBadge,
-        .roleBadge {
+        .roleBadge,
+        .trustBadge {
           display: inline-flex;
           padding: 10px 14px;
           border-radius: 999px;
           font-weight: 900;
         }
 
-        .verifiedBadge {
+        .verifiedBadge,
+        .trustBadge {
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
@@ -542,7 +670,7 @@ export default function ProfilePage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(3, 1fr);
           gap: 14px;
           margin-bottom: 24px;
         }
@@ -752,6 +880,40 @@ export default function ProfilePage() {
           overflow-wrap: anywhere;
         }
 
+        .trustText {
+          color: #a1a1aa;
+          line-height: 1.5;
+        }
+
+        .trustMeter {
+          margin: 20px 0;
+        }
+
+        .trustTop {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 10px;
+        }
+
+        .trustTop strong,
+        .trustTop span {
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .bar {
+          height: 14px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.08);
+          overflow: hidden;
+        }
+
+        .bar div {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
         .actions {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -785,6 +947,12 @@ export default function ProfilePage() {
           padding: 11px 15px;
           color: #d4d4d8;
           font-weight: 800;
+        }
+
+        .badges .goodBadge {
+          color: #22c55e;
+          border-color: rgba(34,197,94,0.35);
+          background: rgba(34,197,94,0.12);
         }
 
         .signOutButton {
@@ -885,4 +1053,4 @@ function Info({
       <div className="infoValue">{value}</div>
     </div>
   );
-}
+      }
