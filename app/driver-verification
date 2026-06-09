@@ -1,1 +1,544 @@
+"use client";
 
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { auth, db, storage } from "../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+
+type Verification = {
+  userId?: string;
+  email?: string;
+  status?: string;
+  licenseURL?: string;
+  insuranceURL?: string;
+  selfieURL?: string;
+  submittedAt?: string;
+  updatedAt?: string;
+};
+
+export default function DriverVerificationPage() {
+  const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+  const [verification, setVerification] = useState<Verification | null>(null);
+  const [message, setMessage] = useState("Loading verification...");
+  const [uploading, setUploading] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setMessage("Please sign in to verify your driver profile.");
+        return;
+      }
+
+      setUserId(user.uid);
+      setUserEmail(user.email || "");
+
+      try {
+        const verificationRef = doc(db, "driverVerifications", user.uid);
+        const verificationSnap = await getDoc(verificationRef);
+
+        if (verificationSnap.exists()) {
+          setVerification(verificationSnap.data() as Verification);
+        } else {
+          setVerification({
+            userId: user.uid,
+            email: user.email || "",
+            status: "not_submitted",
+            licenseURL: "",
+            insuranceURL: "",
+            selfieURL: "",
+          });
+        }
+
+        setMessage("");
+      } catch (error: unknown) {
+        setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  async function uploadFile(file: File, type: "license" | "insurance" | "selfie") {
+    if (!userId) {
+      setMessage("Please sign in first.");
+      return;
+    }
+
+    try {
+      setUploading(type);
+      setMessage("");
+
+      const path = `driver-verification/${userId}/${type}-${Date.now()}-${file.name}`;
+      const fileRef = ref(storage, path);
+
+      await uploadBytes(fileRef, file);
+      const downloadURL = await getDownloadURL(fileRef);
+
+      const updatedVerification: Verification = {
+        ...(verification || {}),
+        userId,
+        email: userEmail,
+        status: verification?.status || "not_submitted",
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (type === "license") updatedVerification.licenseURL = downloadURL;
+      if (type === "insurance") updatedVerification.insuranceURL = downloadURL;
+      if (type === "selfie") updatedVerification.selfieURL = downloadURL;
+
+      await setDoc(doc(db, "driverVerifications", userId), updatedVerification, {
+        merge: true,
+      });
+
+      setVerification(updatedVerification);
+      setMessage("File uploaded successfully.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Upload failed.");
+    } finally {
+      setUploading("");
+    }
+  }
+
+  async function submitVerification() {
+    if (!userId) {
+      setMessage("Please sign in first.");
+      return;
+    }
+
+    if (!verification?.licenseURL || !verification?.insuranceURL || !verification?.selfieURL) {
+      setMessage("Please upload your license, insurance, and selfie before submitting.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setMessage("");
+
+      const now = new Date().toISOString();
+
+      const updatedVerification: Verification = {
+        ...verification,
+        userId,
+        email: userEmail,
+        status: "pending",
+        submittedAt: verification.submittedAt || now,
+        updatedAt: now,
+      };
+
+      await setDoc(doc(db, "driverVerifications", userId), updatedVerification, {
+        merge: true,
+      });
+
+      await setDoc(
+        doc(db, "users", userId),
+        {
+          verificationStatus: "pending",
+          licenseVerified: false,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      setVerification(updatedVerification);
+      setMessage("Verification submitted. RoadLink will review your documents.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const status = verification?.status || "not_submitted";
+
+  return (
+    <main className="page">
+      <section className="container">
+        <div className="topNav">
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/profile" className="miniButton">Profile</Link>
+          <Link href="/driver-profile" className="miniButton">Driver Profile</Link>
+        </div>
+
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Driver Verification</p>
+            <h1>Verify <span>Your Driver Profile</span></h1>
+            <p className="subtitle">
+              Upload your license, insurance, and selfie to build trust with passengers.
+            </p>
+          </div>
+
+          <div className="shield">🛡️</div>
+        </section>
+
+        {message && <p className="message">{message}</p>}
+
+        <section className="statusCard">
+          <p className="eyebrow">Current Status</p>
+          <h2>{status.replace("_", " ").toUpperCase()}</h2>
+
+          <div className="bar">
+            <div
+              style={{
+                width:
+                  status === "approved"
+                    ? "100%"
+                    : status === "pending"
+                    ? "70%"
+                    : status === "rejected"
+                    ? "35%"
+                    : "20%",
+              }}
+            />
+          </div>
+
+          <p>
+            {status === "approved"
+              ? "Your driver profile is verified."
+              : status === "pending"
+              ? "Your verification is under review."
+              : status === "rejected"
+              ? "Your verification needs attention."
+              : "Upload all required documents to submit your verification."}
+          </p>
+        </section>
+
+        <section className="uploadGrid">
+          <UploadCard
+            title="Driver License"
+            icon="🪪"
+            uploaded={Boolean(verification?.licenseURL)}
+            uploading={uploading === "license"}
+            onChange={(file) => uploadFile(file, "license")}
+          />
+
+          <UploadCard
+            title="Insurance"
+            icon="📄"
+            uploaded={Boolean(verification?.insuranceURL)}
+            uploading={uploading === "insurance"}
+            onChange={(file) => uploadFile(file, "insurance")}
+          />
+
+          <UploadCard
+            title="Selfie"
+            icon="🤳"
+            uploaded={Boolean(verification?.selfieURL)}
+            uploading={uploading === "selfie"}
+            onChange={(file) => uploadFile(file, "selfie")}
+          />
+        </section>
+
+        <section className="reviewCard">
+          <p className="eyebrow">Before Submitting</p>
+          <h2>Checklist</h2>
+
+          <Checklist label="Driver license uploaded" done={Boolean(verification?.licenseURL)} />
+          <Checklist label="Insurance uploaded" done={Boolean(verification?.insuranceURL)} />
+          <Checklist label="Selfie uploaded" done={Boolean(verification?.selfieURL)} />
+
+          <button className="submitButton" onClick={submitVerification} disabled={saving}>
+            {saving ? "Submitting..." : "Submit Verification"}
+          </button>
+        </section>
+      </section>
+
+      <style>{`
+        * { box-sizing: border-box; }
+
+        .page {
+          min-height: 100vh;
+          padding: 24px;
+          color: white;
+          font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 35%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
+        }
+
+        .container {
+          max-width: 1000px;
+          margin: auto;
+        }
+
+        .topNav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 22px;
+        }
+
+        .miniButton {
+          padding: 12px 18px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
+        .hero,
+        .statusCard,
+        .uploadCard,
+        .reviewCard {
+          background: rgba(8,13,25,0.9);
+          border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
+        }
+
+        .hero {
+          border-radius: 34px;
+          padding: 34px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 24px;
+          margin-bottom: 22px;
+        }
+
+        .eyebrow {
+          color: #22c55e;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-size: 13px;
+          margin: 0 0 10px;
+        }
+
+        h1 {
+          font-size: 56px;
+          line-height: 1;
+          margin: 0 0 16px;
+          letter-spacing: -1px;
+        }
+
+        h1 span,
+        h2 {
+          color: #22c55e;
+        }
+
+        .subtitle {
+          color: #a1a1aa;
+          font-size: 18px;
+          line-height: 1.5;
+          margin: 0;
+          max-width: 650px;
+        }
+
+        .shield {
+          min-width: 100px;
+          height: 100px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.14);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 46px;
+          box-shadow: 0 18px 55px rgba(34,197,94,0.25);
+        }
+
+        .message {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .statusCard,
+        .reviewCard {
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 22px;
+        }
+
+        .statusCard h2,
+        .reviewCard h2 {
+          font-size: 34px;
+          margin: 0 0 16px;
+        }
+
+        .statusCard p {
+          color: #a1a1aa;
+          line-height: 1.5;
+        }
+
+        .bar {
+          width: 100%;
+          height: 14px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.08);
+          overflow: hidden;
+          margin: 18px 0;
+        }
+
+        .bar div {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .uploadGrid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          margin-bottom: 22px;
+        }
+
+        .uploadCard {
+          border-radius: 28px;
+          padding: 24px;
+        }
+
+        .uploadIcon {
+          width: 58px;
+          height: 58px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.14);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 28px;
+          margin-bottom: 16px;
+        }
+
+        .uploadCard h3 {
+          font-size: 24px;
+          margin: 0 0 10px;
+        }
+
+        .uploadCard p {
+          color: #a1a1aa;
+          margin: 0 0 18px;
+        }
+
+        .uploadCard label {
+          display: block;
+          width: 100%;
+          padding: 15px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          font-weight: 900;
+          text-align: center;
+          cursor: pointer;
+        }
+
+        .uploadCard input {
+          display: none;
+        }
+
+        .checkRow {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 16px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+          margin-bottom: 12px;
+        }
+
+        .checkRow span {
+          font-weight: 900;
+        }
+
+        .done {
+          color: #22c55e;
+        }
+
+        .pending {
+          color: #fca5a5;
+        }
+
+        .submitButton {
+          width: 100%;
+          margin-top: 18px;
+          padding: 18px;
+          border-radius: 999px;
+          border: none;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          font-size: 17px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .submitButton:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        @media (max-width: 800px) {
+          .page {
+            padding: 16px;
+          }
+
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 28px;
+          }
+
+          h1 {
+            font-size: 44px;
+          }
+
+          .uploadGrid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function UploadCard({
+  title,
+  icon,
+  uploaded,
+  uploading,
+  onChange,
+}: {
+  title: string;
+  icon: string;
+  uploaded: boolean;
+  uploading: boolean;
+  onChange: (file: File) => void;
+}) {
+  return (
+    <div className="uploadCard">
+      <div className="uploadIcon">{icon}</div>
+      <h3>{title}</h3>
+      <p>{uploaded ? "Uploaded successfully." : "Upload required."}</p>
+
+      <label>
+        {uploading ? "Uploading..." : uploaded ? "Replace File" : "Upload File"}
+        <input
+          type="file"
+          accept="image/*,.pdf"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) onChange(file);
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+function Checklist({ label, done }: { label: string; done: boolean }) {
+  return (
+    <div className="checkRow">
+      <span>{label}</span>
+      <strong className={done ? "done" : "pending"}>{done ? "Complete" : "Pending"}</strong>
+    </div>
+  );
+}
