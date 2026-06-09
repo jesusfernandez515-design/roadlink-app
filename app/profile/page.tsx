@@ -28,6 +28,15 @@ type UserProfile = {
   verified?: boolean;
   phoneVerified?: boolean;
   driverVerified?: boolean;
+  verificationStatus?: string;
+};
+
+type DriverVerification = {
+  status?: "not_submitted" | "pending" | "approved" | "rejected";
+  governmentIdURL?: string;
+  driverLicenseURL?: string;
+  insuranceURL?: string;
+  vehiclePhotoURL?: string;
 };
 
 type Booking = {
@@ -50,7 +59,6 @@ type Rating = {
 
 export default function ProfilePage() {
   const [userId, setUserId] = useState("");
-
   const [profile, setProfile] = useState<UserProfile>({
     name: "RoadLink User",
     email: "",
@@ -59,6 +67,10 @@ export default function ProfilePage() {
     bio: "",
     city: "",
     state: "",
+  });
+
+  const [verification, setVerification] = useState<DriverVerification>({
+    status: "not_submitted",
   });
 
   const [nameInput, setNameInput] = useState("");
@@ -78,6 +90,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
+    let unsubscribeVerification: (() => void) | undefined;
     let unsubscribeBookings: (() => void) | undefined;
     let unsubscribeRides: (() => void) | undefined;
     let unsubscribeRatings: (() => void) | undefined;
@@ -130,6 +143,7 @@ export default function ProfilePage() {
             verified: Boolean(data?.verified),
             phoneVerified: Boolean(data?.phoneVerified),
             driverVerified: Boolean(data?.driverVerified),
+            verificationStatus: data?.verificationStatus || "not_submitted",
           };
 
           setProfile(finalProfile);
@@ -143,56 +157,53 @@ export default function ProfilePage() {
         (error) => setMessage(error.message)
       );
 
-      const bookingsQuery = query(
-        collection(db, "bookings"),
-        where("passengerId", "==", user.uid)
+      unsubscribeVerification = onSnapshot(
+        doc(db, "driverVerifications", user.uid),
+        (snapshot) => {
+          if (snapshot.exists()) {
+            setVerification(snapshot.data() as DriverVerification);
+          } else {
+            setVerification({ status: "not_submitted" });
+          }
+        },
+        (error) => setMessage(error.message)
       );
 
       unsubscribeBookings = onSnapshot(
-        bookingsQuery,
+        query(collection(db, "bookings"), where("passengerId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
-          })) as Booking[];
-
-          setBookings(data);
+          setBookings(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Booking[]
+          );
         },
         (error) => setMessage(error.message)
-      );
-
-      const ridesQuery = query(
-        collection(db, "rides"),
-        where("driverId", "==", user.uid)
       );
 
       unsubscribeRides = onSnapshot(
-        ridesQuery,
+        query(collection(db, "rides"), where("driverId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
-          })) as Ride[];
-
-          setRides(data);
+          setRides(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Ride[]
+          );
         },
         (error) => setMessage(error.message)
       );
 
-      const ratingsQuery = query(
-        collection(db, "ratings"),
-        where("driverId", "==", user.uid)
-      );
-
       unsubscribeRatings = onSnapshot(
-        ratingsQuery,
+        query(collection(db, "ratings"), where("driverId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
-          })) as Rating[];
-
-          setRatings(data);
+          setRatings(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Rating[]
+          );
         },
         (error) => setMessage(error.message)
       );
@@ -201,6 +212,7 @@ export default function ProfilePage() {
     return () => {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribeVerification) unsubscribeVerification();
       if (unsubscribeBookings) unsubscribeBookings();
       if (unsubscribeRides) unsubscribeRides();
       if (unsubscribeRatings) unsubscribeRatings();
@@ -227,12 +239,25 @@ export default function ProfilePage() {
 
   const ratingDisplay = ratings.length ? averageRating.toFixed(1) : "New";
 
+  const verificationStatus =
+    verification.status || profile.verificationStatus || "not_submitted";
+
+  const verificationComplete = [
+    verification.governmentIdURL,
+    verification.driverLicenseURL,
+    verification.insuranceURL,
+    verification.vehiclePhotoURL,
+  ].filter(Boolean).length;
+
+  const driverVerified =
+    verificationStatus === "approved" || Boolean(profile.driverVerified);
+
   const trustScore = Math.min(
     100,
     40 +
       (profile.emailVerified ? 15 : 0) +
       (profile.phoneVerified ? 15 : 0) +
-      (profile.driverVerified ? 15 : 0) +
+      (driverVerified ? 15 : 0) +
       Math.min(completedRides * 3, 15)
   );
 
@@ -346,6 +371,9 @@ export default function ProfilePage() {
               <span className="verifiedBadge">✓ Email Verified</span>
               <span className="roleBadge">{profile.role || "member"}</span>
               <span className="trustBadge">{trustLevel} Trust</span>
+              <span className={driverVerified ? "driverBadge approved" : "driverBadge"}>
+                {driverVerified ? "✓ Verified Driver" : "Driver Not Verified"}
+              </span>
             </div>
           </div>
         </div>
@@ -360,6 +388,39 @@ export default function ProfilePage() {
         <Metric icon="✅" label="Completed" value={String(completedRides + completedBookings)} />
         <Metric icon="👥" label="Passengers" value={String(passengersTransported)} />
         <Metric icon="🛡️" label="Trust Score" value={`${trustScore}/100`} />
+      </section>
+
+      <section className="verifyCard">
+        <div>
+          <p className="eyebrow">Driver Verification</p>
+          <h2>
+            {verificationStatus === "approved"
+              ? "Verified Driver"
+              : verificationStatus === "pending"
+              ? "Verification Pending"
+              : verificationStatus === "rejected"
+              ? "Verification Needs Review"
+              : "Become a Verified Driver"}
+          </h2>
+          <p>
+            {verificationStatus === "approved"
+              ? "Your driver profile is approved and trusted on RoadLink."
+              : verificationStatus === "pending"
+              ? "Your documents were submitted and are waiting for review."
+              : verificationStatus === "rejected"
+              ? "Please update your documents and submit again."
+              : "Upload your ID, license, insurance, and vehicle photo to build passenger trust."}
+          </p>
+        </div>
+
+        <div className="verifyStatus">
+          <span>{verificationStatus.replace("_", " ").toUpperCase()}</span>
+          <strong>{verificationComplete}/4</strong>
+        </div>
+
+        <Link href="/driver-verification" className="verifyButton">
+          {verificationStatus === "approved" ? "View Verification" : "Verify Driver"}
+        </Link>
       </section>
 
       <section className="detailsCard">
@@ -464,6 +525,7 @@ export default function ProfilePage() {
           icon="📅"
         />
         <Info label="Verification" value={profile.emailVerified ? "Email Verified" : "Pending"} icon="🛡️" />
+        <Info label="Driver Verification" value={verificationStatus.replace("_", " ")} icon="🚘" />
       </section>
 
       <section className="safetyCard">
@@ -489,7 +551,9 @@ export default function ProfilePage() {
         <div className="badges">
           <span className={profile.emailVerified ? "goodBadge" : ""}>✓ Email Verified</span>
           <span className={profile.phoneVerified ? "goodBadge" : ""}>Phone Pending</span>
-          <span className={profile.driverVerified ? "goodBadge" : ""}>Driver Check Pending</span>
+          <span className={driverVerified ? "goodBadge" : ""}>
+            {driverVerified ? "✓ Driver Verified" : "Driver Check Pending"}
+          </span>
           <span>Payment Pending</span>
         </div>
       </section>
@@ -502,6 +566,7 @@ export default function ProfilePage() {
           <Link href="/dashboard">📊 Dashboard</Link>
           <Link href="/find-ride">🔎 Find a Ride</Link>
           <Link href="/offer-ride">➕ Offer a Ride</Link>
+          <Link href="/driver-verification">🛡️ Verify Driver</Link>
           <Link href="/my-bookings">📋 My Bookings</Link>
           <Link href="/my-rides">🚘 My Rides</Link>
           <Link href="/dashboard/driver">🚗 Driver Dashboard</Link>
@@ -531,6 +596,7 @@ export default function ProfilePage() {
         .detailsCard,
         .actionsCard,
         .safetyCard,
+        .verifyCard,
         .signOutButton {
           max-width: 960px;
           margin-left: auto;
@@ -541,7 +607,8 @@ export default function ProfilePage() {
         .metric,
         .detailsCard,
         .actionsCard,
-        .safetyCard {
+        .safetyCard,
+        .verifyCard {
           background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -641,7 +708,8 @@ export default function ProfilePage() {
 
         .verifiedBadge,
         .roleBadge,
-        .trustBadge {
+        .trustBadge,
+        .driverBadge {
           display: inline-flex;
           padding: 10px 14px;
           border-radius: 999px;
@@ -649,10 +717,17 @@ export default function ProfilePage() {
         }
 
         .verifiedBadge,
-        .trustBadge {
+        .trustBadge,
+        .driverBadge.approved {
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
+        }
+
+        .driverBadge {
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
+          color: #fca5a5;
         }
 
         .roleBadge {
@@ -703,6 +778,59 @@ export default function ProfilePage() {
         .metricValue {
           color: #22c55e;
           font-size: 28px;
+          font-weight: 900;
+        }
+
+        .verifyCard {
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 24px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 18px;
+          align-items: center;
+        }
+
+        .verifyCard p {
+          color: #a1a1aa;
+          line-height: 1.5;
+          margin-bottom: 0;
+        }
+
+        .verifyStatus {
+          min-width: 110px;
+          height: 110px;
+          border-radius: 50%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          text-align: center;
+          font-weight: 900;
+        }
+
+        .verifyStatus span {
+          font-size: 10px;
+          margin-bottom: 6px;
+        }
+
+        .verifyStatus strong {
+          font-size: 24px;
+        }
+
+        .verifyButton {
+          grid-column: 1 / -1;
+          width: 100%;
+          display: block;
+          padding: 17px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          text-decoration: none;
+          text-align: center;
           font-weight: 900;
         }
 
@@ -878,6 +1006,7 @@ export default function ProfilePage() {
           font-weight: 800;
           text-align: right;
           overflow-wrap: anywhere;
+          text-transform: capitalize;
         }
 
         .trustText {
@@ -977,7 +1106,8 @@ export default function ProfilePage() {
           .hero,
           .detailsCard,
           .actionsCard,
-          .safetyCard {
+          .safetyCard,
+          .verifyCard {
             padding: 24px;
             border-radius: 28px;
           }
@@ -1001,8 +1131,13 @@ export default function ProfilePage() {
           .stats,
           .actions,
           .editGrid,
-          .twoGrid {
+          .twoGrid,
+          .verifyCard {
             grid-template-columns: 1fr;
+          }
+
+          .verifyStatus {
+            width: 110px;
           }
 
           .infoRow {
@@ -1053,4 +1188,4 @@ function Info({
       <div className="infoValue">{value}</div>
     </div>
   );
-      }
+}
