@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
 type VerificationStatus = "not_submitted" | "pending" | "approved" | "rejected";
@@ -47,10 +54,12 @@ export default function AdminVerificationsPage() {
         );
 
         setVerifications(data);
+
         setSelected((current) => {
           if (!current) return data[0] || null;
           return data.find((item) => item.id === current.id) || data[0] || null;
         });
+
         setMessage("");
       },
       (error) => {
@@ -77,31 +86,26 @@ export default function AdminVerificationsPage() {
   );
 
   async function approveDriver(item: DriverVerification) {
+    const verificationDocId = item.id;
     const userId = item.userId || item.id;
 
-    if (!userId) {
-      setMessage("Missing user ID.");
+    if (!verificationDocId || !userId) {
+      setMessage("Missing verification ID or user ID.");
       return;
     }
 
     try {
       setLoadingId(item.id);
-      setMessage("");
+      setMessage("Approving driver...");
 
       const now = new Date().toISOString();
 
-      await setDoc(
-        doc(db, "driverVerifications", userId),
-        {
-          ...item,
-          userId,
-          status: "approved",
-          reviewedAt: now,
-          updatedAt: now,
-          rejectionReason: "",
-        },
-        { merge: true }
-      );
+      await updateDoc(doc(db, "driverVerifications", verificationDocId), {
+        status: "approved",
+        reviewedAt: now,
+        updatedAt: now,
+        rejectionReason: "",
+      });
 
       await setDoc(
         doc(db, "users", userId),
@@ -115,6 +119,18 @@ export default function AdminVerificationsPage() {
         { merge: true }
       );
 
+      setSelected((current) =>
+        current?.id === item.id
+          ? {
+              ...current,
+              status: "approved",
+              reviewedAt: now,
+              updatedAt: now,
+              rejectionReason: "",
+            }
+          : current
+      );
+
       setMessage("Driver approved successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -124,31 +140,27 @@ export default function AdminVerificationsPage() {
   }
 
   async function rejectDriver(item: DriverVerification) {
+    const verificationDocId = item.id;
     const userId = item.userId || item.id;
 
-    if (!userId) {
-      setMessage("Missing user ID.");
+    if (!verificationDocId || !userId) {
+      setMessage("Missing verification ID or user ID.");
       return;
     }
 
     try {
       setLoadingId(item.id);
-      setMessage("");
+      setMessage("Rejecting driver...");
 
       const now = new Date().toISOString();
+      const finalReason = rejectReason.trim() || "Documents need review.";
 
-      await setDoc(
-        doc(db, "driverVerifications", userId),
-        {
-          ...item,
-          userId,
-          status: "rejected",
-          reviewedAt: now,
-          updatedAt: now,
-          rejectionReason: rejectReason.trim() || "Documents need review.",
-        },
-        { merge: true }
-      );
+      await updateDoc(doc(db, "driverVerifications", verificationDocId), {
+        status: "rejected",
+        reviewedAt: now,
+        updatedAt: now,
+        rejectionReason: finalReason,
+      });
 
       await setDoc(
         doc(db, "users", userId),
@@ -160,6 +172,18 @@ export default function AdminVerificationsPage() {
           updatedAt: now,
         },
         { merge: true }
+      );
+
+      setSelected((current) =>
+        current?.id === item.id
+          ? {
+              ...current,
+              status: "rejected",
+              reviewedAt: now,
+              updatedAt: now,
+              rejectionReason: finalReason,
+            }
+          : current
       );
 
       setRejectReason("");
@@ -192,19 +216,30 @@ export default function AdminVerificationsPage() {
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
-          <Link href="/driver-verification" className="miniButton">Driver Verification</Link>
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
+
+          <Link href="/profile" className="miniButton">
+            Profile
+          </Link>
+
+          <Link href="/driver-verification" className="miniButton">
+            Driver Verification
+          </Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Admin</p>
+
             <h1>
               Verification <span>Dashboard</span>
             </h1>
+
             <p className="subtitle">
-              Review driver documents, approve verified drivers, and reject incomplete applications.
+              Review driver documents, approve verified drivers, and reject
+              incomplete applications.
             </p>
           </div>
 
@@ -799,4 +834,4 @@ function DocumentLink({
       <em>View</em>
     </a>
   );
-      }
+}
