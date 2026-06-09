@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   query,
   setDoc,
@@ -113,19 +114,45 @@ export default function ProfilePage() {
 
       const userRef = doc(db, "users", user.uid);
 
-      await setDoc(
-        userRef,
-        {
-          name: fallbackName,
-          email: userEmail,
-          role: "member",
-          createdAt: new Date().toISOString(),
-          photoURL: fallbackPhoto,
-          emailVerified: Boolean(user.emailVerified),
-          provider: "email",
-        },
-        { merge: true }
-      );
+      try {
+        const existingUser = await getDoc(userRef);
+
+        if (!existingUser.exists()) {
+          await setDoc(
+            userRef,
+            {
+              name: fallbackName,
+              email: userEmail,
+              role: "member",
+              createdAt: new Date().toISOString(),
+              photoURL: fallbackPhoto,
+              bio: "",
+              city: "",
+              state: "",
+              emailVerified: Boolean(user.emailVerified),
+              provider: "email",
+              verified: false,
+              phoneVerified: false,
+              driverVerified: false,
+              licenseVerified: false,
+              verificationStatus: "not_submitted",
+            },
+            { merge: true }
+          );
+        } else {
+          await setDoc(
+            userRef,
+            {
+              email: userEmail,
+              emailVerified: Boolean(user.emailVerified),
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (error: unknown) {
+        setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      }
 
       unsubscribeProfile = onSnapshot(
         userRef,
@@ -325,7 +352,6 @@ export default function ProfilePage() {
       await setDoc(
         doc(db, "users", userId),
         {
-          ...profile,
           name: nameInput.trim() || "RoadLink User",
           bio: bioInput.trim(),
           city: cityInput.trim(),
@@ -1201,4 +1227,4 @@ function Info({
       <div className="infoValue">{value}</div>
     </div>
   );
-}
+      }
