@@ -1,28 +1,27 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import BottomNavigation from "./components/BottomNavigation";
 
 export const metadata: Metadata = {
-  title: "RoadLink - Long Distance Ride Sharing",
+  title: "RoadLink",
   description:
-    "RoadLink helps drivers and passengers connect for safe, affordable long distance rides across the United States.",
-  keywords: [
-    "RoadLink",
-    "ride sharing",
-    "long distance rides",
-    "drivers",
-    "passengers",
-    "road trips",
-    "travel",
-  ],
-  authors: [{ name: "RoadLink" }],
-  openGraph: {
-    title: "RoadLink - Long Distance Ride Sharing",
-    description:
-      "Find drivers and passengers for safe, affordable long distance rides.",
-    url: "https://www.getroadlink.com",
-    siteName: "RoadLink",
-    type: "website",
+    "RoadLink helps drivers and passengers connect for safe, affordable long distance rides.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "RoadLink",
+    statusBarStyle: "black-translucent",
   },
+  icons: {
+    icon: "/roadlink-logo.png",
+    apple: "/roadlink-logo.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#22c55e",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
