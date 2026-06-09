@@ -28,6 +28,7 @@ type UserProfile = {
   verified?: boolean;
   phoneVerified?: boolean;
   driverVerified?: boolean;
+  licenseVerified?: boolean;
   verificationStatus?: string;
 };
 
@@ -54,11 +55,13 @@ type Rating = {
   id: string;
   driverId?: string;
   rating?: number;
+  stars?: number;
   comment?: string;
 };
 
 export default function ProfilePage() {
   const [userId, setUserId] = useState("");
+
   const [profile, setProfile] = useState<UserProfile>({
     name: "RoadLink User",
     email: "",
@@ -127,7 +130,7 @@ export default function ProfilePage() {
       unsubscribeProfile = onSnapshot(
         userRef,
         (snapshot) => {
-          const data = snapshot.data() as UserProfile;
+          const data = snapshot.data() as UserProfile | undefined;
 
           const finalProfile: UserProfile = {
             name: data?.name || fallbackName,
@@ -138,11 +141,12 @@ export default function ProfilePage() {
             bio: data?.bio || "",
             city: data?.city || "",
             state: data?.state || "",
-            emailVerified: Boolean(user.emailVerified),
+            emailVerified: Boolean(user.emailVerified || data?.emailVerified),
             provider: data?.provider || "email",
             verified: Boolean(data?.verified),
             phoneVerified: Boolean(data?.phoneVerified),
             driverVerified: Boolean(data?.driverVerified),
+            licenseVerified: Boolean(data?.licenseVerified),
             verificationStatus: data?.verificationStatus || "not_submitted",
           };
 
@@ -232,15 +236,22 @@ export default function ProfilePage() {
     if (!ratings.length) return 0;
 
     return (
-      ratings.reduce((total, item) => total + Number(item.rating || 0), 0) /
-      ratings.length
+      ratings.reduce(
+        (total, item) => total + Number(item.rating || item.stars || 0),
+        0
+      ) / ratings.length
     );
   }, [ratings]);
 
   const ratingDisplay = ratings.length ? averageRating.toFixed(1) : "New";
 
   const verificationStatus =
-    verification.status || profile.verificationStatus || "not_submitted";
+    profile.driverVerified === true ||
+    profile.verified === true ||
+    profile.verificationStatus === "approved" ||
+    verification.status === "approved"
+      ? "approved"
+      : verification.status || profile.verificationStatus || "not_submitted";
 
   const verificationComplete = [
     verification.governmentIdURL,
@@ -250,7 +261,9 @@ export default function ProfilePage() {
   ].filter(Boolean).length;
 
   const driverVerified =
-    verificationStatus === "approved" || Boolean(profile.driverVerified);
+    verificationStatus === "approved" ||
+    profile.driverVerified === true ||
+    profile.verified === true;
 
   const trustScore = Math.min(
     100,
