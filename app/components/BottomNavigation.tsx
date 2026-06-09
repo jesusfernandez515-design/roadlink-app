@@ -92,12 +92,18 @@ export default function BottomNavigation() {
       });
 
       unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-        setUnreadNotifications(snapshot.size);
+        const unreadNonMessageNotifications = snapshot.docs.filter((document) => {
+          const data = document.data();
+          return data.type !== "message";
+        });
+
+        setUnreadNotifications(unreadNonMessageNotifications.length);
       });
     });
 
     return () => {
       unsubscribeAuth();
+
       if (unsubscribeDriverChats) unsubscribeDriverChats();
       if (unsubscribePassengerChats) unsubscribePassengerChats();
       if (unsubscribeNotifications) unsubscribeNotifications();
