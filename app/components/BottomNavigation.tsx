@@ -74,10 +74,6 @@ export default function BottomNavigation() {
           font-weight: 900;
         }
 
-        .navItem * {
-          text-decoration: none !important;
-        }
-
         .navIcon {
           font-size: 20px;
           line-height: 1;
@@ -92,6 +88,14 @@ export default function BottomNavigation() {
           background: rgba(34, 197, 94, 0.14);
           border: 1px solid rgba(34, 197, 94, 0.34);
           box-shadow: 0 0 24px rgba(34, 197, 94, 0.14);
+        }
+
+        @media (max-width: 899px) {
+          .topNav,
+          .topActions,
+          .topBar {
+            display: none !important;
+          }
         }
 
         @media (min-width: 900px) {
