@@ -4,7 +4,21 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
+
+type UserProfile = {
+  name?: string;
+  email?: string;
+  photoURL?: string;
+};
 
 type Ride = {
   id: string;
@@ -13,22 +27,17 @@ type Ride = {
   date?: string;
   time?: string;
   price?: number;
-  seats?: number;
   status?: string;
-  driverId?: string;
-  driverEmail?: string;
   createdAt?: string;
 };
 
 type Booking = {
   id: string;
-  rideId?: string;
   from?: string;
   to?: string;
   date?: string;
   time?: string;
   price?: number;
-  driverId?: string;
   driverEmail?: string;
   passengerId?: string;
   passengerEmail?: string;
@@ -43,9 +52,6 @@ type Chat = {
   driverId?: string;
   passengerId?: string;
   unreadCount?: number;
-  lastMessage?: string;
-  lastMessageTime?: string;
-  lastSenderId?: string;
 };
 
 type NotificationItem = {
@@ -59,10 +65,8 @@ type NotificationItem = {
 };
 
 export default function DashboardPage() {
-  const [userId, setUserId] = useState("");
-  const [userEmail, setUserEmail] = useState("");
+  const [profile, setProfile] = useState<UserProfile>({});
   const [avatar, setAvatar] = useState("R");
-
   const [rides, setRides] = useState<Ride[]>([]);
   const [passengerBookings, setPassengerBookings] = useState<Booking[]>([]);
   const [driverBookings, setDriverBookings] = useState<Booking[]>([]);
@@ -72,6 +76,7 @@ export default function DashboardPage() {
   const [message, setMessage] = useState("Loading dashboard...");
 
   useEffect(() => {
+    let unsubscribeProfile: (() => void) | undefined;
     let unsubscribeRides: (() => void) | undefined;
     let unsubscribePassengerBookings: (() => void) | undefined;
     let unsubscribeDriverBookings: (() => void) | undefined;
@@ -79,31 +84,69 @@ export default function DashboardPage() {
     let unsubscribePassengerChats: (() => void) | undefined;
     let unsubscribeNotifications: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setUserId("");
-        setUserEmail("");
+        setProfile({});
         setAvatar("R");
         setMessage("Please sign in to view your dashboard.");
         return;
       }
 
-      setUserId(user.uid);
-      setUserEmail(user.email || "");
-      setAvatar((user.email || "R").charAt(0).toUpperCase());
+      const userEmail = user.email || "";
+      const fallbackName = user.displayName || "RoadLink User";
+      const fallbackPhoto = user.photoURL || "";
+
+      setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
       setMessage("");
 
-      const ridesQuery = query(
-        collection(db, "rides"),
-        where("driverId", "==", user.uid)
-      );
+      const userRef = doc(db, "users", user.uid);
+
+      try {
+        const existingUser = await getDoc(userRef);
+
+        if (!existingUser.exists()) {
+          await setDoc(
+            userRef,
+            {
+              name: fallbackName,
+              email: userEmail,
+              photoURL: fallbackPhoto,
+              role: "member",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        } else {
+          await setDoc(
+            userRef,
+            {
+              email: userEmail,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (error: unknown) {
+        setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      }
+
+      unsubscribeProfile = onSnapshot(userRef, (snapshot) => {
+        const data = snapshot.data() as UserProfile | undefined;
+
+        setProfile({
+          name: data?.name || fallbackName,
+          email: data?.email || userEmail,
+          photoURL: data?.photoURL || fallbackPhoto,
+        });
+      });
 
       unsubscribeRides = onSnapshot(
-        ridesQuery,
+        query(collection(db, "rides"), where("driverId", "==", user.uid)),
         (snapshot) => {
           const data = snapshot.docs.map((document) => ({
-            ...document.data(),
             id: document.id,
+            ...document.data(),
           })) as Ride[];
 
           data.sort((a, b) =>
@@ -115,17 +158,12 @@ export default function DashboardPage() {
         (error) => setMessage(error.message)
       );
 
-      const passengerBookingsQuery = query(
-        collection(db, "bookings"),
-        where("passengerId", "==", user.uid)
-      );
-
       unsubscribePassengerBookings = onSnapshot(
-        passengerBookingsQuery,
+        query(collection(db, "bookings"), where("passengerId", "==", user.uid)),
         (snapshot) => {
           const data = snapshot.docs.map((document) => ({
-            ...document.data(),
             id: document.id,
+            ...document.data(),
           })) as Booking[];
 
           data.sort((a, b) =>
@@ -137,17 +175,12 @@ export default function DashboardPage() {
         (error) => setMessage(error.message)
       );
 
-      const driverBookingsQuery = query(
-        collection(db, "bookings"),
-        where("driverId", "==", user.uid)
-      );
-
       unsubscribeDriverBookings = onSnapshot(
-        driverBookingsQuery,
+        query(collection(db, "bookings"), where("driverId", "==", user.uid)),
         (snapshot) => {
           const data = snapshot.docs.map((document) => ({
-            ...document.data(),
             id: document.id,
+            ...document.data(),
           })) as Booking[];
 
           data.sort((a, b) =>
@@ -159,59 +192,41 @@ export default function DashboardPage() {
         (error) => setMessage(error.message)
       );
 
-      const driverChatsQuery = query(
-        collection(db, "chats"),
-        where("driverId", "==", user.uid)
-      );
-
       unsubscribeDriverChats = onSnapshot(
-        driverChatsQuery,
+        query(collection(db, "chats"), where("driverId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            ...document.data(),
-            id: document.id,
-          })) as Chat[];
-
-          setDriverChats(data);
+          setDriverChats(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Chat[]
+          );
         },
         (error) => setMessage(error.message)
-      );
-
-      const passengerChatsQuery = query(
-        collection(db, "chats"),
-        where("passengerId", "==", user.uid)
       );
 
       unsubscribePassengerChats = onSnapshot(
-        passengerChatsQuery,
+        query(collection(db, "chats"), where("passengerId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            ...document.data(),
-            id: document.id,
-          })) as Chat[];
-
-          setPassengerChats(data);
+          setPassengerChats(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Chat[]
+          );
         },
         (error) => setMessage(error.message)
       );
 
-      const notificationsQuery = query(
-        collection(db, "notifications"),
-        where("userId", "==", user.uid)
-      );
-
       unsubscribeNotifications = onSnapshot(
-        notificationsQuery,
+        query(collection(db, "notifications"), where("userId", "==", user.uid)),
         (snapshot) => {
           const data = snapshot.docs.map((document) => ({
-            ...document.data(),
             id: document.id,
+            ...document.data(),
           })) as NotificationItem[];
 
-          data.sort((a, b) =>
-            getNotificationTime(b.createdAt) - getNotificationTime(a.createdAt)
-          );
-
+          data.sort((a, b) => getTime(b.createdAt) - getTime(a.createdAt));
           setNotifications(data);
         },
         (error) => setMessage(error.message)
@@ -220,6 +235,7 @@ export default function DashboardPage() {
 
     return () => {
       unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeRides) unsubscribeRides();
       if (unsubscribePassengerBookings) unsubscribePassengerBookings();
       if (unsubscribeDriverBookings) unsubscribeDriverBookings();
@@ -229,7 +245,7 @@ export default function DashboardPage() {
     };
   }, []);
 
-  function getNotificationTime(value?: any) {
+  function getTime(value?: any) {
     try {
       const date = value?.toDate ? value.toDate() : new Date(value || "");
       return Number.isNaN(date.getTime()) ? 0 : date.getTime();
@@ -238,12 +254,11 @@ export default function DashboardPage() {
     }
   }
 
-  function formatActivityTime(value?: any) {
+  function formatTime(value?: any) {
     if (!value) return "Recently";
 
     try {
       const date = value?.toDate ? value.toDate() : new Date(value);
-
       if (Number.isNaN(date.getTime())) return "Recently";
 
       return date.toLocaleString([], {
@@ -302,15 +317,10 @@ export default function DashboardPage() {
     0
   );
 
-  const unreadNotifications = notifications.filter(
-    (notification) => !notification.read
-  ).length;
+  const unreadNotifications = notifications.filter((item) => !item.read).length;
 
   const earnings = driverBookings
-    .filter(
-      (booking) =>
-        booking.status === "reserved" || booking.status === "completed"
-    )
+    .filter((booking) => booking.status === "reserved" || booking.status === "completed")
     .reduce(
       (total, booking) =>
         total + Number(booking.price || 0) * Number(booking.seatsBooked || 1),
@@ -318,61 +328,45 @@ export default function DashboardPage() {
     );
 
   const passengersTransported = driverBookings
-    .filter(
-      (booking) =>
-        booking.status === "reserved" || booking.status === "completed"
-    )
+    .filter((booking) => booking.status === "reserved" || booking.status === "completed")
     .reduce((total, booking) => total + Number(booking.seatsBooked || 1), 0);
 
   const upcomingTrip = activePassengerBookings[0];
-  const recentActivity = notifications.slice(0, 5);
+  const recentActivity = notifications.slice(0, 3);
 
-  const greetingName =
-    userEmail?.split("@")[0]?.replace(/[._-]/g, " ") || "RoadLink User";
+  const displayName = profile.name || "RoadLink User";
+  const displayEmail = profile.email || "No email found";
+  const displayPhoto = profile.photoURL || "";
 
   return (
     <main className="page">
       <section className="dashboard">
-        <nav className="topNav">
-          <Link href="/" className="miniButton">Home</Link>
-          <Link href="/find-ride" className="miniButton">Find Ride</Link>
-          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-
-          <Link href="/messages" className={unreadMessages > 0 ? "miniButton alertNav" : "miniButton"}>
-            Messages {unreadMessages > 0 && <span className="navBadge">{unreadMessages}</span>}
-          </Link>
-
-          <Link href="/notifications" className={unreadNotifications > 0 ? "miniButton alertNav" : "miniButton"}>
-            Notifications {unreadNotifications > 0 && <span className="navBadge">{unreadNotifications}</span>}
-          </Link>
-
-          <Link href="/profile" className="miniButton">Profile</Link>
-        </nav>
-
         <section className="heroCard">
-          <div>
-            <p className="eyebrow">RoadLink Executive Dashboard</p>
-            <h1>
-              Welcome back, <span>{greetingName}.</span>
-            </h1>
-            <p className="subtitle">
-              Your premium command center for rides, bookings, messages,
-              notifications, earnings, and passenger activity.
-            </p>
+          <div className="heroTop">
+            {displayPhoto ? (
+              <img src={displayPhoto} alt={displayName} className="avatarImage" />
+            ) : (
+              <div className="avatar">{avatar}</div>
+            )}
 
-            <div className="heroActions">
-              <Link href="/offer-ride" className="heroPrimary">➕ Offer Ride</Link>
-              <Link href="/find-ride" className="heroSecondary">🔎 Find Ride</Link>
+            <div className="heroText">
+              <p className="eyebrow">RoadLink Dashboard</p>
+              <h1>Welcome back, {displayName}</h1>
+              <p className="email">{displayEmail}</p>
             </div>
           </div>
 
-          <div className="profileOrb">
-            <div className="avatar">{avatar}</div>
-            {(unreadMessages > 0 || unreadNotifications > 0) && (
-              <div className="orbBadge">
-                {unreadMessages + unreadNotifications}
-              </div>
-            )}
+          <p className="subtitle">
+            Manage your rides, bookings, messages, notifications and earnings.
+          </p>
+
+          <div className="heroActions">
+            <Link href="/offer-ride" className="heroPrimary">
+              ➕ Offer Ride
+            </Link>
+            <Link href="/find-ride" className="heroSecondary">
+              🔎 Find Ride
+            </Link>
           </div>
         </section>
 
@@ -381,7 +375,7 @@ export default function DashboardPage() {
         <section className="stats">
           <Metric icon="🚘" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
           <Metric icon="🎟️" title="Reservations" value={String(activeDriverBookings.length)} href="/ride-passengers" />
-          <Metric icon="💬" title="Unread Messages" value={String(unreadMessages)} href="/messages" alert={unreadMessages > 0} />
+          <Metric icon="💬" title="Messages" value={String(unreadMessages)} href="/messages" alert={unreadMessages > 0} />
           <Metric icon="🔔" title="Notifications" value={String(unreadNotifications)} href="/notifications" alert={unreadNotifications > 0} />
           <Metric icon="✅" title="Completed Trips" value={String(completedRides.length)} href="/my-rides" />
           <Metric icon="👥" title="Passengers" value={String(passengersTransported)} href="/my-rides" />
@@ -389,121 +383,91 @@ export default function DashboardPage() {
           <Metric icon="💵" title="Earnings" value={`$${earnings}`} href="/dashboard/driver" />
         </section>
 
-        <section className="premiumGrid">
-          <div className="tripCard">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Next Reservation</p>
-                <h2>Upcoming Trip</h2>
-              </div>
-
-              <div className="statusPill">Live</div>
+        <section className="sectionCard">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Next Reservation</p>
+              <h2>Upcoming Trip</h2>
             </div>
 
-            {upcomingTrip ? (
-              <div className="tripContent">
-                <div className="route">
-                  <div className="routeLine">
-                    <div className="dot" />
-                    <div className="line" />
-                    <div className="dot" />
-                  </div>
-
-                  <div>
-                    <span>FROM</span>
-                    <h3>{upcomingTrip.from || "Starting point"}</h3>
-
-                    <span>TO</span>
-                    <h3>{upcomingTrip.to || "Destination"}</h3>
-                  </div>
-                </div>
-
-                <div className="chips">
-                  <div className="chip">📅 {upcomingTrip.date || "Date"}</div>
-                  <div className="chip">🕒 {upcomingTrip.time || "Time"}</div>
-                  <div className="chip green">${upcomingTrip.price || 0}</div>
-                </div>
-
-                <p className="driver">
-                  Driver: {upcomingTrip.driverEmail || "RoadLink Driver"}
-                </p>
-
-                <Link className="mainButton" href="/my-bookings">
-                  View Booking
-                </Link>
-              </div>
-            ) : (
-              <div className="emptyTrip">
-                <h3>No upcoming trips yet.</h3>
-                <p>
-                  Reserve your next ride and your trip summary will appear here.
-                </p>
-                <Link className="mainButton" href="/find-ride">
-                  Find a Ride
-                </Link>
-              </div>
-            )}
+            <span className="statusPill">Live</span>
           </div>
 
-          <div className="activityCard">
-            <div className="sectionHeader">
-              <div>
-                <p className="eyebrow">Recent Activity</p>
-                <h2>Live Feed</h2>
-              </div>
-
-              <Link href="/notifications" className="smallLink">
-                View All
+          {upcomingTrip ? (
+            <div className="tripBox">
+              <strong>
+                {upcomingTrip.from || "Origin"} → {upcomingTrip.to || "Destination"}
+              </strong>
+              <p>
+                {upcomingTrip.date || "Date pending"} • {upcomingTrip.time || "Time pending"}
+              </p>
+              <p>{upcomingTrip.driverEmail || "RoadLink Driver"}</p>
+              <Link href="/my-bookings" className="mainButton">
+                View Booking
               </Link>
             </div>
-
-            {recentActivity.length === 0 ? (
-              <div className="emptyActivity">
-                <div className="emptyIcon">🔕</div>
-                <h3>No activity yet</h3>
-                <p>Your messages, bookings and ride alerts will show here.</p>
-              </div>
-            ) : (
-              <div className="activityList">
-                {recentActivity.map((item) => (
-                  <Link
-                    key={item.id}
-                    href={item.actionUrl || "/notifications"}
-                    className={item.read ? "activityItem" : "activityItem unreadActivity"}
-                  >
-                    <div className="activityIcon">{getActivityIcon(item.type)}</div>
-
-                    <div>
-                      <strong>{item.title || "RoadLink Update"}</strong>
-                      <p>{item.message || "New activity available."}</p>
-                      <span>{formatActivityTime(item.createdAt)}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+          ) : (
+            <div className="tripBox">
+              <strong>No upcoming trips yet.</strong>
+              <p>Reserve your next ride and your trip summary will appear here.</p>
+              <Link href="/find-ride" className="mainButton">
+                Find a Ride
+              </Link>
+            </div>
+          )}
         </section>
 
-        <section className="actionsCard">
+        <section className="sectionCard">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Recent Activity</p>
+              <h2>Live Feed</h2>
+            </div>
+
+            <Link href="/notifications" className="smallLink">
+              View All
+            </Link>
+          </div>
+
+          {recentActivity.length === 0 ? (
+            <div className="emptyBox">
+              <strong>No activity yet</strong>
+              <p>Your messages, bookings and ride alerts will show here.</p>
+            </div>
+          ) : (
+            <div className="activityList">
+              {recentActivity.map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.actionUrl || "/notifications"}
+                  className={item.read ? "activityItem" : "activityItem unread"}
+                >
+                  <div className="activityIcon">{getActivityIcon(item.type)}</div>
+
+                  <div>
+                    <strong>{item.title || "RoadLink Update"}</strong>
+                    <p>{item.message || "New activity available."}</p>
+                    <span>{formatTime(item.createdAt)}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="sectionCard">
           <p className="eyebrow">Quick Actions</p>
-          <h2>Premium Control Center</h2>
+          <h2>Control Center</h2>
 
           <div className="actions">
-            <Link href="/notifications" className={unreadNotifications > 0 ? "alertAction" : ""}>
-              🔔 Notifications {unreadNotifications > 0 ? `(${unreadNotifications} new)` : ""}
-            </Link>
-
-            <Link href="/messages" className={unreadMessages > 0 ? "alertAction" : ""}>
-              💬 Messages {unreadMessages > 0 ? `(${unreadMessages} new)` : chats.length > 0 ? `(${chats.length})` : ""}
-            </Link>
-
-            <Link href="/find-ride">🔎 Find a Ride</Link>
-            <Link href="/offer-ride">➕ Offer a Ride</Link>
-            <Link href="/my-bookings">📋 My Bookings</Link>
-            <Link href="/my-rides">🚘 My Rides</Link>
-            <Link href="/dashboard/driver">📊 Driver Dashboard</Link>
-            <Link href="/profile">👤 Profile</Link>
+            <ActionLink href="/notifications" icon="🔔" label="Notifications" alert={unreadNotifications > 0} />
+            <ActionLink href="/messages" icon="💬" label="Messages" alert={unreadMessages > 0} />
+            <ActionLink href="/find-ride" icon="🔎" label="Find a Ride" />
+            <ActionLink href="/offer-ride" icon="➕" label="Offer a Ride" />
+            <ActionLink href="/my-bookings" icon="📋" label="My Bookings" />
+            <ActionLink href="/my-rides" icon="🚘" label="My Rides" />
+            <ActionLink href="/dashboard/driver" icon="📊" label="Driver Dashboard" />
+            <ActionLink href="/profile" icon="👤" label="Profile" />
           </div>
         </section>
       </section>
@@ -516,249 +480,191 @@ export default function DashboardPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 32%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.14), transparent 35%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 24px;
+          padding: 16px;
+          padding-bottom: 110px;
           font-family: Arial, sans-serif;
         }
 
         .dashboard {
           width: 100%;
-          max-width: 1180px;
+          max-width: 860px;
           margin: 0 auto;
         }
 
-        .topNav {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 24px;
-        }
-
-        .miniButton {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 11px 18px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          text-decoration: none;
-          font-weight: 900;
-        }
-
-        .miniButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
-        .alertNav {
-          border-color: rgba(239,68,68,0.45);
-          background: rgba(239,68,68,0.12);
-        }
-
-        .navBadge,
-        .orbBadge {
-          min-width: 24px;
-          height: 24px;
-          padding: 0 8px;
-          border-radius: 999px;
-          background: #ef4444;
-          color: white;
-          font-size: 12px;
-          font-weight: 900;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 0 18px rgba(239,68,68,0.75);
-        }
-
         .heroCard,
-        .tripCard,
-        .activityCard,
-        .actionsCard,
-        .metric {
-          background: rgba(8, 13, 25, 0.9);
+        .metric,
+        .sectionCard,
+        .tripBox,
+        .activityItem,
+        .actionButton,
+        .emptyBox {
+          background: rgba(8, 13, 25, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          box-shadow: 0 18px 60px rgba(0,0,0,0.45);
           backdrop-filter: blur(16px);
         }
 
         .heroCard {
-          border-radius: 34px;
-          padding: 36px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 24px;
-          margin-bottom: 24px;
+          border-radius: 28px;
+          padding: 22px;
+          margin-bottom: 14px;
           overflow: hidden;
-          position: relative;
         }
 
-        .heroCard::after {
-          content: "";
-          position: absolute;
-          inset: auto -80px -120px auto;
-          width: 260px;
-          height: 260px;
+        .heroTop {
+          display: grid;
+          grid-template-columns: 74px 1fr;
+          gap: 14px;
+          align-items: center;
+        }
+
+        .avatar,
+        .avatarImage {
+          width: 74px;
+          height: 74px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          filter: blur(4px);
+          border: 2px solid rgba(34,197,94,0.55);
+          box-shadow: 0 12px 40px rgba(34,197,94,0.25);
+        }
+
+        .avatar {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 34px;
+          font-weight: 900;
+        }
+
+        .avatarImage {
+          object-fit: cover;
+        }
+
+        .heroText {
+          min-width: 0;
         }
 
         .eyebrow {
-          margin: 0 0 10px;
+          margin: 0 0 7px;
           color: #22c55e;
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 900;
-          letter-spacing: 0.08em;
+          letter-spacing: 0.09em;
           text-transform: uppercase;
         }
 
         h1 {
-          font-size: 58px;
-          line-height: 1;
-          margin: 0 0 16px;
-          letter-spacing: -1px;
-          max-width: 760px;
+          font-size: 28px;
+          line-height: 1.05;
+          margin: 0 0 7px;
+          letter-spacing: -0.8px;
+          overflow-wrap: anywhere;
         }
 
-        h1 span {
+        h2 {
           color: #22c55e;
-          text-transform: capitalize;
-        }
-
-        .subtitle {
-          max-width: 720px;
-          color: #a1a1aa;
-          font-size: 20px;
-          line-height: 1.5;
+          font-size: 24px;
           margin: 0;
         }
 
+        .email {
+          color: #a1a1aa;
+          font-size: 13px;
+          margin: 0;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .subtitle {
+          color: #a1a1aa;
+          font-size: 14px;
+          line-height: 1.45;
+          margin: 16px 0 0;
+        }
+
         .heroActions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-top: 26px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 18px;
         }
 
         .heroPrimary,
-        .heroSecondary {
-          padding: 16px 22px;
+        .heroSecondary,
+        .mainButton {
+          padding: 13px 10px;
           border-radius: 999px;
-          font-weight: 900;
+          text-align: center;
           text-decoration: none;
+          color: white;
+          font-size: 13px;
+          font-weight: 900;
         }
 
-        .heroPrimary {
-          color: white;
+        .heroPrimary,
+        .mainButton {
           background: linear-gradient(135deg, #22c55e, #16a34a);
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
         .heroSecondary {
-          color: white;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
-        .profileOrb {
-          position: relative;
-          z-index: 1;
-        }
-
-        .avatar {
-          min-width: 96px;
-          height: 96px;
-          border-radius: 50%;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 42px;
-          font-weight: 900;
-          box-shadow: 0 18px 55px rgba(34,197,94,0.35);
-        }
-
-        .orbBadge {
-          position: absolute;
-          top: -5px;
-          right: -5px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.14);
         }
 
         .message {
-          text-align: center;
           color: #22c55e;
           font-weight: 900;
-          margin: 24px 0;
+          margin: 0 0 14px;
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 16px;
-          margin-bottom: 24px;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          margin-bottom: 14px;
         }
 
         .metric {
+          position: relative;
           display: block;
-          border-radius: 24px;
-          padding: 22px;
-          transition: all 0.25s ease;
+          border-radius: 20px;
+          padding: 14px;
+          min-height: 102px;
           text-decoration: none;
           color: white;
-          position: relative;
         }
 
         .metric.alertMetric {
-          border-color: rgba(239,68,68,0.45);
-          background: rgba(239,68,68,0.08);
-        }
-
-        .metric.alertMetric::after {
-          content: "";
-          position: absolute;
-          top: 18px;
-          right: 18px;
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          background: #ef4444;
-          box-shadow: 0 0 18px rgba(239,68,68,0.8);
-        }
-
-        .metric:hover {
-          transform: translateY(-4px);
-          border-color: rgba(34,197,94,0.4);
+          background: rgba(127,29,29,0.28);
+          border-color: rgba(239,68,68,0.3);
         }
 
         .metricIcon {
-          width: 44px;
-          height: 44px;
+          width: 36px;
+          height: 36px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
-          margin-bottom: 16px;
+          margin-bottom: 10px;
         }
 
         .metric h3 {
           color: #a1a1aa;
-          font-size: 14px;
-          margin: 0 0 10px;
+          font-size: 12px;
+          margin: 0 0 6px;
         }
 
         .metric p {
           color: #22c55e;
-          font-size: 32px;
+          font-size: 20px;
           font-weight: 900;
           margin: 0;
         }
@@ -767,31 +673,18 @@ export default function DashboardPage() {
           color: #fca5a5;
         }
 
-        .premiumGrid {
-          display: grid;
-          grid-template-columns: 1.1fr 0.9fr;
-          gap: 24px;
-          margin-bottom: 24px;
-        }
-
-        .tripCard,
-        .activityCard,
-        .actionsCard {
-          border-radius: 30px;
-          padding: 30px;
+        .sectionCard {
+          border-radius: 24px;
+          padding: 20px;
+          margin-bottom: 14px;
         }
 
         .sectionHeader {
           display: flex;
           justify-content: space-between;
-          gap: 16px;
+          gap: 12px;
           align-items: center;
-          margin-bottom: 24px;
-        }
-
-        h2 {
-          font-size: 32px;
-          margin: 0;
+          margin-bottom: 16px;
         }
 
         .statusPill,
@@ -800,126 +693,50 @@ export default function DashboardPage() {
           border: 1px solid rgba(34,197,94,0.35);
           color: #22c55e;
           border-radius: 999px;
-          padding: 10px 16px;
-          font-weight: 900;
-          text-decoration: none;
-        }
-
-        .route {
-          display: grid;
-          grid-template-columns: 32px 1fr;
-          gap: 18px;
-          margin-bottom: 22px;
-        }
-
-        .routeLine {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          height: 130px;
-        }
-
-        .dot {
-          width: 17px;
-          height: 17px;
-          border-radius: 50%;
-          border: 4px solid #22c55e;
-        }
-
-        .line {
-          width: 4px;
-          flex: 1;
-          background: #22c55e;
-        }
-
-        .route span {
-          color: #22c55e;
+          padding: 8px 12px;
           font-size: 12px;
           font-weight: 900;
-        }
-
-        .route h3 {
-          font-size: 28px;
-          margin: 6px 0 22px;
-        }
-
-        .chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin: 18px 0;
-        }
-
-        .chip {
-          padding: 10px 14px;
-          border-radius: 14px;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: #e5e7eb;
-          font-weight: 800;
-        }
-
-        .chip.green {
-          color: #22c55e;
-        }
-
-        .driver,
-        .emptyTrip p,
-        .emptyActivity p {
-          color: #a1a1aa;
-          line-height: 1.5;
-        }
-
-        .mainButton {
-          display: block;
-          width: 100%;
-          margin-top: 18px;
-          padding: 18px;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          font-weight: 900;
-          text-align: center;
           text-decoration: none;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
+          white-space: nowrap;
         }
 
-        .emptyActivity {
-          text-align: center;
-          padding: 34px 12px;
+        .tripBox,
+        .emptyBox {
+          border-radius: 18px;
+          padding: 16px;
         }
 
-        .emptyIcon {
-          width: 70px;
-          height: 70px;
-          margin: 0 auto 16px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 32px;
+        .tripBox {
+          display: grid;
+          gap: 8px;
+        }
+
+        .tripBox p,
+        .emptyBox p,
+        .activityItem p {
+          color: #a1a1aa;
+          font-size: 13px;
+          line-height: 1.4;
+          margin: 0;
         }
 
         .activityList {
           display: grid;
-          gap: 12px;
+          gap: 10px;
         }
 
         .activityItem {
           display: grid;
-          grid-template-columns: auto 1fr;
+          grid-template-columns: 42px 1fr;
           gap: 12px;
-          padding: 14px;
+          align-items: center;
           border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
+          padding: 14px;
           text-decoration: none;
           color: white;
         }
 
-        .unreadActivity {
+        .activityItem.unread {
           background: rgba(34,197,94,0.08);
           border-color: rgba(34,197,94,0.28);
         }
@@ -936,113 +753,85 @@ export default function DashboardPage() {
 
         .activityItem strong {
           display: block;
-          margin-bottom: 5px;
-        }
-
-        .activityItem p {
-          color: #d4d4d8;
-          margin: 0 0 6px;
-          line-height: 1.4;
+          margin-bottom: 4px;
+          overflow-wrap: anywhere;
         }
 
         .activityItem span {
+          display: block;
           color: #22c55e;
           font-size: 12px;
           font-weight: 900;
+          margin-top: 5px;
         }
 
         .actions {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
-          margin-top: 24px;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          margin-top: 16px;
         }
 
-        .actions a {
-          display: block;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.12);
+        .actionButton {
+          min-height: 74px;
           border-radius: 18px;
-          padding: 18px;
+          padding: 14px;
           color: white;
           text-decoration: none;
-          font-weight: 900;
-          transition: all 0.25s ease;
-          text-align: center;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 8px;
         }
 
-        .actions a.alertAction {
-          border-color: rgba(239,68,68,0.45);
-          background: rgba(239,68,68,0.12);
-          color: #fca5a5;
+        .actionButton span {
+          font-size: 22px;
         }
 
-        .actions a:hover {
-          transform: translateY(-3px);
-          border-color: rgba(34,197,94,0.4);
+        .actionButton strong {
+          font-size: 14px;
         }
 
-        @media (max-width: 1000px) {
-          .stats,
-          .actions {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .premiumGrid {
-            grid-template-columns: 1fr;
-          }
+        .actionButton.alert {
+          background: rgba(239,68,68,0.13);
+          border-color: rgba(239,68,68,0.35);
         }
 
-        @media (max-width: 700px) {
+        @media (min-width: 780px) {
           .page {
-            padding: 16px;
+            padding: 24px;
+            padding-bottom: 120px;
           }
 
           .heroCard {
-            flex-direction: column;
-            align-items: flex-start;
-            padding: 28px;
+            padding: 30px;
+          }
+
+          .heroTop {
+            grid-template-columns: 110px 1fr;
+            gap: 20px;
+          }
+
+          .avatar,
+          .avatarImage {
+            width: 110px;
+            height: 110px;
           }
 
           h1 {
             font-size: 44px;
           }
 
-          .subtitle {
-            font-size: 18px;
+          .email {
+            font-size: 16px;
           }
 
-          .avatar {
-            min-width: 82px;
-            height: 82px;
-            font-size: 34px;
+          .stats {
+            grid-template-columns: repeat(4, 1fr);
           }
 
-          .tripCard,
-          .activityCard,
-          .actionsCard {
-            padding: 24px;
-            border-radius: 28px;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .stats,
           .actions {
-            grid-template-columns: 1fr;
-          }
-
-          .metric {
-            padding: 18px;
-          }
-
-          .metric p {
-            font-size: 28px;
-          }
-
-          .sectionHeader {
-            flex-direction: column;
-            align-items: flex-start;
+            grid-template-columns: repeat(4, 1fr);
           }
         }
       `}</style>
@@ -1082,4 +871,23 @@ function Metric({
   }
 
   return <div className={className}>{content}</div>;
-        }
+}
+
+function ActionLink({
+  href,
+  icon,
+  label,
+  alert,
+}: {
+  href: string;
+  icon: string;
+  label: string;
+  alert?: boolean;
+}) {
+  return (
+    <Link href={href} className={alert ? "actionButton alert" : "actionButton"}>
+      <span>{icon}</span>
+      <strong>{label}</strong>
+    </Link>
+  );
+      }
