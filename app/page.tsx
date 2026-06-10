@@ -9,112 +9,94 @@ export default function Home() {
         <div className="overlay" />
 
         <nav className="nav">
-          <div className="logo">
+          <Link href="/" className="brand">
             <img src="/roadlink-logo.png" alt="RoadLink" />
-          </div>
+            <span>RoadLink</span>
+          </Link>
 
           <div className="navLinks">
-            <a href="/">Inicio</a>
-            <a href="#features">Cómo funciona</a>
-            <a href="#safety">Seguridad</a>
-            <Link href="/login" className="loginLink">
-              Iniciar sesión
-            </Link>
+            <Link href="/find-ride">Find</Link>
+            <Link href="/offer-ride">Offer</Link>
+            <Link href="/login">Login</Link>
             <Link href="/register" className="navButton">
-              Registrarse
+              Register
             </Link>
           </div>
         </nav>
 
-        <div className="heroContent">
-          <div className="left">
+        <div className="content">
+          <section className="introCard">
+            <p className="eyebrow">Long Distance Ride Sharing</p>
+
             <h1>
-              Viaja más lejos <br />
-              por <span>menos.</span>
+              Travel farther for <span>less.</span>
             </h1>
 
             <p className="subtitle">
-              La plataforma de viajes largos por carretera entre estados.
-              Segura, económica y confiable.
+              RoadLink connects drivers and passengers for affordable long-distance
+              trips between cities and states.
             </p>
 
-            <div className="buttons">
+            <div className="actions">
               <Link href="/find-ride" className="primary">
-                Buscar viaje
+                🔎 Find a Ride
               </Link>
 
               <Link href="/offer-ride" className="secondary">
-                Conviértete en conductor
+                ➕ Offer a Ride
               </Link>
             </div>
+          </section>
 
-            <div id="features" className="features">
-              <Feature
-                icon="🛡️"
-                title="Seguro"
-                text="Conductores verificados y viajes confiables."
-              />
-              <Feature
-                icon="💵"
-                title="Económico"
-                text="Comparte gastos y ahorra dinero."
-              />
-              <Feature
-                icon="🕒"
-                title="Cómodo"
-                text="Rutas inteligentes entre ciudades."
-              />
-              <Feature
-                icon="👥"
-                title="Confiable"
-                text="Viajeros conectados cada día."
-              />
-            </div>
-          </div>
+          <section className="quickCard">
+            <p className="eyebrow">Quick Search</p>
+            <h2>Plan your trip</h2>
 
-          <div className="searchCard">
-            <h2>
-              Encuentra tu <span>próximo viaje</span>
-            </h2>
-
-            <div className="field">
-              <label>Origen</label>
-              <input placeholder="¿Desde dónde sales?" />
-            </div>
-
-            <div className="field">
-              <label>Destino</label>
-              <input placeholder="¿A dónde vas?" />
-            </div>
-
-            <div className="fieldGrid">
+            <div className="formGrid">
               <div className="field">
-                <label>Fecha</label>
+                <label>From</label>
+                <input placeholder="Origin city" />
+              </div>
+
+              <div className="field">
+                <label>To</label>
+                <input placeholder="Destination city" />
+              </div>
+
+              <div className="field">
+                <label>Date</label>
                 <input type="date" />
               </div>
 
               <div className="field">
-                <label>Pasajeros</label>
+                <label>Seats</label>
                 <select>
-                  <option>1 pasajero</option>
-                  <option>2 pasajeros</option>
-                  <option>3 pasajeros</option>
-                  <option>4 pasajeros</option>
+                  <option>1 passenger</option>
+                  <option>2 passengers</option>
+                  <option>3 passengers</option>
+                  <option>4 passengers</option>
                 </select>
               </div>
             </div>
 
             <Link href="/find-ride" className="searchButton">
-              Buscar ruta
+              Search Routes
             </Link>
-          </div>
+          </section>
         </div>
 
-        <section id="safety" className="stats">
-          <Stat icon="🗺️" number="50K+" label="Rutas disponibles" />
-          <Stat icon="👥" number="100K+" label="Viajeros activos" />
-          <Stat icon="⭐" number="4.8" label="Calificación promedio" />
-          <Stat icon="🛡️" number="100%" label="Viajes seguros" />
+        <section className="stats">
+          <Stat icon="🛡️" title="Verified" text="Driver safety tools" />
+          <Stat icon="💰" title="Affordable" text="Save on long trips" />
+          <Stat icon="🚗" title="Flexible" text="Offer or book rides" />
+          <Stat icon="⭐" title="Trusted" text="Ratings and reviews" />
+        </section>
+
+        <section className="mobileActions">
+          <Link href="/find-ride">🔎 Find</Link>
+          <Link href="/offer-ride">➕ Offer</Link>
+          <Link href="/messages">💬 Messages</Link>
+          <Link href="/profile">👤 Profile</Link>
         </section>
       </section>
 
@@ -125,7 +107,7 @@ export default function Home() {
 
         .page {
           min-height: 100vh;
-          background: #000;
+          background: #020617;
           color: white;
           font-family: Arial, sans-serif;
         }
@@ -133,329 +115,313 @@ export default function Home() {
         .hero {
           min-height: 100vh;
           position: relative;
-          padding: 28px;
-          background-image: url("/images/hero-roadlink-sportscar.png");
-          background-size: cover;
-          background-position: center center;
-          background-repeat: no-repeat;
+          padding: 18px;
+          padding-bottom: 110px;
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.24), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
           overflow: hidden;
         }
 
         .overlay {
           position: absolute;
           inset: 0;
-          background:
-            linear-gradient(
-              90deg,
-              rgba(0,0,0,0.35),
-              rgba(0,0,0,0.15),
-              rgba(0,0,0,0.00)
-            ),
-            linear-gradient(
-              180deg,
-              rgba(0,0,0,0.00),
-              rgba(0,0,0,0.25)
-            );
-          z-index: 0;
+          background-image: url("/images/hero-roadlink-sportscar.png");
+          background-size: cover;
+          background-position: center;
+          opacity: 0.18;
+          pointer-events: none;
         }
 
         .nav,
-        .heroContent,
-        .stats {
+        .content,
+        .stats,
+        .mobileActions {
           position: relative;
           z-index: 1;
+          max-width: 1100px;
+          margin-left: auto;
+          margin-right: auto;
         }
 
         .nav {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 56px;
+          margin-bottom: 18px;
         }
 
-        .logo img {
-          height: 220px;
-          width: auto;
-          display: block;
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
+        .brand img {
+          width: 44px;
+          height: 44px;
           object-fit: contain;
+        }
+
+        .brand span {
+          color: #22c55e;
+          font-size: 18px;
         }
 
         .navLinks {
           display: flex;
           align-items: center;
-          gap: 24px;
+          gap: 10px;
         }
 
-        .navLinks a,
-        .loginLink {
+        .navLinks a {
           color: white;
           text-decoration: none;
-          font-weight: 700;
-        }
-
-        .navButton {
-          background: #22c55e;
-          padding: 12px 20px;
+          font-weight: 900;
+          padding: 10px 12px;
           border-radius: 999px;
-          color: white;
-          text-decoration: none;
-          font-weight: 800;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .heroContent {
+        .navLinks .navButton {
+          background: #22c55e;
+          border-color: #22c55e;
+        }
+
+        .content {
           display: grid;
-          grid-template-columns: 1.1fr 0.9fr;
-          gap: 40px;
-          align-items: center;
-          max-width: 1400px;
-          margin: 0 auto;
+          grid-template-columns: 1fr 420px;
+          gap: 16px;
+          align-items: stretch;
         }
 
-        .left h1 {
-          font-size: 74px;
-          line-height: 1.05;
-          margin: 0 0 24px;
-          text-shadow: 0 8px 30px rgba(0,0,0,0.65);
+        .introCard,
+        .quickCard,
+        .stat {
+          background: rgba(8, 13, 25, 0.92);
+          border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+          backdrop-filter: blur(16px);
         }
 
-        .left h1 span,
-        .searchCard span {
+        .introCard,
+        .quickCard {
+          border-radius: 28px;
+          padding: 26px;
+        }
+
+        .eyebrow {
+          margin: 0 0 10px;
+          color: #22c55e;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        h1 {
+          font-size: 54px;
+          line-height: 1.02;
+          margin: 0 0 14px;
+          letter-spacing: -1.5px;
+        }
+
+        h1 span,
+        h2 {
           color: #22c55e;
         }
 
+        h2 {
+          font-size: 28px;
+          margin: 0 0 18px;
+        }
+
         .subtitle {
-          font-size: 22px;
-          line-height: 1.6;
-          color: #f3f4f6;
-          max-width: 640px;
-          text-shadow: 0 6px 22px rgba(0,0,0,0.7);
-        }
-
-        .buttons {
-          display: flex;
-          gap: 18px;
-          margin: 34px 0 50px;
-        }
-
-        .primary,
-        .secondary {
-          padding: 17px 28px;
-          border-radius: 14px;
-          text-decoration: none;
-          font-weight: 900;
-          text-align: center;
-        }
-
-        .primary {
-          background: #22c55e;
-          color: white;
-        }
-
-        .secondary {
-          color: white;
-          border: 1px solid rgba(255,255,255,0.3);
-          background: rgba(0,0,0,0.28);
-          backdrop-filter: blur(10px);
-        }
-
-        .features {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 16px;
-        }
-
-        .feature {
-          background: rgba(0,0,0,0.32);
-          border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 20px;
-          padding: 20px;
-          backdrop-filter: blur(8px);
-        }
-
-        .featureIcon {
-          font-size: 32px;
-          margin-bottom: 12px;
-        }
-
-        .feature h3 {
-          margin: 0 0 8px;
-        }
-
-        .feature p {
-          color: #e5e7eb;
-          font-size: 14px;
+          max-width: 620px;
+          color: #d4d4d8;
+          font-size: 18px;
           line-height: 1.5;
           margin: 0;
         }
 
-        .searchCard {
-          background: rgba(5, 8, 15, 0.72);
-          border: 1px solid rgba(255,255,255,0.18);
-          border-radius: 30px;
-          padding: 34px;
-          box-shadow: 0 30px 90px rgba(0,0,0,0.65);
-          backdrop-filter: blur(14px);
+        .actions {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-top: 24px;
         }
 
-        .searchCard h2 {
-          font-size: 42px;
-          line-height: 1.15;
-          margin: 0 0 28px;
+        .primary,
+        .secondary,
+        .searchButton {
+          display: block;
+          padding: 16px;
+          border-radius: 16px;
+          text-align: center;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
+        .primary,
+        .searchButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+        }
+
+        .secondary {
+          color: white;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.14);
+        }
+
+        .formGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
         }
 
         .field {
           display: flex;
           flex-direction: column;
-          gap: 8px;
-          margin-bottom: 18px;
+          gap: 7px;
         }
 
         .field label {
-          color: white;
-          font-weight: 800;
+          font-size: 12px;
+          font-weight: 900;
+          color: #a1a1aa;
         }
 
         .field input,
         .field select {
           width: 100%;
-          padding: 17px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.18);
-          background: rgba(0,0,0,0.38);
+          padding: 14px;
+          border-radius: 14px;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(0,0,0,0.35);
           color: white;
-          font-size: 16px;
           outline: none;
         }
 
-        .fieldGrid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-        }
-
         .searchButton {
-          display: block;
-          margin-top: 12px;
-          background: #22c55e;
-          color: white;
-          padding: 18px;
-          border-radius: 16px;
-          text-align: center;
-          text-decoration: none;
-          font-weight: 900;
-          font-size: 18px;
+          margin-top: 14px;
         }
 
         .stats {
-          max-width: 1400px;
-          margin: 60px auto 0;
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 18px;
-          border-top: 1px solid rgba(255,255,255,0.18);
-          padding-top: 26px;
+          gap: 12px;
+          margin-top: 16px;
         }
 
         .stat {
-          display: flex;
-          align-items: center;
-          gap: 14px;
+          border-radius: 22px;
+          padding: 18px;
+          min-height: 120px;
         }
 
         .statIcon {
-          font-size: 34px;
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 12px;
+          font-size: 22px;
         }
 
-        .stat h3 {
-          margin: 0;
+        .stat strong {
+          display: block;
           color: #22c55e;
-          font-size: 30px;
+          font-size: 18px;
+          margin-bottom: 5px;
         }
 
-        .stat p {
-          margin: 4px 0 0;
-          color: #f3f4f6;
+        .stat span {
+          color: #a1a1aa;
+          font-size: 13px;
+          line-height: 1.35;
         }
 
-        @media (max-width: 900px) {
+        .mobileActions {
+          display: none;
+        }
+
+        @media (max-width: 820px) {
           .hero {
-            min-height: auto;
-            padding: 22px 20px 44px;
-            background-size: cover;
-            background-position: center center;
-          }
-
-          .overlay {
-            background:
-              linear-gradient(
-                180deg,
-                rgba(0,0,0,0.20),
-                rgba(0,0,0,0.10),
-                rgba(0,0,0,0.40)
-              );
-          }
-
-          .nav {
-            margin-bottom: 42px;
-          }
-
-          .logo img {
-            height: 220px;
+            padding: 16px;
+            padding-bottom: 100px;
           }
 
           .navLinks {
-            display: none !important;
-          }
-
-          .heroContent {
-            display: block;
-          }
-
-          .left h1 {
-            font-size: 50px;
-            line-height: 1.05;
-            margin-bottom: 22px;
-          }
-
-          .subtitle {
-            font-size: 18px;
-            line-height: 1.6;
-          }
-
-          .buttons {
-            flex-direction: column;
-            gap: 16px;
-            margin: 32px 0;
-          }
-
-          .primary,
-          .secondary {
-            width: 100%;
-            padding: 19px;
-            border-radius: 18px;
-            font-size: 17px;
-          }
-
-          .features {
-            grid-template-columns: 1fr;
-            margin-top: 34px;
-          }
-
-          .searchCard {
             display: none;
           }
 
+          .content {
+            grid-template-columns: 1fr;
+          }
+
+          .quickCard {
+            display: none;
+          }
+
+          h1 {
+            font-size: 42px;
+          }
+
+          .subtitle {
+            font-size: 16px;
+          }
+
+          .actions {
+            grid-template-columns: 1fr;
+          }
+
           .stats {
-            grid-template-columns: 1fr 1fr;
-            margin-top: 42px;
+            grid-template-columns: repeat(2, 1fr);
           }
 
           .stat {
-            align-items: flex-start;
+            min-height: 116px;
+            padding: 16px;
           }
 
-          .stat h3 {
-            font-size: 26px;
+          .mobileActions {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            padding: 10px;
+            border-radius: 26px;
+            background: rgba(8, 13, 25, 0.96);
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 18px 60px rgba(0,0,0,0.65);
+            backdrop-filter: blur(16px);
+          }
+
+          .mobileActions a {
+            color: white;
+            text-decoration: none;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 900;
+            padding: 10px 4px;
+            border-radius: 18px;
+          }
+
+          .mobileActions a:hover {
+            background: rgba(34,197,94,0.12);
+            color: #22c55e;
           }
         }
       `}</style>
@@ -463,24 +429,20 @@ export default function Home() {
   );
 }
 
-function Feature({ icon, title, text }: any) {
-  return (
-    <div className="feature">
-      <div className="featureIcon">{icon}</div>
-      <h3>{title}</h3>
-      <p>{text}</p>
-    </div>
-  );
-}
-
-function Stat({ icon, number, label }: any) {
+function Stat({
+  icon,
+  title,
+  text,
+}: {
+  icon: string;
+  title: string;
+  text: string;
+}) {
   return (
     <div className="stat">
       <div className="statIcon">{icon}</div>
-      <div>
-        <h3>{number}</h3>
-        <p>{label}</p>
-      </div>
+      <strong>{title}</strong>
+      <span>{text}</span>
     </div>
   );
 }
