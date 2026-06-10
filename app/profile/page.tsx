@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
@@ -17,6 +17,9 @@ type UserProfile = {
   licenseVerified?: boolean;
   phoneVerified?: boolean;
   verificationStatus?: string;
+  bio?: string;
+  city?: string;
+  state?: string;
 };
 
 export default function ProfilePage() {
@@ -59,7 +62,11 @@ export default function ProfilePage() {
               driverVerified: false,
               licenseVerified: false,
               verificationStatus: "not_submitted",
+              bio: "",
+              city: "",
+              state: "",
               createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             },
             { merge: true }
           );
@@ -94,6 +101,9 @@ export default function ProfilePage() {
             licenseVerified: Boolean(data?.licenseVerified),
             phoneVerified: Boolean(data?.phoneVerified),
             verificationStatus: data?.verificationStatus || "not_submitted",
+            bio: data?.bio || "",
+            city: data?.city || "",
+            state: data?.state || "",
           });
 
           setMessage("");
@@ -117,13 +127,21 @@ export default function ProfilePage() {
     profile.verified === true ||
     profile.verificationStatus === "approved";
 
-  const trustScore = Math.min(
-    100,
-    40 +
-      (profile.emailVerified ? 15 : 0) +
-      (profile.phoneVerified ? 15 : 0) +
-      (driverVerified ? 25 : 0)
-  );
+  const trustScore = useMemo(() => {
+    return Math.min(
+      100,
+      40 +
+        (profile.emailVerified ? 15 : 0) +
+        (profile.phoneVerified ? 15 : 0) +
+        (driverVerified ? 25 : 0) +
+        (profile.licenseVerified ? 5 : 0)
+    );
+  }, [
+    profile.emailVerified,
+    profile.phoneVerified,
+    profile.licenseVerified,
+    driverVerified,
+  ]);
 
   const trustLevel =
     trustScore >= 85 ? "Premium" : trustScore >= 65 ? "Trusted" : "Basic";
@@ -135,35 +153,49 @@ export default function ProfilePage() {
 
   return (
     <main className="page">
-      <section className="profileCard">
-        <div className="topGlow" />
+      <section className="hero">
+        <div className="heroTop">
+          {displayPhoto ? (
+            <img src={displayPhoto} alt={displayName} className="avatarImage" />
+          ) : (
+            <div className="avatar">{avatar}</div>
+          )}
 
-        {displayPhoto ? (
-          <img src={displayPhoto} alt={displayName} className="avatarImage" />
-        ) : (
-          <div className="avatar">{avatar}</div>
-        )}
+          <div className="heroText">
+            <p className="eyebrow">RoadLink Account</p>
+            <h1>Welcome back, {displayName}</h1>
+            <p className="email">{displayEmail}</p>
+          </div>
+        </div>
 
-        <p className="eyebrow">RoadLink Premium Profile</p>
-        <h1>{displayName}</h1>
-        <p className="email">{displayEmail}</p>
+        {profile.bio && <p className="bio">{profile.bio}</p>}
 
         <div className="badges">
-          <span className="good">✓ Email Verified</span>
-          <span className="role">{profile.role || "member"}</span>
-          <span className="good">{trustLevel} Trust</span>
-          <span className={driverVerified ? "good" : "bad"}>
-            {driverVerified ? "✓ Verified Driver" : "Driver Not Verified"}
+          <span className="badge good">✓ Email</span>
+          <span className="badge role">{profile.role || "member"}</span>
+          <span className="badge good">{trustLevel}</span>
+          <span className={driverVerified ? "badge good" : "badge bad"}>
+            {driverVerified ? "✓ Driver" : "Not Verified"}
           </span>
         </div>
 
         {message && <p className="message">{message}</p>}
       </section>
 
+      <section className="statsGrid">
+        <Stat title="Trust Score" value={`${trustScore}/100`} icon="✅" />
+        <Stat title="Driver" value={driverVerified ? "Verified" : "Pending"} icon="🚗" />
+        <Stat title="Email" value={profile.emailVerified ? "Verified" : "Pending"} icon="📧" />
+        <Stat title="Location" value={profile.city || profile.state ? `${profile.city || ""} ${profile.state || ""}` : "Not Set"} icon="📍" />
+      </section>
+
       <section className="trustCard">
-        <div>
-          <p className="eyebrow">Trust Score</p>
-          <h2>{trustScore}/100</h2>
+        <div className="trustHeader">
+          <div>
+            <p className="eyebrow">Trust Score</p>
+            <h2>{trustScore}/100</h2>
+          </div>
+          <strong>{trustLevel}</strong>
         </div>
 
         <div className="bar">
@@ -171,74 +203,34 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      <section className="menu">
-        <ProfileLink
-          href="/profile/edit"
-          icon="📝"
-          title="Edit Profile"
-          text="Update photo, name, bio, city and state."
-        />
+      <section className="sectionCard">
+        <p className="eyebrow">Main Actions</p>
+        <h2>Control Center</h2>
 
-        <ProfileLink
-          href="/driver-verification"
-          icon="🛡️"
-          title="Driver Verification"
-          text="View or update your verification documents."
-        />
-
-        <ProfileLink
-          href="/dashboard/driver"
-          icon="🚗"
-          title="Driver Dashboard"
-          text="Manage rides, passengers and earnings."
-        />
-
-        <ProfileLink
-          href="/wallet"
-          icon="💰"
-          title="Wallet"
-          text="Track earnings, fees and payouts."
-        />
-
-        <ProfileLink
-          href="/my-rides"
-          icon="🚘"
-          title="My Rides"
-          text="View the rides you have published."
-        />
-
-        <ProfileLink
-          href="/my-bookings"
-          icon="🎟️"
-          title="My Bookings"
-          text="View your passenger reservations."
-        />
-
-        <ProfileLink
-          href="/reviews"
-          icon="⭐"
-          title="Ratings & Reviews"
-          text="See your public reputation on RoadLink."
-        />
-
-        <ProfileLink
-          href="/notifications"
-          icon="🔔"
-          title="Notifications"
-          text="Review alerts and account updates."
-        />
-
-        <ProfileLink
-          href="/messages"
-          icon="💬"
-          title="Messages"
-          text="Open your RoadLink inbox."
-        />
+        <div className="buttonGrid">
+          <ProfileLink href="/profile/edit" icon="📝" title="Edit Profile" />
+          <ProfileLink href="/driver-verification" icon="🛡️" title="Verification" />
+          <ProfileLink href="/dashboard/driver" icon="🚗" title="Driver Dashboard" />
+          <ProfileLink href="/wallet" icon="💰" title="Wallet" />
+        </div>
       </section>
 
-      <button onClick={handleSignOut} className="signOutButton">
-        Sign Out
-      </button>
+      <section className="sectionCard">
+        <p className="eyebrow">RoadLink Activity</p>
+        <h2>My Account</h2>
+
+        <div className="buttonGrid">
+          <ProfileLink href="/my-rides" icon="🚘" title="My Rides" />
+          <ProfileLink href="/my-bookings" icon="🎟️" title="My Bookings" />
+          <ProfileLink href="/reviews" icon="⭐" title="Reviews" />
+          <ProfileLink href="/notifications" icon="🔔" title="Notifications" />
+          <ProfileLink href="/messages" icon="💬" title="Messages" />
+          <button onClick={handleSignOut} className="actionButton danger">
+            <span>🚪</span>
+            <strong>Sign Out</strong>
+          </button>
+        </div>
+      </section>
 
       <style>{`
         * {
@@ -252,54 +244,52 @@ export default function ProfilePage() {
             radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 20px;
+          padding: 16px;
           padding-bottom: 110px;
           font-family: Arial, sans-serif;
         }
 
-        .profileCard,
+        .hero,
+        .statsGrid,
         .trustCard,
-        .menu,
-        .signOutButton {
-          max-width: 760px;
+        .sectionCard {
+          max-width: 860px;
           margin-left: auto;
           margin-right: auto;
         }
 
-        .profileCard,
+        .hero,
+        .stat,
         .trustCard,
-        .menuLink {
+        .sectionCard,
+        .actionButton {
           background: rgba(8, 13, 25, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          box-shadow: 0 18px 60px rgba(0,0,0,0.45);
           backdrop-filter: blur(16px);
         }
 
-        .profileCard {
-          position: relative;
+        .hero {
+          border-radius: 28px;
+          padding: 22px;
+          margin-bottom: 14px;
           overflow: hidden;
-          border-radius: 34px;
-          padding: 32px;
-          text-align: center;
-          margin-bottom: 18px;
         }
 
-        .topGlow {
-          position: absolute;
-          inset: 0;
-          background: radial-gradient(circle at top, rgba(34,197,94,0.18), transparent 45%);
-          pointer-events: none;
+        .heroTop {
+          display: grid;
+          grid-template-columns: 72px 1fr;
+          gap: 14px;
+          align-items: center;
         }
 
         .avatar,
         .avatarImage {
-          position: relative;
-          width: 118px;
-          height: 118px;
+          width: 72px;
+          height: 72px;
           border-radius: 50%;
-          margin: 0 auto 18px;
           border: 2px solid rgba(34,197,94,0.5);
-          box-shadow: 0 18px 60px rgba(34,197,94,0.35);
+          box-shadow: 0 12px 40px rgba(34,197,94,0.25);
         }
 
         .avatar {
@@ -307,7 +297,7 @@ export default function ProfilePage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 50px;
+          font-size: 32px;
           font-weight: 900;
         }
 
@@ -315,46 +305,64 @@ export default function ProfilePage() {
           object-fit: cover;
         }
 
+        .heroText {
+          min-width: 0;
+        }
+
         .eyebrow {
-          position: relative;
-          margin: 0 0 10px;
+          margin: 0 0 7px;
           color: #22c55e;
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 900;
-          letter-spacing: 0.08em;
+          letter-spacing: 0.09em;
           text-transform: uppercase;
         }
 
         h1 {
-          position: relative;
-          font-size: 44px;
-          line-height: 1;
-          margin: 0 0 12px;
-          letter-spacing: -1px;
+          font-size: 28px;
+          line-height: 1.05;
+          margin: 0 0 8px;
+          letter-spacing: -0.8px;
+          overflow-wrap: anywhere;
+        }
+
+        h2 {
+          color: #22c55e;
+          font-size: 24px;
+          margin: 0 0 16px;
         }
 
         .email {
-          position: relative;
           color: #a1a1aa;
-          font-size: 17px;
-          overflow-wrap: anywhere;
+          font-size: 14px;
           margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .bio {
+          color: #d4d4d8;
+          line-height: 1.45;
+          margin: 16px 0 0;
         }
 
         .badges {
-          position: relative;
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 10px;
-          margin-top: 20px;
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+          margin-top: 16px;
         }
 
-        .badges span {
-          padding: 10px 14px;
+        .badge {
+          min-width: 0;
+          padding: 9px 10px;
           border-radius: 999px;
+          font-size: 12px;
           font-weight: 900;
+          text-align: center;
           text-transform: capitalize;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .good {
@@ -376,29 +384,80 @@ export default function ProfilePage() {
         }
 
         .message {
-          position: relative;
           color: #22c55e;
           font-weight: 900;
-          margin-top: 16px;
+          margin: 14px 0 0;
         }
 
-        .trustCard {
-          border-radius: 28px;
-          padding: 24px;
-          margin-bottom: 18px;
-          background: rgba(8, 13, 25, 0.92);
-          border: 1px solid rgba(255,255,255,0.12);
+        .statsGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          margin-bottom: 14px;
         }
 
-        .trustCard h2 {
+        .stat {
+          border-radius: 20px;
+          padding: 14px;
+          min-height: 100px;
+        }
+
+        .statIcon {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 10px;
+        }
+
+        .stat span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .stat strong {
+          display: block;
           color: #22c55e;
-          font-size: 38px;
-          margin: 0 0 14px;
+          font-size: 18px;
+          overflow-wrap: anywhere;
+        }
+
+        .trustCard,
+        .sectionCard {
+          border-radius: 24px;
+          padding: 20px;
+          margin-bottom: 14px;
+        }
+
+        .trustHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+
+        .trustHeader h2 {
+          margin: 0;
+          font-size: 32px;
+        }
+
+        .trustHeader strong {
+          color: #22c55e;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          padding: 8px 12px;
+          border-radius: 999px;
         }
 
         .bar {
-          width: 100%;
-          height: 14px;
+          height: 12px;
           border-radius: 999px;
           background: rgba(255,255,255,0.08);
           overflow: hidden;
@@ -410,90 +469,88 @@ export default function ProfilePage() {
           background: linear-gradient(135deg, #22c55e, #16a34a);
         }
 
-        .menu {
+        .buttonGrid {
           display: grid;
-          gap: 12px;
-          margin-bottom: 18px;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
         }
 
-        .menuLink {
-          display: grid;
-          grid-template-columns: 54px 1fr auto;
-          gap: 14px;
-          align-items: center;
-          padding: 18px;
-          border-radius: 22px;
+        .actionButton {
+          min-height: 74px;
+          border-radius: 18px;
+          padding: 14px;
           color: white;
           text-decoration: none;
-        }
-
-        .menuIcon {
-          width: 54px;
-          height: 54px;
-          border-radius: 50%;
           display: flex;
-          align-items: center;
+          flex-direction: column;
+          align-items: flex-start;
           justify-content: center;
-          background: rgba(34,197,94,0.13);
-          border: 1px solid rgba(34,197,94,0.35);
-          font-size: 26px;
-        }
-
-        .menuText strong {
-          display: block;
-          font-size: 18px;
-          margin-bottom: 5px;
-        }
-
-        .menuText span {
-          display: block;
-          color: #a1a1aa;
-          font-size: 14px;
-          line-height: 1.4;
-        }
-
-        .arrow {
-          color: #22c55e;
-          font-size: 24px;
-          font-weight: 900;
-        }
-
-        .signOutButton {
-          display: block;
-          width: 100%;
-          padding: 18px;
-          border-radius: 999px;
-          border: none;
-          background: linear-gradient(135deg, #ef4444, #b91c1c);
-          color: white;
-          font-size: 17px;
-          font-weight: 900;
+          gap: 8px;
           cursor: pointer;
+          border: 1px solid rgba(255,255,255,0.12);
+          width: 100%;
         }
 
-        @media (max-width: 700px) {
+        .actionButton span {
+          font-size: 22px;
+        }
+
+        .actionButton strong {
+          font-size: 14px;
+          line-height: 1.15;
+        }
+
+        .actionButton:hover {
+          border-color: rgba(34,197,94,0.5);
+          background: rgba(34,197,94,0.08);
+        }
+
+        .danger {
+          background: rgba(239,68,68,0.13);
+          border-color: rgba(239,68,68,0.35);
+        }
+
+        .danger:hover {
+          background: rgba(239,68,68,0.2);
+          border-color: rgba(239,68,68,0.55);
+        }
+
+        @media (min-width: 780px) {
           .page {
-            padding: 16px;
-            padding-bottom: 110px;
+            padding: 24px;
+            padding-bottom: 120px;
           }
 
-          .profileCard {
-            padding: 28px 22px;
+          .hero {
+            padding: 30px;
+          }
+
+          .heroTop {
+            grid-template-columns: 110px 1fr;
+            gap: 20px;
+          }
+
+          .avatar,
+          .avatarImage {
+            width: 110px;
+            height: 110px;
           }
 
           h1 {
-            font-size: 38px;
+            font-size: 44px;
           }
 
-          .menuLink {
-            grid-template-columns: 48px 1fr auto;
-            padding: 16px;
+          .badges {
+            grid-template-columns: repeat(4, auto);
+            justify-content: start;
           }
 
-          .menuIcon {
-            width: 48px;
-            height: 48px;
-            font-size: 23px;
+          .statsGrid {
+            grid-template-columns: repeat(4, 1fr);
+          }
+
+          .buttonGrid {
+            grid-template-columns: repeat(3, 1fr);
           }
         }
       `}</style>
@@ -501,27 +558,37 @@ export default function ProfilePage() {
   );
 }
 
+function Stat({
+  icon,
+  title,
+  value,
+}: {
+  icon: string;
+  title: string;
+  value: string;
+}) {
+  return (
+    <div className="stat">
+      <div className="statIcon">{icon}</div>
+      <span>{title}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function ProfileLink({
   href,
   icon,
   title,
-  text,
 }: {
   href: string;
   icon: string;
   title: string;
-  text: string;
 }) {
   return (
-    <Link href={href} className="menuLink">
-      <div className="menuIcon">{icon}</div>
-
-      <div className="menuText">
-        <strong>{title}</strong>
-        <span>{text}</span>
-      </div>
-
-      <div className="arrow">›</div>
+    <Link href={href} className="actionButton">
+      <span>{icon}</span>
+      <strong>{title}</strong>
     </Link>
   );
 }
