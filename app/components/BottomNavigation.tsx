@@ -100,7 +100,6 @@ export default function BottomNavigation() {
 
     return () => {
       unsubscribeAuth();
-
       if (unsubscribeDriverChats) unsubscribeDriverChats();
       if (unsubscribePassengerChats) unsubscribePassengerChats();
       if (unsubscribeNotifications) unsubscribeNotifications();
@@ -146,30 +145,43 @@ export default function BottomNavigation() {
       </nav>
 
       <style jsx global>{`
+        html,
         body {
           margin: 0;
-          padding-bottom: 92px;
           background: #020617;
+          overflow-x: hidden;
+        }
+
+        body {
+          padding-bottom: 128px !important;
+        }
+
+        main,
+        .page,
+        .dashboard,
+        .profilePage,
+        .walletPage {
+          padding-bottom: 145px !important;
         }
 
         .bottomNav {
           position: fixed;
           left: 50%;
-          bottom: 12px;
+          bottom: 14px;
           transform: translateX(-50%);
-          width: calc(100% - 24px);
+          width: calc(100% - 28px);
           max-width: 520px;
-          height: 72px;
+          height: 78px;
           z-index: 9999;
           display: grid;
           grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 6px;
           padding: 8px;
           border-radius: 28px;
-          background: rgba(8, 13, 25, 0.96);
+          background: rgba(8, 13, 25, 0.97);
           border: 1px solid rgba(255, 255, 255, 0.14);
-          box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65);
-          backdrop-filter: blur(18px);
+          box-shadow: 0 18px 60px rgba(0, 0, 0, 0.7);
+          backdrop-filter: blur(20px);
           overflow: visible;
         }
 
@@ -177,53 +189,41 @@ export default function BottomNavigation() {
           position: relative;
           width: 100%;
           min-width: 0;
-          height: 56px;
-          max-height: 56px;
+          height: 60px;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 3px;
-          border-radius: 18px;
+          gap: 4px;
+          border-radius: 20px;
           color: #a1a1aa;
           text-decoration: none !important;
-          font-size: 10px;
+          font-size: 11px;
           font-weight: 900;
           line-height: 1;
           border: 1px solid transparent;
-          box-shadow: none;
           overflow: visible;
         }
 
         .navIcon {
-          display: block;
-          font-size: 19px;
+          font-size: 23px;
           line-height: 1;
-          width: 22px;
-          height: 22px;
-          text-align: center;
-          flex: 0 0 auto;
         }
 
         .navLabel {
-          display: block;
           width: 100%;
-          max-width: 100%;
           text-align: center;
-          text-decoration: none !important;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          flex: 0 0 auto;
         }
 
         .navBadge {
           position: absolute;
-          top: 2px;
-          right: 4px;
-          width: 16px;
-          height: 16px;
-          padding: 0;
+          top: 4px;
+          right: 8px;
+          width: 17px;
+          height: 17px;
           border-radius: 50%;
           background: #ef4444;
           color: white;
@@ -232,43 +232,49 @@ export default function BottomNavigation() {
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.7);
+          box-shadow: 0 0 12px rgba(239, 68, 68, 0.85);
           z-index: 2;
         }
 
         .navItem.active {
           color: #22c55e;
           background: rgba(34, 197, 94, 0.13);
-          border-color: rgba(34, 197, 94, 0.32);
-          box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.05);
-          transform: none !important;
+          border-color: rgba(34, 197, 94, 0.38);
+          box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.05),
+            0 0 22px rgba(34, 197, 94, 0.14);
         }
 
         @media (max-width: 380px) {
+          body {
+            padding-bottom: 135px !important;
+          }
+
+          main,
+          .page,
+          .dashboard,
+          .profilePage,
+          .walletPage {
+            padding-bottom: 150px !important;
+          }
+
           .bottomNav {
-            width: calc(100% - 16px);
-            gap: 4px;
+            width: calc(100% - 18px);
+            height: 76px;
             padding: 7px;
+            gap: 4px;
           }
 
           .navItem {
-            font-size: 9px;
+            height: 60px;
+            font-size: 10px;
           }
 
           .navIcon {
-            font-size: 18px;
+            font-size: 21px;
           }
 
           .navBadge {
-            right: 2px;
-          }
-        }
-
-        @media (max-width: 899px) {
-          .topNav,
-          .topActions,
-          .topBar {
-            display: none !important;
+            right: 5px;
           }
         }
 
@@ -278,7 +284,15 @@ export default function BottomNavigation() {
           }
 
           body {
-            padding-bottom: 0;
+            padding-bottom: 0 !important;
+          }
+
+          main,
+          .page,
+          .dashboard,
+          .profilePage,
+          .walletPage {
+            padding-bottom: 40px !important;
           }
         }
       `}</style>
