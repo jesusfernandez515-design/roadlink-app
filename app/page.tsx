@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 
 type UserProfile = {
   name?: string;
@@ -12,17 +12,46 @@ type UserProfile = {
   photoURL?: string;
 };
 
+type Ride = {
+  id: string;
+  status?: string;
+  driverId?: string;
+};
+
+type Booking = {
+  id: string;
+  status?: string;
+  driverId?: string;
+  passengerId?: string;
+  price?: number;
+  seatsBooked?: number;
+};
+
+type NotificationItem = {
+  id: string;
+  read?: boolean;
+};
+
 export default function Home() {
   const [profile, setProfile] = useState<UserProfile>({});
   const [avatar, setAvatar] = useState("R");
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
+    let unsubscribeRides: (() => void) | undefined;
+    let unsubscribeBookings: (() => void) | undefined;
+    let unsubscribeNotifications: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setProfile({});
         setAvatar("R");
+        setRides([]);
+        setBookings([]);
+        setNotifications([]);
         return;
       }
 
@@ -38,17 +67,79 @@ export default function Home() {
           photoURL: data?.photoURL || user.photoURL || "",
         });
       });
+
+      unsubscribeRides = onSnapshot(
+        query(collection(db, "rides"), where("driverId", "==", user.uid)),
+        (snapshot) => {
+          setRides(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Ride[]
+          );
+        }
+      );
+
+      unsubscribeBookings = onSnapshot(
+        query(collection(db, "bookings"), where("driverId", "==", user.uid)),
+        (snapshot) => {
+          setBookings(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as Booking[]
+          );
+        }
+      );
+
+      unsubscribeNotifications = onSnapshot(
+        query(collection(db, "notifications"), where("userId", "==", user.uid)),
+        (snapshot) => {
+          setNotifications(
+            snapshot.docs.map((document) => ({
+              id: document.id,
+              ...document.data(),
+            })) as NotificationItem[]
+          );
+        }
+      );
     });
 
     return () => {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribeRides) unsubscribeRides();
+      if (unsubscribeBookings) unsubscribeBookings();
+      if (unsubscribeNotifications) unsubscribeNotifications();
     };
   }, []);
 
   const displayName = profile.name || "RoadLink User";
   const displayEmail = profile.email || "No email found";
   const displayPhoto = profile.photoURL || "";
+
+  const activeRides = rides.filter(
+    (ride) => ride.status === "active" || ride.status === "full"
+  );
+
+  const completedBookings = bookings.filter(
+    (booking) => booking.status === "completed"
+  );
+
+  const pendingBookings = bookings.filter(
+    (booking) =>
+      booking.status === "pending" ||
+      booking.status === "reserved" ||
+      booking.status === "confirmed"
+  );
+
+  const earnings = useMemo(() => {
+    return completedBookings.reduce((total, booking) => {
+      return total + Number(booking.price || 0) * Number(booking.seatsBooked || 1);
+    }, 0);
+  }, [completedBookings]);
+
+  const unreadNotifications = notifications.filter((item) => !item.read).length;
 
   return (
     <main className="page">
@@ -74,17 +165,23 @@ export default function Home() {
       </section>
 
       <section className="stats">
-        <Card icon="🚗" title="Active Rides" value="3" />
-        <Card icon="🎟️" title="Bookings" value="0" />
+        <Card icon="🚗" title="Active Rides" value={String(activeRides.length)} />
+        <Card icon="🎟️" title="Bookings" value={String(pendingBookings.length)} />
         <Card icon="💬" title="Messages" value="0" />
-        <Card icon="🔔" title="Notifications" value="0" alert />
-        <Card icon="✅" title="Completed Trips" value="1" />
-        <Card icon="💰" title="Earnings" value="$80" />
+        <Card
+          icon="🔔"
+          title="Notifications"
+          value={String(unreadNotifications)}
+          alert={unreadNotifications > 0}
+        />
+        <Card icon="✅" title="Completed Trips" value={String(completedBookings.length)} />
+        <Card icon="💰" title="Earnings" value={`$${earnings}`} />
       </section>
 
       <section className="sectionCard">
         <p className="eyebrow">Next Reservation</p>
         <h2>Upcoming Trip</h2>
+
         <div className="emptyBox">
           <strong>No upcoming trips yet.</strong>
           <p>Reserve your next ride and your trip summary will appear here.</p>
@@ -146,6 +243,7 @@ export default function Home() {
           height: 90px;
           border-radius: 50%;
           border: 2px solid rgba(34,197,94,0.55);
+          box-shadow: 0 12px 40px rgba(34,197,94,0.25);
         }
 
         .avatar {
