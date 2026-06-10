@@ -57,48 +57,45 @@ export default function BottomNavigation() {
         setUnreadMessages(total);
       }
 
-      const driverChatsQuery = query(
-        collection(db, "chats"),
-        where("driverId", "==", user.uid)
+      unsubscribeDriverChats = onSnapshot(
+        query(collection(db, "chats"), where("driverId", "==", user.uid)),
+        (snapshot) => {
+          driverChats = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Chat[];
+
+          updateUnreadMessages();
+        }
       );
 
-      const passengerChatsQuery = query(
-        collection(db, "chats"),
-        where("passengerId", "==", user.uid)
+      unsubscribePassengerChats = onSnapshot(
+        query(collection(db, "chats"), where("passengerId", "==", user.uid)),
+        (snapshot) => {
+          passengerChats = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as Chat[];
+
+          updateUnreadMessages();
+        }
       );
 
-      const notificationsQuery = query(
-        collection(db, "notifications"),
-        where("userId", "==", user.uid),
-        where("read", "==", false)
+      unsubscribeNotifications = onSnapshot(
+        query(
+          collection(db, "notifications"),
+          where("userId", "==", user.uid),
+          where("read", "==", false)
+        ),
+        (snapshot) => {
+          const unreadNonMessageNotifications = snapshot.docs.filter((document) => {
+            const data = document.data();
+            return data.type !== "message";
+          });
+
+          setUnreadNotifications(unreadNonMessageNotifications.length);
+        }
       );
-
-      unsubscribeDriverChats = onSnapshot(driverChatsQuery, (snapshot) => {
-        driverChats = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Chat[];
-
-        updateUnreadMessages();
-      });
-
-      unsubscribePassengerChats = onSnapshot(passengerChatsQuery, (snapshot) => {
-        passengerChats = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as Chat[];
-
-        updateUnreadMessages();
-      });
-
-      unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-        const unreadNonMessageNotifications = snapshot.docs.filter((document) => {
-          const data = document.data();
-          return data.type !== "message";
-        });
-
-        setUnreadNotifications(unreadNonMessageNotifications.length);
-      });
     });
 
     return () => {
@@ -151,76 +148,115 @@ export default function BottomNavigation() {
       <style jsx global>{`
         body {
           margin: 0;
-          padding-bottom: 90px;
+          padding-bottom: 92px;
           background: #020617;
         }
 
         .bottomNav {
           position: fixed;
           left: 50%;
-          bottom: 14px;
+          bottom: 12px;
           transform: translateX(-50%);
           width: calc(100% - 24px);
           max-width: 520px;
           height: 72px;
           z-index: 9999;
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 6px;
           padding: 8px;
           border-radius: 28px;
-          background: rgba(8, 13, 25, 0.94);
+          background: rgba(8, 13, 25, 0.96);
           border: 1px solid rgba(255, 255, 255, 0.14);
           box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65);
           backdrop-filter: blur(18px);
+          overflow: hidden;
         }
 
         .navItem {
           position: relative;
+          width: 100%;
+          min-width: 0;
+          height: 56px;
+          max-height: 56px;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 4px;
-          border-radius: 20px;
+          gap: 3px;
+          border-radius: 18px;
           color: #a1a1aa;
           text-decoration: none !important;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 900;
+          line-height: 1;
+          border: 1px solid transparent;
+          box-shadow: none;
+          overflow: hidden;
         }
 
         .navIcon {
-          font-size: 20px;
+          display: block;
+          font-size: 19px;
           line-height: 1;
+          width: 22px;
+          height: 22px;
+          text-align: center;
+          flex: 0 0 auto;
         }
 
         .navLabel {
+          display: block;
+          width: 100%;
+          max-width: 100%;
+          text-align: center;
           text-decoration: none !important;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          flex: 0 0 auto;
         }
 
         .navBadge {
           position: absolute;
-          top: 4px;
-          right: 10px;
-          min-width: 20px;
-          height: 20px;
-          padding: 0 6px;
+          top: 3px;
+          right: 7px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
           border-radius: 999px;
           background: #ef4444;
           color: white;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 900;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 0 18px rgba(239, 68, 68, 0.85);
+          box-shadow: 0 0 14px rgba(239, 68, 68, 0.85);
         }
 
         .navItem.active {
           color: #22c55e;
-          background: rgba(34, 197, 94, 0.14);
-          border: 1px solid rgba(34, 197, 94, 0.34);
-          box-shadow: 0 0 24px rgba(34, 197, 94, 0.14);
+          background: rgba(34, 197, 94, 0.13);
+          border-color: rgba(34, 197, 94, 0.32);
+          box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.05);
+          transform: none !important;
+        }
+
+        @media (max-width: 380px) {
+          .bottomNav {
+            width: calc(100% - 16px);
+            gap: 4px;
+            padding: 7px;
+          }
+
+          .navItem {
+            font-size: 9px;
+          }
+
+          .navIcon {
+            font-size: 18px;
+          }
         }
 
         @media (max-width: 899px) {
