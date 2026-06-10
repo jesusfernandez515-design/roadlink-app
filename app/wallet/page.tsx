@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  query,
+  where,
+} from "firebase/firestore";
 
 type Booking = {
   id: string;
@@ -19,19 +25,39 @@ type Booking = {
   completedAt?: string;
 };
 
+type PayoutRequest = {
+  id: string;
+  userId?: string;
+  driverEmail?: string;
+  amount?: number;
+  status?: "pending" | "approved" | "rejected" | "paid";
+  createdAt?: string;
+};
+
 export default function WalletPage() {
+  const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [message, setMessage] = useState("Loading wallet...");
+  const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
     let unsubscribeBookings: (() => void) | undefined;
+    let unsubscribePayouts: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
+        setUserId("");
+        setUserEmail("");
         setBookings([]);
+        setPayouts([]);
         setMessage("Please sign in to view your wallet.");
         return;
       }
+
+      setUserId(user.uid);
+      setUserEmail(user.email || "");
 
       unsubscribeBookings = onSnapshot(
         query(collection(db, "bookings"), where("driverId", "==", user.uid)),
@@ -46,17 +72,38 @@ export default function WalletPage() {
         },
         (error) => setMessage(error.message)
       );
+
+      unsubscribePayouts = onSnapshot(
+        query(collection(db, "payoutRequests"), where("userId", "==", user.uid)),
+        (snapshot) => {
+          const data = snapshot.docs.map((document) => ({
+            id: document.id,
+            ...document.data(),
+          })) as PayoutRequest[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setPayouts(data);
+        },
+        (error) => setMessage(error.message)
+      );
     });
 
     return () => {
       unsubscribeAuth();
       if (unsubscribeBookings) unsubscribeBookings();
+      if (unsubscribePayouts) unsubscribePayouts();
     };
   }, []);
 
   const completedBookings = bookings.filter((item) => item.status === "completed");
   const pendingBookings = bookings.filter(
-    (item) => item.status === "reserved" || item.status === "confirmed" || item.status === "pending"
+    (item) =>
+      item.status === "reserved" ||
+      item.status === "confirmed" ||
+      item.status === "pending"
   );
 
   const totalEarnings = useMemo(() => {
@@ -72,7 +119,66 @@ export default function WalletPage() {
   }, [pendingBookings]);
 
   const roadLinkFee = Math.round(totalEarnings * 0.12);
-  const availableBalance = Math.max(totalEarnings - roadLinkFee, 0);
+  const totalPayoutRequested = payouts
+    .filter((item) => item.status !== "rejected")
+    .reduce((total, item) => total + Number(item.amount || 0), 0);
+
+  const availableBalance = Math.max(
+    totalEarnings - roadLinkFee - totalPayoutRequested,
+    0
+  );
+
+  const latestPayout = payouts[0];
+
+  async function requestPayout() {
+    if (!userId) {
+      setMessage("Please sign in first.");
+      return;
+    }
+
+    if (availableBalance <= 0) {
+      setMessage("No available balance to request.");
+      return;
+    }
+
+    const hasPendingRequest = payouts.some((item) => item.status === "pending");
+
+    if (hasPendingRequest) {
+      setMessage("You already have a pending payout request.");
+      return;
+    }
+
+    try {
+      setRequesting(true);
+      setMessage("");
+
+      const now = new Date().toISOString();
+
+      await addDoc(collection(db, "payoutRequests"), {
+        userId,
+        driverEmail: userEmail,
+        amount: availableBalance,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId,
+        type: "payout",
+        title: "Payout Requested",
+        message: `Your payout request for $${availableBalance} was submitted.`,
+        read: false,
+        createdAt: now,
+      });
+
+      setMessage("Payout request submitted successfully.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setRequesting(false);
+    }
+  }
 
   return (
     <main className="page">
@@ -86,13 +192,17 @@ export default function WalletPage() {
         <p className="eyebrow">RoadLink Wallet</p>
         <h1>Driver <span>Wallet</span></h1>
         <p className="subtitle">
-          Track completed earnings, pending ride money, fees, and future payouts.
+          Track completed earnings, pending ride money, fees, and payout requests.
         </p>
 
         <div className="balanceBox">
           <span>Available Balance</span>
           <strong>${availableBalance}</strong>
-          <small>Payouts coming soon</small>
+          <small>
+            {latestPayout
+              ? `Latest payout: ${String(latestPayout.status || "pending").toUpperCase()}`
+              : "No payout requests yet"}
+          </small>
         </div>
       </section>
 
@@ -108,25 +218,48 @@ export default function WalletPage() {
       <section className="payoutCard">
         <div>
           <p className="eyebrow">Payout Status</p>
-          <h2>Bank payouts coming soon</h2>
+          <h2>Request your balance</h2>
           <p>
-            RoadLink Wallet is tracking your earnings now. Stripe Connect payout support
-            will be added later for automatic driver payments.
+            Submit a payout request for your available balance. Admin approval is required before payment.
           </p>
         </div>
 
-        <button onClick={() => alert("Payouts are coming soon.")}>
-          Request Payout
+        <button onClick={requestPayout} disabled={requesting || availableBalance <= 0}>
+          {requesting ? "Requesting..." : "Request Payout"}
         </button>
       </section>
 
       <section className="history">
-        <div className="sectionHeader">
-          <div>
-            <p className="eyebrow">Transaction History</p>
-            <h2>Recent Activity</h2>
+        <p className="eyebrow">Payout Requests</p>
+        <h2>Request History</h2>
+
+        {payouts.length === 0 ? (
+          <div className="emptyCard">
+            <h3>No payout requests yet</h3>
+            <p>Your payout requests will appear here.</p>
           </div>
-        </div>
+        ) : (
+          payouts.map((payout) => (
+            <div key={payout.id} className="transaction">
+              <div className="transactionIcon">🏦</div>
+
+              <div>
+                <strong>Payout request</strong>
+                <p>{payout.createdAt ? new Date(payout.createdAt).toLocaleString() : "Recently"}</p>
+                <small>Status: {payout.status || "pending"}</small>
+              </div>
+
+              <div className={`amount ${payout.status || "pending"}`}>
+                ${Number(payout.amount || 0)}
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+
+      <section className="history">
+        <p className="eyebrow">Transaction History</p>
+        <h2>Ride Activity</h2>
 
         {bookings.length === 0 ? (
           <div className="emptyCard">
@@ -349,6 +482,11 @@ export default function WalletPage() {
           cursor: pointer;
         }
 
+        .payoutCard button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
         .transaction {
           display: grid;
           grid-template-columns: 50px 1fr auto;
@@ -387,12 +525,18 @@ export default function WalletPage() {
           font-weight: 900;
         }
 
-        .amount.good {
+        .amount.good,
+        .amount.approved,
+        .amount.paid {
           color: #22c55e;
         }
 
         .amount.pending {
           color: #fde68a;
+        }
+
+        .amount.rejected {
+          color: #fca5a5;
         }
 
         .emptyCard {
