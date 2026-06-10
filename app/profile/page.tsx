@@ -20,7 +20,6 @@ type UserProfile = {
 };
 
 export default function ProfilePage() {
-  const [userId, setUserId] = useState("");
   const [profile, setProfile] = useState<UserProfile>({});
   const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading profile...");
@@ -38,7 +37,6 @@ export default function ProfilePage() {
       const fallbackName = user.displayName || "RoadLink User";
       const fallbackPhoto = user.photoURL || "";
 
-      setUserId(user.uid);
       setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
 
       const userRef = doc(db, "users", user.uid);
@@ -174,14 +172,68 @@ export default function ProfilePage() {
       </section>
 
       <section className="menu">
-        <ProfileLink href="/profile/edit" icon="📝" title="Edit Profile" text="Update photo, name, bio, city and state." />
-        <ProfileLink href="/driver-verification" icon="🛡️" title="Driver Verification" text="View or update your verification documents." />
-        <ProfileLink href="/dashboard/driver" icon="🚗" title="Driver Dashboard" text="Manage rides, passengers and earnings." />
-        <ProfileLink href="/my-rides" icon="🚘" title="My Rides" text="View the rides you have published." />
-        <ProfileLink href="/my-bookings" icon="🎟️" title="My Bookings" text="View your passenger reservations." />
-        <ProfileLink href="/reviews" icon="⭐" title="Ratings & Reviews" text="See your public reputation on RoadLink." />
-        <ProfileLink href="/notifications" icon="🔔" title="Notifications" text="Review alerts and account updates." />
-        <ProfileLink href="/messages" icon="💬" title="Messages" text="Open your RoadLink inbox." />
+        <ProfileLink
+          href="/profile/edit"
+          icon="📝"
+          title="Edit Profile"
+          text="Update photo, name, bio, city and state."
+        />
+
+        <ProfileLink
+          href="/driver-verification"
+          icon="🛡️"
+          title="Driver Verification"
+          text="View or update your verification documents."
+        />
+
+        <ProfileLink
+          href="/dashboard/driver"
+          icon="🚗"
+          title="Driver Dashboard"
+          text="Manage rides, passengers and earnings."
+        />
+
+        <ProfileLink
+          href="/wallet"
+          icon="💰"
+          title="Wallet"
+          text="Track earnings, fees and payouts."
+        />
+
+        <ProfileLink
+          href="/my-rides"
+          icon="🚘"
+          title="My Rides"
+          text="View the rides you have published."
+        />
+
+        <ProfileLink
+          href="/my-bookings"
+          icon="🎟️"
+          title="My Bookings"
+          text="View your passenger reservations."
+        />
+
+        <ProfileLink
+          href="/reviews"
+          icon="⭐"
+          title="Ratings & Reviews"
+          text="See your public reputation on RoadLink."
+        />
+
+        <ProfileLink
+          href="/notifications"
+          icon="🔔"
+          title="Notifications"
+          text="Review alerts and account updates."
+        />
+
+        <ProfileLink
+          href="/messages"
+          icon="💬"
+          title="Messages"
+          text="Open your RoadLink inbox."
+        />
       </section>
 
       <button onClick={handleSignOut} className="signOutButton">
