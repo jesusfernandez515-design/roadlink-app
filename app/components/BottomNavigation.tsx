@@ -135,7 +135,7 @@ export default function BottomNavigation() {
 
               {item.badge > 0 && (
                 <span className="navBadge">
-                  {item.badge > 99 ? "99+" : item.badge}
+                  {item.badge > 9 ? "9+" : item.badge}
                 </span>
               )}
 
@@ -170,7 +170,7 @@ export default function BottomNavigation() {
           border: 1px solid rgba(255, 255, 255, 0.14);
           box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65);
           backdrop-filter: blur(18px);
-          overflow: hidden;
+          overflow: visible;
         }
 
         .navItem {
@@ -192,7 +192,7 @@ export default function BottomNavigation() {
           line-height: 1;
           border: 1px solid transparent;
           box-shadow: none;
-          overflow: hidden;
+          overflow: visible;
         }
 
         .navIcon {
@@ -219,20 +219,21 @@ export default function BottomNavigation() {
 
         .navBadge {
           position: absolute;
-          top: 3px;
-          right: 7px;
-          min-width: 18px;
-          height: 18px;
-          padding: 0 5px;
-          border-radius: 999px;
+          top: 2px;
+          right: 4px;
+          width: 16px;
+          height: 16px;
+          padding: 0;
+          border-radius: 50%;
           background: #ef4444;
           color: white;
-          font-size: 10px;
+          font-size: 9px;
           font-weight: 900;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 0 14px rgba(239, 68, 68, 0.85);
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.7);
+          z-index: 2;
         }
 
         .navItem.active {
@@ -256,6 +257,10 @@ export default function BottomNavigation() {
 
           .navIcon {
             font-size: 18px;
+          }
+
+          .navBadge {
+            right: 2px;
           }
         }
 
