@@ -29,9 +29,12 @@ type PayoutRequest = {
   id: string;
   userId?: string;
   driverEmail?: string;
+  email?: string;
   amount?: number;
   status?: "pending" | "approved" | "rejected" | "paid";
   createdAt?: string;
+  updatedAt?: string;
+  paidAt?: string;
 };
 
 export default function WalletPage() {
@@ -58,6 +61,7 @@ export default function WalletPage() {
 
       setUserId(user.uid);
       setUserEmail(user.email || "");
+      setMessage("");
 
       unsubscribeBookings = onSnapshot(
         query(collection(db, "bookings"), where("driverId", "==", user.uid)),
@@ -68,7 +72,6 @@ export default function WalletPage() {
           })) as Booking[];
 
           setBookings(data);
-          setMessage("");
         },
         (error) => setMessage(error.message)
       );
@@ -98,15 +101,20 @@ export default function WalletPage() {
     };
   }, []);
 
-  const completedBookings = bookings.filter((item) => item.status === "completed");
-  const pendingBookings = bookings.filter(
-    (item) =>
-      item.status === "reserved" ||
-      item.status === "confirmed" ||
-      item.status === "pending"
-  );
+  const completedBookings = useMemo(() => {
+    return bookings.filter((item) => item.status === "completed");
+  }, [bookings]);
 
-  const totalEarnings = useMemo(() => {
+  const pendingBookings = useMemo(() => {
+    return bookings.filter(
+      (item) =>
+        item.status === "reserved" ||
+        item.status === "confirmed" ||
+        item.status === "pending"
+    );
+  }, [bookings]);
+
+  const lifetimeEarnings = useMemo(() => {
     return completedBookings.reduce((total, item) => {
       return total + Number(item.price || 0) * Number(item.seatsBooked || 1);
     }, 0);
@@ -118,17 +126,71 @@ export default function WalletPage() {
     }, 0);
   }, [pendingBookings]);
 
-  const roadLinkFee = Math.round(totalEarnings * 0.12);
-  const totalPayoutRequested = payouts
-    .filter((item) => item.status !== "rejected")
-    .reduce((total, item) => total + Number(item.amount || 0), 0);
+  const roadLinkFee = useMemo(() => {
+    return Math.round(lifetimeEarnings * 0.12);
+  }, [lifetimeEarnings]);
 
-  const availableBalance = Math.max(
-    totalEarnings - roadLinkFee - totalPayoutRequested,
-    0
-  );
+  const totalPaidOut = useMemo(() => {
+    return payouts
+      .filter((item) => item.status === "paid")
+      .reduce((total, item) => total + Number(item.amount || 0), 0);
+  }, [payouts]);
+
+  const activePayoutRequests = useMemo(() => {
+    return payouts
+      .filter((item) => item.status === "pending" || item.status === "approved")
+      .reduce((total, item) => total + Number(item.amount || 0), 0);
+  }, [payouts]);
+
+  const currentBalance = useMemo(() => {
+    return Math.max(lifetimeEarnings - roadLinkFee - totalPaidOut, 0);
+  }, [lifetimeEarnings, roadLinkFee, totalPaidOut]);
+
+  const availableBalance = useMemo(() => {
+    return Math.max(currentBalance - activePayoutRequests, 0);
+  }, [currentBalance, activePayoutRequests]);
 
   const latestPayout = payouts[0];
+
+  const walletActivity = useMemo(() => {
+    const rideActivity = completedBookings.map((booking) => {
+      const amount = Number(booking.price || 0) * Number(booking.seatsBooked || 1);
+
+      return {
+        id: `booking-${booking.id}`,
+        type: "ride",
+        title: "Ride Completed",
+        subtitle: `${booking.from || "Origin"} → ${booking.to || "Destination"}`,
+        detail: booking.passengerEmail || "Passenger",
+        amount,
+        sign: "+",
+        status: "completed",
+        date: booking.completedAt || booking.createdAt || "",
+        icon: "✅",
+      };
+    });
+
+    const payoutActivity = payouts
+      .filter((payout) => payout.status === "paid")
+      .map((payout) => {
+        return {
+          id: `payout-${payout.id}`,
+          type: "payout",
+          title: "Payout Sent",
+          subtitle: "Money sent to driver",
+          detail: "PAID",
+          amount: Number(payout.amount || 0),
+          sign: "-",
+          status: "paid",
+          date: payout.paidAt || payout.updatedAt || payout.createdAt || "",
+          icon: "🏦",
+        };
+      });
+
+    return [...rideActivity, ...payoutActivity].sort((a, b) =>
+      String(b.date || "").localeCompare(String(a.date || ""))
+    );
+  }, [completedBookings, payouts]);
 
   async function requestPayout() {
     if (!userId) {
@@ -141,10 +203,12 @@ export default function WalletPage() {
       return;
     }
 
-    const hasPendingRequest = payouts.some((item) => item.status === "pending");
+    const hasActiveRequest = payouts.some(
+      (item) => item.status === "pending" || item.status === "approved"
+    );
 
-    if (hasPendingRequest) {
-      setMessage("You already have a pending payout request.");
+    if (hasActiveRequest) {
+      setMessage("You already have an active payout request.");
       return;
     }
 
@@ -156,6 +220,7 @@ export default function WalletPage() {
 
       await addDoc(collection(db, "payoutRequests"), {
         userId,
+        email: userEmail,
         driverEmail: userEmail,
         amount: availableBalance,
         status: "pending",
@@ -184,23 +249,34 @@ export default function WalletPage() {
     <main className="page">
       <section className="hero">
         <div className="topNav">
-          <Link href="/profile" className="miniButton">Profile</Link>
-          <Link href="/dashboard/driver" className="miniButton">Driver Dashboard</Link>
-          <Link href="/my-rides" className="miniButton">My Rides</Link>
+          <Link href="/profile" className="miniButton">
+            Profile
+          </Link>
+          <Link href="/dashboard/driver" className="miniButton">
+            Driver Dashboard
+          </Link>
+          <Link href="/my-rides" className="miniButton">
+            My Rides
+          </Link>
         </div>
 
         <p className="eyebrow">RoadLink Wallet</p>
-        <h1>Driver <span>Wallet</span></h1>
+        <h1>
+          Driver <span>Wallet</span>
+        </h1>
         <p className="subtitle">
-          Track completed earnings, pending ride money, fees, and payout requests.
+          Track completed earnings, RoadLink fees, paid payouts, and current
+          available balance.
         </p>
 
         <div className="balanceBox">
-          <span>Available Balance</span>
-          <strong>${availableBalance}</strong>
+          <span>Current Balance</span>
+          <strong>${currentBalance}</strong>
           <small>
             {latestPayout
-              ? `Latest payout: ${String(latestPayout.status || "pending").toUpperCase()}`
+              ? `Latest payout: ${String(
+                  latestPayout.status || "pending"
+                ).toUpperCase()}`
               : "No payout requests yet"}
           </small>
         </div>
@@ -209,10 +285,12 @@ export default function WalletPage() {
       {message && <p className="message">{message}</p>}
 
       <section className="stats">
-        <Metric icon="💰" label="Total Earnings" value={`$${totalEarnings}`} />
+        <Metric icon="💰" label="Lifetime Earnings" value={`$${lifetimeEarnings}`} />
+        <Metric icon="🏦" label="Total Paid Out" value={`$${totalPaidOut}`} />
+        <Metric icon="✅" label="Current Balance" value={`$${currentBalance}`} />
         <Metric icon="⏳" label="Pending Balance" value={`$${pendingBalance}`} />
-        <Metric icon="✅" label="Completed Trips" value={String(completedBookings.length)} />
-        <Metric icon="🏦" label="RoadLink Fee" value={`$${roadLinkFee}`} />
+        <Metric icon="🧾" label="RoadLink Fee" value={`$${roadLinkFee}`} />
+        <Metric icon="🚗" label="Completed Trips" value={String(completedBookings.length)} />
       </section>
 
       <section className="payoutCard">
@@ -220,7 +298,11 @@ export default function WalletPage() {
           <p className="eyebrow">Payout Status</p>
           <h2>Request your balance</h2>
           <p>
-            Submit a payout request for your available balance. Admin approval is required before payment.
+            Available to request: <strong>${availableBalance}</strong>
+          </p>
+          <p>
+            Pending or approved payout requests are already reserved and are not
+            counted as available money.
           </p>
         </div>
 
@@ -244,13 +326,19 @@ export default function WalletPage() {
               <div className="transactionIcon">🏦</div>
 
               <div>
-                <strong>Payout request</strong>
-                <p>{payout.createdAt ? new Date(payout.createdAt).toLocaleString() : "Recently"}</p>
-                <small>Status: {payout.status || "pending"}</small>
+                <strong>
+                  {payout.status === "paid" ? "Payout Sent" : "Payout Request"}
+                </strong>
+                <p>
+                  {payout.createdAt
+                    ? new Date(payout.createdAt).toLocaleString()
+                    : "Recently"}
+                </p>
+                <small>Status: {String(payout.status || "pending").toUpperCase()}</small>
               </div>
 
               <div className={`amount ${payout.status || "pending"}`}>
-                ${Number(payout.amount || 0)}
+                {payout.status === "paid" ? "-" : ""}${Number(payout.amount || 0)}
               </div>
             </div>
           ))
@@ -259,43 +347,49 @@ export default function WalletPage() {
 
       <section className="history">
         <p className="eyebrow">Transaction History</p>
-        <h2>Ride Activity</h2>
+        <h2>Wallet Activity</h2>
 
-        {bookings.length === 0 ? (
+        {walletActivity.length === 0 ? (
           <div className="emptyCard">
             <h3>No wallet activity yet</h3>
-            <p>Your ride earnings will appear here when passengers book and complete trips.</p>
+            <p>
+              Completed ride earnings and paid payouts will appear here.
+            </p>
           </div>
         ) : (
-          bookings.map((booking) => {
-            const amount = Number(booking.price || 0) * Number(booking.seatsBooked || 1);
-            const completed = booking.status === "completed";
+          walletActivity.map((activity) => (
+            <div key={activity.id} className="transaction">
+              <div className="transactionIcon">{activity.icon}</div>
 
-            return (
-              <div key={booking.id} className="transaction">
-                <div className="transactionIcon">{completed ? "✅" : "⏳"}</div>
-
-                <div>
-                  <strong>
-                    {completed ? "Ride completed" : "Ride payment pending"}
-                  </strong>
-                  <p>
-                    {booking.from || "Origin"} → {booking.to || "Destination"}
-                  </p>
-                  <small>{booking.passengerEmail || "Passenger"}</small>
-                </div>
-
-                <div className={completed ? "amount good" : "amount pending"}>
-                  +${amount}
-                </div>
+              <div>
+                <strong>{activity.title}</strong>
+                <p>{activity.subtitle}</p>
+                <small>
+                  {activity.detail}
+                  {activity.date
+                    ? ` • ${new Date(activity.date).toLocaleString()}`
+                    : ""}
+                </small>
               </div>
-            );
-          })
+
+              <div
+                className={
+                  activity.sign === "+"
+                    ? "amount good"
+                    : "amount paidOut"
+                }
+              >
+                {activity.sign}${activity.amount}
+              </div>
+            </div>
+          ))
         )}
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .page {
           min-height: 100vh;
@@ -411,7 +505,7 @@ export default function WalletPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(3, 1fr);
           gap: 14px;
           margin-bottom: 18px;
         }
@@ -472,6 +566,10 @@ export default function WalletPage() {
           line-height: 1.5;
         }
 
+        .payoutCard strong {
+          color: #22c55e;
+        }
+
         .payoutCard button {
           padding: 16px 22px;
           border-radius: 999px;
@@ -526,8 +624,7 @@ export default function WalletPage() {
         }
 
         .amount.good,
-        .amount.approved,
-        .amount.paid {
+        .amount.approved {
           color: #22c55e;
         }
 
@@ -536,6 +633,11 @@ export default function WalletPage() {
         }
 
         .amount.rejected {
+          color: #fca5a5;
+        }
+
+        .amount.paid,
+        .amount.paidOut {
           color: #fca5a5;
         }
 
