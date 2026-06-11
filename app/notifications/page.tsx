@@ -100,6 +100,7 @@ export default function NotificationsPage() {
     if (type === "review") return "⭐";
     if (type === "verification") return "🛡️";
     if (type === "payment") return "💳";
+    if (type === "payout") return "🏦";
     return "🔔";
   }
 
@@ -124,6 +125,14 @@ export default function NotificationsPage() {
 
   function getNotificationUrl(notification: NotificationItem) {
     if (notification.actionUrl) return notification.actionUrl;
+
+    if (notification.type === "payout" || notification.type === "payment") {
+      return "/wallet";
+    }
+
+    if (notification.type === "verification") {
+      return "/driver-verification";
+    }
 
     if (notification.type === "message") {
       if (notification.chatId) {
@@ -251,8 +260,8 @@ export default function NotificationsPage() {
             </h1>
 
             <p className="subtitle">
-              Track bookings, messages, ride updates, reviews, account alerts,
-              and important RoadLink activity.
+              Track bookings, messages, ride updates, reviews, payout updates,
+              verification alerts, and important RoadLink activity.
             </p>
           </div>
 
@@ -304,7 +313,8 @@ export default function NotificationsPage() {
               <h3>No notifications yet</h3>
 
               <p>
-                Bookings, messages, ride updates and reviews will appear here.
+                Bookings, messages, ride updates, payouts, verification updates,
+                and reviews will appear here.
               </p>
 
               <Link href="/dashboard" className="mainButton">
@@ -362,6 +372,7 @@ export default function NotificationsPage() {
         .page {
           min-height: 100vh;
           padding: 24px;
+          padding-bottom: 110px;
           color: white;
           font-family: Arial, sans-serif;
           background:
@@ -427,7 +438,8 @@ export default function NotificationsPage() {
           letter-spacing: -1px;
         }
 
-        h1 span {
+        h1 span,
+        h2 {
           color: #22c55e;
         }
 
@@ -676,6 +688,7 @@ export default function NotificationsPage() {
         @media (max-width: 700px) {
           .page {
             padding: 16px;
+            padding-bottom: 110px;
           }
 
           .hero {
