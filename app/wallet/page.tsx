@@ -7,6 +7,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,
   collection,
+  doc,
   onSnapshot,
   query,
   where,
@@ -14,7 +15,6 @@ import {
 
 type Booking = {
   id: string;
-  driverId?: string;
   passengerEmail?: string;
   from?: string;
   to?: string;
@@ -27,9 +27,6 @@ type Booking = {
 
 type PayoutRequest = {
   id: string;
-  userId?: string;
-  driverEmail?: string;
-  email?: string;
   amount?: number;
   status?: "pending" | "approved" | "rejected" | "paid";
   createdAt?: string;
@@ -37,15 +34,29 @@ type PayoutRequest = {
   paidAt?: string;
 };
 
+type BankingInfo = {
+  accountHolder?: string;
+  bankName?: string;
+  routingNumber?: string;
+  accountNumberLast4?: string;
+  payoutMethod?: string;
+};
+
+type UserProfile = {
+  banking?: BankingInfo;
+};
+
 export default function WalletPage() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [banking, setBanking] = useState<BankingInfo>({});
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [message, setMessage] = useState("Loading wallet...");
   const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
+    let unsubscribeUser: (() => void) | undefined;
     let unsubscribeBookings: (() => void) | undefined;
     let unsubscribePayouts: (() => void) | undefined;
 
@@ -53,6 +64,7 @@ export default function WalletPage() {
       if (!user) {
         setUserId("");
         setUserEmail("");
+        setBanking({});
         setBookings([]);
         setPayouts([]);
         setMessage("Please sign in to view your wallet.");
@@ -62,6 +74,15 @@ export default function WalletPage() {
       setUserId(user.uid);
       setUserEmail(user.email || "");
       setMessage("");
+
+      unsubscribeUser = onSnapshot(
+        doc(db, "users", user.uid),
+        (snapshot) => {
+          const data = snapshot.data() as UserProfile | undefined;
+          setBanking(data?.banking || {});
+        },
+        (error) => setMessage(error.message)
+      );
 
       unsubscribeBookings = onSnapshot(
         query(collection(db, "bookings"), where("driverId", "==", user.uid)),
@@ -96,61 +117,81 @@ export default function WalletPage() {
 
     return () => {
       unsubscribeAuth();
+      if (unsubscribeUser) unsubscribeUser();
       if (unsubscribeBookings) unsubscribeBookings();
       if (unsubscribePayouts) unsubscribePayouts();
     };
   }, []);
 
-  const completedBookings = useMemo(() => {
-    return bookings.filter((item) => item.status === "completed");
-  }, [bookings]);
+  const completedBookings = useMemo(
+    () => bookings.filter((item) => item.status === "completed"),
+    [bookings]
+  );
 
-  const pendingBookings = useMemo(() => {
-    return bookings.filter(
-      (item) =>
-        item.status === "reserved" ||
-        item.status === "confirmed" ||
-        item.status === "pending"
-    );
-  }, [bookings]);
+  const pendingBookings = useMemo(
+    () =>
+      bookings.filter(
+        (item) =>
+          item.status === "reserved" ||
+          item.status === "confirmed" ||
+          item.status === "pending"
+      ),
+    [bookings]
+  );
 
-  const lifetimeEarnings = useMemo(() => {
-    return completedBookings.reduce((total, item) => {
-      return total + Number(item.price || 0) * Number(item.seatsBooked || 1);
-    }, 0);
-  }, [completedBookings]);
+  const lifetimeEarnings = useMemo(
+    () =>
+      completedBookings.reduce(
+        (total, item) =>
+          total + Number(item.price || 0) * Number(item.seatsBooked || 1),
+        0
+      ),
+    [completedBookings]
+  );
 
-  const pendingBalance = useMemo(() => {
-    return pendingBookings.reduce((total, item) => {
-      return total + Number(item.price || 0) * Number(item.seatsBooked || 1);
-    }, 0);
-  }, [pendingBookings]);
+  const pendingBalance = useMemo(
+    () =>
+      pendingBookings.reduce(
+        (total, item) =>
+          total + Number(item.price || 0) * Number(item.seatsBooked || 1),
+        0
+      ),
+    [pendingBookings]
+  );
 
-  const roadLinkFee = useMemo(() => {
-    return Math.round(lifetimeEarnings * 0.12);
-  }, [lifetimeEarnings]);
+  const roadLinkFee = useMemo(
+    () => Math.round(lifetimeEarnings * 0.12),
+    [lifetimeEarnings]
+  );
 
-  const totalPaidOut = useMemo(() => {
-    return payouts
-      .filter((item) => item.status === "paid")
-      .reduce((total, item) => total + Number(item.amount || 0), 0);
-  }, [payouts]);
+  const totalPaidOut = useMemo(
+    () =>
+      payouts
+        .filter((item) => item.status === "paid")
+        .reduce((total, item) => total + Number(item.amount || 0), 0),
+    [payouts]
+  );
 
-  const activePayoutRequests = useMemo(() => {
-    return payouts
-      .filter((item) => item.status === "pending" || item.status === "approved")
-      .reduce((total, item) => total + Number(item.amount || 0), 0);
-  }, [payouts]);
+  const activePayoutRequests = useMemo(
+    () =>
+      payouts
+        .filter((item) => item.status === "pending" || item.status === "approved")
+        .reduce((total, item) => total + Number(item.amount || 0), 0),
+    [payouts]
+  );
 
-  const currentBalance = useMemo(() => {
-    return Math.max(lifetimeEarnings - roadLinkFee - totalPaidOut, 0);
-  }, [lifetimeEarnings, roadLinkFee, totalPaidOut]);
+  const currentBalance = Math.max(
+    lifetimeEarnings - roadLinkFee - totalPaidOut,
+    0
+  );
 
-  const availableBalance = useMemo(() => {
-    return Math.max(currentBalance - activePayoutRequests, 0);
-  }, [currentBalance, activePayoutRequests]);
-
+  const availableBalance = Math.max(currentBalance - activePayoutRequests, 0);
   const latestPayout = payouts[0];
+
+  const bankReady =
+    Boolean(banking.accountHolder) &&
+    Boolean(banking.bankName) &&
+    Boolean(banking.accountNumberLast4);
 
   const walletActivity = useMemo(() => {
     const rideActivity = completedBookings.map((booking) => {
@@ -192,6 +233,11 @@ export default function WalletPage() {
       return;
     }
 
+    if (!bankReady) {
+      setMessage("Please add your banking information before requesting a payout.");
+      return;
+    }
+
     if (availableBalance <= 0) {
       setMessage("No available balance to request.");
       return;
@@ -218,6 +264,10 @@ export default function WalletPage() {
         driverEmail: userEmail,
         amount: availableBalance,
         status: "pending",
+        bankName: banking.bankName || "",
+        accountHolder: banking.accountHolder || "",
+        accountNumberLast4: banking.accountNumberLast4 || "",
+        payoutMethod: banking.payoutMethod || "manual_bank_transfer",
         createdAt: now,
         updatedAt: now,
       });
@@ -246,6 +296,7 @@ export default function WalletPage() {
           <Link href="/profile" className="miniButton">Profile</Link>
           <Link href="/dashboard/driver" className="miniButton">Driver Dashboard</Link>
           <Link href="/my-rides" className="miniButton">My Rides</Link>
+          <Link href="/wallet/settings" className="miniButton">Banking</Link>
         </div>
 
         <p className="eyebrow">RoadLink Wallet</p>
@@ -267,6 +318,34 @@ export default function WalletPage() {
 
       {message && <p className="message">{message}</p>}
 
+      <section className="bankCard">
+        <div>
+          <p className="eyebrow">Bank Account</p>
+          <h2>{bankReady ? "Ready for payouts" : "Banking needed"}</h2>
+
+          <div className="bankRows">
+            <BankInfo label="Account Holder" value={banking.accountHolder || "Not added"} />
+            <BankInfo label="Bank Name" value={banking.bankName || "Not added"} />
+            <BankInfo
+              label="Account"
+              value={banking.accountNumberLast4 ? `****${banking.accountNumberLast4}` : "Not added"}
+            />
+            <BankInfo
+              label="Payout Method"
+              value={
+                banking.payoutMethod === "stripe_connect_pending"
+                  ? "Stripe Connect Coming Soon"
+                  : "Manual Bank Transfer"
+              }
+            />
+          </div>
+        </div>
+
+        <Link href="/wallet/settings" className="manageButton">
+          Manage Banking
+        </Link>
+      </section>
+
       <section className="stats">
         <Metric icon="💰" label="Lifetime Earnings" value={`$${lifetimeEarnings}`} />
         <Metric icon="🏦" label="Total Paid Out" value={`$${totalPaidOut}`} />
@@ -281,7 +360,9 @@ export default function WalletPage() {
           <p className="eyebrow">Payout Status</p>
           <h2>Request your balance</h2>
           <p>Available to request: <strong>${availableBalance}</strong></p>
-          <p>Pending or approved payout requests are already reserved and are not counted as available money.</p>
+          <p>
+            Pending or approved payout requests are already reserved and are not counted as available money.
+          </p>
         </div>
 
         <button onClick={requestPayout} disabled={requesting || availableBalance <= 0}>
@@ -365,6 +446,7 @@ export default function WalletPage() {
 
         .hero,
         .stats,
+        .bankCard,
         .payoutCard,
         .history {
           max-width: 860px;
@@ -374,6 +456,7 @@ export default function WalletPage() {
 
         .hero,
         .metric,
+        .bankCard,
         .payoutCard,
         .history,
         .transaction,
@@ -461,6 +544,52 @@ export default function WalletPage() {
           margin: 0 auto 18px;
           color: #22c55e;
           font-weight: 900;
+        }
+
+        .bankCard {
+          border-radius: 30px;
+          padding: 26px;
+          margin-bottom: 18px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 18px;
+          align-items: center;
+        }
+
+        .bankRows {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-top: 16px;
+        }
+
+        .bankInfo {
+          padding: 14px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .bankInfo span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .bankInfo strong {
+          overflow-wrap: anywhere;
+        }
+
+        .manageButton {
+          padding: 16px 22px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+          text-align: center;
         }
 
         .stats {
@@ -610,6 +739,7 @@ export default function WalletPage() {
           }
 
           .hero,
+          .bankCard,
           .payoutCard,
           .history {
             padding: 24px;
@@ -621,6 +751,8 @@ export default function WalletPage() {
           }
 
           .stats,
+          .bankCard,
+          .bankRows,
           .payoutCard,
           .transaction {
             grid-template-columns: 1fr;
@@ -653,6 +785,15 @@ function Metric({
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
       <div className="metricValue">{value}</div>
+    </div>
+  );
+}
+
+function BankInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bankInfo">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
