@@ -2,28 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { auth, db } from "../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
 import {
-  addDoc,
   collection,
+  doc,
   onSnapshot,
   query,
-  where,
+  setDoc,
+  updateDoc,
 } from "firebase/firestore";
+import { db } from "../../../lib/firebase";
 
-type Booking = {
-  id: string;
-  driverId?: string;
-  passengerEmail?: string;
-  from?: string;
-  to?: string;
-  status?: string;
-  price?: number;
-  seatsBooked?: number;
-  createdAt?: string;
-  completedAt?: string;
-};
+type PayoutStatus = "pending" | "approved" | "rejected" | "paid";
 
 type PayoutRequest = {
   id: string;
@@ -31,393 +20,332 @@ type PayoutRequest = {
   driverEmail?: string;
   email?: string;
   amount?: number;
-  status?: "pending" | "approved" | "rejected" | "paid";
+  status?: PayoutStatus;
   createdAt?: string;
   updatedAt?: string;
+  reviewedAt?: string;
   paidAt?: string;
+  note?: string;
 };
 
-export default function WalletPage() {
-  const [userId, setUserId] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>([]);
+export default function AdminPayoutsPage() {
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
-  const [message, setMessage] = useState("Loading wallet...");
-  const [requesting, setRequesting] = useState(false);
+  const [selected, setSelected] = useState<PayoutRequest | null>(null);
+  const [message, setMessage] = useState("Loading payout requests...");
+  const [loadingId, setLoadingId] = useState("");
 
   useEffect(() => {
-    let unsubscribeBookings: (() => void) | undefined;
-    let unsubscribePayouts: (() => void) | undefined;
+    const payoutsQuery = query(collection(db, "payoutRequests"));
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        setUserId("");
-        setUserEmail("");
-        setBookings([]);
-        setPayouts([]);
-        setMessage("Please sign in to view your wallet.");
-        return;
-      }
+    const unsubscribe = onSnapshot(
+      payoutsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data(),
+        })) as PayoutRequest[];
 
-      setUserId(user.uid);
-      setUserEmail(user.email || "");
-      setMessage("");
+        data.sort((a, b) =>
+          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+        );
 
-      unsubscribeBookings = onSnapshot(
-        query(collection(db, "bookings"), where("driverId", "==", user.uid)),
-        (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
-          })) as Booking[];
+        setPayouts(data);
 
-          setBookings(data);
-        },
-        (error) => setMessage(error.message)
-      );
+        setSelected((current) => {
+          if (!current) return data[0] || null;
+          return data.find((item) => item.id === current.id) || data[0] || null;
+        });
 
-      unsubscribePayouts = onSnapshot(
-        query(collection(db, "payoutRequests"), where("userId", "==", user.uid)),
-        (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
-          })) as PayoutRequest[];
+        setMessage("");
+      },
+      (error) => setMessage(error.message)
+    );
 
-          data.sort((a, b) =>
-            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-          );
-
-          setPayouts(data);
-        },
-        (error) => setMessage(error.message)
-      );
-    });
-
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeBookings) unsubscribeBookings();
-      if (unsubscribePayouts) unsubscribePayouts();
-    };
+    return () => unsubscribe();
   }, []);
 
-  const completedBookings = useMemo(() => {
-    return bookings.filter((item) => item.status === "completed");
-  }, [bookings]);
+  const pendingCount = useMemo(
+    () => payouts.filter((item) => item.status === "pending").length,
+    [payouts]
+  );
 
-  const pendingBookings = useMemo(() => {
-    return bookings.filter(
-      (item) =>
-        item.status === "reserved" ||
-        item.status === "confirmed" ||
-        item.status === "pending"
-    );
-  }, [bookings]);
+  const approvedCount = useMemo(
+    () => payouts.filter((item) => item.status === "approved").length,
+    [payouts]
+  );
 
-  const lifetimeEarnings = useMemo(() => {
-    return completedBookings.reduce((total, item) => {
-      return total + Number(item.price || 0) * Number(item.seatsBooked || 1);
-    }, 0);
-  }, [completedBookings]);
+  const paidCount = useMemo(
+    () => payouts.filter((item) => item.status === "paid").length,
+    [payouts]
+  );
 
-  const pendingBalance = useMemo(() => {
-    return pendingBookings.reduce((total, item) => {
-      return total + Number(item.price || 0) * Number(item.seatsBooked || 1);
-    }, 0);
-  }, [pendingBookings]);
+  const rejectedCount = useMemo(
+    () => payouts.filter((item) => item.status === "rejected").length,
+    [payouts]
+  );
 
-  const roadLinkFee = useMemo(() => {
-    return Math.round(lifetimeEarnings * 0.12);
-  }, [lifetimeEarnings]);
+  const totalPending = useMemo(
+    () =>
+      payouts
+        .filter((item) => item.status === "pending")
+        .reduce((total, item) => total + Number(item.amount || 0), 0),
+    [payouts]
+  );
 
-  const totalPaidOut = useMemo(() => {
-    return payouts
-      .filter((item) => item.status === "paid")
-      .reduce((total, item) => total + Number(item.amount || 0), 0);
-  }, [payouts]);
+  const totalPaid = useMemo(
+    () =>
+      payouts
+        .filter((item) => item.status === "paid")
+        .reduce((total, item) => total + Number(item.amount || 0), 0),
+    [payouts]
+  );
 
-  const activePayoutRequests = useMemo(() => {
-    return payouts
-      .filter((item) => item.status === "pending" || item.status === "approved")
-      .reduce((total, item) => total + Number(item.amount || 0), 0);
-  }, [payouts]);
-
-  const currentBalance = useMemo(() => {
-    return Math.max(lifetimeEarnings - roadLinkFee - totalPaidOut, 0);
-  }, [lifetimeEarnings, roadLinkFee, totalPaidOut]);
-
-  const availableBalance = useMemo(() => {
-    return Math.max(currentBalance - activePayoutRequests, 0);
-  }, [currentBalance, activePayoutRequests]);
-
-  const latestPayout = payouts[0];
-
-  const walletActivity = useMemo(() => {
-    const rideActivity = completedBookings.map((booking) => {
-      const amount = Number(booking.price || 0) * Number(booking.seatsBooked || 1);
-
-      return {
-        id: `booking-${booking.id}`,
-        type: "ride",
-        title: "Ride Completed",
-        subtitle: `${booking.from || "Origin"} → ${booking.to || "Destination"}`,
-        detail: booking.passengerEmail || "Passenger",
-        amount,
-        sign: "+",
-        status: "completed",
-        date: booking.completedAt || booking.createdAt || "",
-        icon: "✅",
-      };
-    });
-
-    const payoutActivity = payouts
-      .filter((payout) => payout.status === "paid")
-      .map((payout) => {
-        return {
-          id: `payout-${payout.id}`,
-          type: "payout",
-          title: "Payout Sent",
-          subtitle: "Money sent to driver",
-          detail: "PAID",
-          amount: Number(payout.amount || 0),
-          sign: "-",
-          status: "paid",
-          date: payout.paidAt || payout.updatedAt || payout.createdAt || "",
-          icon: "🏦",
-        };
-      });
-
-    return [...rideActivity, ...payoutActivity].sort((a, b) =>
-      String(b.date || "").localeCompare(String(a.date || ""))
-    );
-  }, [completedBookings, payouts]);
-
-  async function requestPayout() {
-    if (!userId) {
-      setMessage("Please sign in first.");
-      return;
-    }
-
-    if (availableBalance <= 0) {
-      setMessage("No available balance to request.");
-      return;
-    }
-
-    const hasActiveRequest = payouts.some(
-      (item) => item.status === "pending" || item.status === "approved"
-    );
-
-    if (hasActiveRequest) {
-      setMessage("You already have an active payout request.");
+  async function updatePayoutStatus(item: PayoutRequest, status: PayoutStatus) {
+    if (!item.id) {
+      setMessage("Missing payout request ID.");
       return;
     }
 
     try {
-      setRequesting(true);
+      setLoadingId(item.id);
       setMessage("");
 
       const now = new Date().toISOString();
 
-      await addDoc(collection(db, "payoutRequests"), {
-        userId,
-        email: userEmail,
-        driverEmail: userEmail,
-        amount: availableBalance,
-        status: "pending",
-        createdAt: now,
+      await updateDoc(doc(db, "payoutRequests", item.id), {
+        status,
+        reviewedAt: now,
         updatedAt: now,
+        ...(status === "paid" ? { paidAt: now } : {}),
       });
 
-      await addDoc(collection(db, "notifications"), {
-        userId,
-        type: "payout",
-        title: "Payout Requested",
-        message: `Your payout request for $${availableBalance} was submitted.`,
-        read: false,
-        createdAt: now,
-      });
+      if (item.userId) {
+        await setDoc(
+          doc(db, "notifications", `${item.userId}-payout-${Date.now()}`),
+          {
+            userId: item.userId,
+            type: "payout",
+            title: "Payout Update",
+            message:
+              status === "approved"
+                ? `Your payout request for $${Number(item.amount || 0)} was approved.`
+                : status === "paid"
+                ? `Your payout request for $${Number(item.amount || 0)} was marked as paid.`
+                : status === "rejected"
+                ? `Your payout request for $${Number(item.amount || 0)} was rejected.`
+                : `Your payout request for $${Number(item.amount || 0)} is pending.`,
+            read: false,
+            createdAt: now,
+          },
+          { merge: true }
+        );
+      }
 
-      setMessage("Payout request submitted successfully.");
+      setSelected((current) =>
+        current?.id === item.id
+          ? {
+              ...current,
+              status,
+              reviewedAt: now,
+              updatedAt: now,
+              ...(status === "paid" ? { paidAt: now } : {}),
+            }
+          : current
+      );
+
+      setMessage(`Payout ${status} successfully.`);
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
-      setRequesting(false);
+      setLoadingId("");
+    }
+  }
+
+  function statusText(status?: PayoutStatus) {
+    if (status === "approved") return "Approved";
+    if (status === "rejected") return "Rejected";
+    if (status === "paid") return "Paid";
+    return "Pending";
+  }
+
+  function dateText(value?: string) {
+    if (!value) return "Not available";
+
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return "Not available";
     }
   }
 
   return (
     <main className="page">
-      <section className="hero">
+      <section className="container">
         <div className="topNav">
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
-          <Link href="/dashboard/driver" className="miniButton">
-            Driver Dashboard
-          </Link>
-          <Link href="/my-rides" className="miniButton">
-            My Rides
-          </Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/admin/verifications" className="miniButton">Verifications</Link>
+          <Link href="/wallet" className="miniButton">Wallet</Link>
         </div>
 
-        <p className="eyebrow">RoadLink Wallet</p>
-        <h1>
-          Driver <span>Wallet</span>
-        </h1>
-        <p className="subtitle">
-          Track completed earnings, RoadLink fees, paid payouts, and current
-          available balance.
-        </p>
-
-        <div className="balanceBox">
-          <span>Current Balance</span>
-          <strong>${currentBalance}</strong>
-          <small>
-            {latestPayout
-              ? `Latest payout: ${String(
-                  latestPayout.status || "pending"
-                ).toUpperCase()}`
-              : "No payout requests yet"}
-          </small>
-        </div>
-      </section>
-
-      {message && <p className="message">{message}</p>}
-
-      <section className="stats">
-        <Metric icon="💰" label="Lifetime Earnings" value={`$${lifetimeEarnings}`} />
-        <Metric icon="🏦" label="Total Paid Out" value={`$${totalPaidOut}`} />
-        <Metric icon="✅" label="Current Balance" value={`$${currentBalance}`} />
-        <Metric icon="⏳" label="Pending Balance" value={`$${pendingBalance}`} />
-        <Metric icon="🧾" label="RoadLink Fee" value={`$${roadLinkFee}`} />
-        <Metric icon="🚗" label="Completed Trips" value={String(completedBookings.length)} />
-      </section>
-
-      <section className="payoutCard">
-        <div>
-          <p className="eyebrow">Payout Status</p>
-          <h2>Request your balance</h2>
-          <p>
-            Available to request: <strong>${availableBalance}</strong>
-          </p>
-          <p>
-            Pending or approved payout requests are already reserved and are not
-            counted as available money.
-          </p>
-        </div>
-
-        <button onClick={requestPayout} disabled={requesting || availableBalance <= 0}>
-          {requesting ? "Requesting..." : "Request Payout"}
-        </button>
-      </section>
-
-      <section className="history">
-        <p className="eyebrow">Payout Requests</p>
-        <h2>Request History</h2>
-
-        {payouts.length === 0 ? (
-          <div className="emptyCard">
-            <h3>No payout requests yet</h3>
-            <p>Your payout requests will appear here.</p>
-          </div>
-        ) : (
-          payouts.map((payout) => (
-            <div key={payout.id} className="transaction">
-              <div className="transactionIcon">🏦</div>
-
-              <div>
-                <strong>
-                  {payout.status === "paid" ? "Payout Sent" : "Payout Request"}
-                </strong>
-                <p>
-                  {payout.createdAt
-                    ? new Date(payout.createdAt).toLocaleString()
-                    : "Recently"}
-                </p>
-                <small>Status: {String(payout.status || "pending").toUpperCase()}</small>
-              </div>
-
-              <div className={`amount ${payout.status || "pending"}`}>
-                {payout.status === "paid" ? "-" : ""}${Number(payout.amount || 0)}
-              </div>
-            </div>
-          ))
-        )}
-      </section>
-
-      <section className="history">
-        <p className="eyebrow">Transaction History</p>
-        <h2>Wallet Activity</h2>
-
-        {walletActivity.length === 0 ? (
-          <div className="emptyCard">
-            <h3>No wallet activity yet</h3>
-            <p>
-              Completed ride earnings and paid payouts will appear here.
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Admin</p>
+            <h1>Payout <span>Dashboard</span></h1>
+            <p className="subtitle">
+              Review driver payout requests, approve payouts, reject requests, and mark payouts as paid.
             </p>
           </div>
-        ) : (
-          walletActivity.map((activity) => (
-            <div key={activity.id} className="transaction">
-              <div className="transactionIcon">{activity.icon}</div>
 
-              <div>
-                <strong>{activity.title}</strong>
-                <p>{activity.subtitle}</p>
-                <small>
-                  {activity.detail}
-                  {activity.date
-                    ? ` • ${new Date(activity.date).toLocaleString()}`
-                    : ""}
-                </small>
-              </div>
+          <div className="heroIcon">💰</div>
+        </section>
 
-              <div
-                className={
-                  activity.sign === "+"
-                    ? "amount good"
-                    : "amount paidOut"
-                }
-              >
-                {activity.sign}${activity.amount}
+        {message && <p className="message">{message}</p>}
+
+        <section className="stats">
+          <Metric icon="⏳" label="Pending" value={String(pendingCount)} />
+          <Metric icon="✅" label="Approved" value={String(approvedCount)} />
+          <Metric icon="🏦" label="Paid" value={String(paidCount)} />
+          <Metric icon="⛔" label="Rejected" value={String(rejectedCount)} />
+          <Metric icon="💵" label="Pending $" value={`$${totalPending}`} />
+          <Metric icon="💸" label="Paid $" value={`$${totalPaid}`} />
+        </section>
+
+        <section className="adminGrid">
+          <div className="requestsCard">
+            <p className="eyebrow">Requests</p>
+            <h2>Payout Requests</h2>
+
+            {payouts.length === 0 ? (
+              <div className="empty">
+                <h3>No payout requests yet</h3>
+                <p>When drivers request payouts, they will appear here.</p>
               </div>
-            </div>
-          ))
-        )}
+            ) : (
+              <div className="requestList">
+                {payouts.map((item) => (
+                  <button
+                    key={item.id}
+                    className={selected?.id === item.id ? "request activeRequest" : "request"}
+                    onClick={() => setSelected(item)}
+                  >
+                    <div>
+                      <strong>{item.driverEmail || item.email || item.userId || "RoadLink Driver"}</strong>
+                      <span>{dateText(item.createdAt)}</span>
+                    </div>
+
+                    <em className={`status ${item.status || "pending"}`}>
+                      {statusText(item.status)}
+                    </em>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="detailsCard">
+            {selected ? (
+              <>
+                <div className="sectionHeader">
+                  <div>
+                    <p className="eyebrow">Selected Request</p>
+                    <h2>{selected.driverEmail || selected.email || "RoadLink Driver"}</h2>
+                  </div>
+
+                  <span className={`statusPill ${selected.status || "pending"}`}>
+                    {statusText(selected.status)}
+                  </span>
+                </div>
+
+                <div className="amountBox">
+                  <span>Requested Amount</span>
+                  <strong>${Number(selected.amount || 0)}</strong>
+                </div>
+
+                <div className="infoGrid">
+                  <Info label="User ID" value={selected.userId || "Not available"} />
+                  <Info label="Created" value={dateText(selected.createdAt)} />
+                  <Info label="Reviewed" value={dateText(selected.reviewedAt)} />
+                  <Info label="Paid At" value={dateText(selected.paidAt)} />
+                  <Info label="Request ID" value={selected.id} />
+                  <Info label="Status" value={statusText(selected.status)} />
+                </div>
+
+                <div className="actionRow">
+                  <button
+                    className="approveButton"
+                    onClick={() => updatePayoutStatus(selected, "approved")}
+                    disabled={loadingId === selected.id}
+                  >
+                    {loadingId === selected.id ? "Working..." : "Approve"}
+                  </button>
+
+                  <button
+                    className="paidButton"
+                    onClick={() => updatePayoutStatus(selected, "paid")}
+                    disabled={loadingId === selected.id}
+                  >
+                    {loadingId === selected.id ? "Working..." : "Mark Paid"}
+                  </button>
+
+                  <button
+                    className="rejectButton"
+                    onClick={() => updatePayoutStatus(selected, "rejected")}
+                    disabled={loadingId === selected.id}
+                  >
+                    {loadingId === selected.id ? "Working..." : "Reject"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="empty">
+                <h3>Select a payout</h3>
+                <p>Choose a payout request to review.</p>
+              </div>
+            )}
+          </div>
+        </section>
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 34%),
             radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 20px;
-          padding-bottom: 110px;
+          padding: 24px;
           font-family: Arial, sans-serif;
         }
 
-        .hero,
-        .stats,
-        .payoutCard,
-        .history {
-          max-width: 860px;
-          margin-left: auto;
-          margin-right: auto;
+        .container {
+          max-width: 1180px;
+          margin: auto;
+        }
+
+        .topNav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+
+        .miniButton {
+          padding: 11px 18px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
         }
 
         .hero,
         .metric,
-        .payoutCard,
-        .history,
-        .transaction,
-        .emptyCard {
+        .requestsCard,
+        .detailsCard {
           background: rgba(8, 13, 25, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -426,25 +354,12 @@ export default function WalletPage() {
 
         .hero {
           border-radius: 34px;
-          padding: 30px;
-          margin-bottom: 18px;
-        }
-
-        .topNav {
+          padding: 34px;
+          margin-bottom: 22px;
           display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 28px;
-        }
-
-        .miniButton {
-          padding: 11px 16px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          text-decoration: none;
-          font-weight: 900;
+          justify-content: space-between;
+          align-items: center;
+          gap: 24px;
         }
 
         .eyebrow {
@@ -457,67 +372,64 @@ export default function WalletPage() {
         }
 
         h1 {
-          font-size: 54px;
+          font-size: 58px;
           line-height: 1;
-          margin: 0 0 14px;
+          margin: 0 0 16px;
         }
 
         h1 span,
         h2,
-        .balanceBox strong,
-        .metricValue {
+        .metricValue,
+        .amountBox strong {
           color: #22c55e;
+        }
+
+        h2 {
+          font-size: 32px;
+          margin: 0 0 20px;
         }
 
         .subtitle {
+          max-width: 700px;
           color: #a1a1aa;
           font-size: 18px;
           line-height: 1.5;
+          margin: 0;
         }
 
-        .balanceBox {
-          margin-top: 24px;
-          padding: 24px;
-          border-radius: 26px;
-          background: rgba(34,197,94,0.1);
+        .heroIcon {
+          min-width: 92px;
+          height: 92px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
-        }
-
-        .balanceBox span,
-        .balanceBox small {
-          display: block;
-          color: #a1a1aa;
-          font-weight: 900;
-        }
-
-        .balanceBox strong {
-          display: block;
-          font-size: 54px;
-          margin: 8px 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 42px;
         }
 
         .message {
-          max-width: 860px;
-          margin: 0 auto 18px;
           color: #22c55e;
           font-weight: 900;
+          margin: 16px 0;
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(6, 1fr);
           gap: 14px;
-          margin-bottom: 18px;
+          margin-bottom: 24px;
         }
 
         .metric {
           border-radius: 24px;
-          padding: 20px;
+          padding: 22px;
         }
 
         .metricIcon {
-          width: 44px;
-          height: 44px;
+          width: 46px;
+          height: 46px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
@@ -536,127 +448,218 @@ export default function WalletPage() {
         }
 
         .metricValue {
-          font-size: 26px;
+          font-size: 28px;
           font-weight: 900;
         }
 
-        .payoutCard,
-        .history {
-          border-radius: 30px;
-          padding: 26px;
-          margin-bottom: 18px;
-        }
-
-        .payoutCard {
+        .adminGrid {
           display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 18px;
+          grid-template-columns: 0.9fr 1.4fr;
+          gap: 24px;
+        }
+
+        .requestsCard,
+        .detailsCard {
+          border-radius: 30px;
+          padding: 28px;
+        }
+
+        .requestList {
+          display: grid;
+          gap: 12px;
+        }
+
+        .request {
+          width: 100%;
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
           align-items: center;
+          padding: 16px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+          color: white;
+          cursor: pointer;
+          text-align: left;
         }
 
-        .payoutCard h2,
-        .history h2 {
-          margin: 0 0 10px;
-          font-size: 30px;
+        .activeRequest {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.1);
         }
 
-        .payoutCard p,
-        .emptyCard p {
+        .request strong {
+          display: block;
+          margin-bottom: 6px;
+          overflow-wrap: anywhere;
+        }
+
+        .request span {
           color: #a1a1aa;
-          line-height: 1.5;
+          font-size: 12px;
         }
 
-        .payoutCard strong {
+        .status,
+        .statusPill {
+          border-radius: 999px;
+          padding: 8px 11px;
+          font-style: normal;
+          font-weight: 900;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+
+        .status.pending,
+        .statusPill.pending {
+          color: #fde68a;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
+        }
+
+        .status.approved,
+        .statusPill.approved {
           color: #22c55e;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .payoutCard button {
-          padding: 16px 22px;
+        .status.rejected,
+        .statusPill.rejected {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
+        }
+
+        .status.paid,
+        .statusPill.paid {
+          color: #93c5fd;
+          background: rgba(59,130,246,0.12);
+          border: 1px solid rgba(59,130,246,0.35);
+        }
+
+        .sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+          margin-bottom: 20px;
+        }
+
+        .amountBox {
+          padding: 24px;
+          border-radius: 24px;
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.35);
+          margin-bottom: 20px;
+        }
+
+        .amountBox span {
+          display: block;
+          color: #a1a1aa;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .amountBox strong {
+          font-size: 52px;
+          font-weight: 900;
+        }
+
+        .infoGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .infoBox {
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .infoBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .infoBox strong {
+          overflow-wrap: anywhere;
+          text-transform: capitalize;
+        }
+
+        .actionRow {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 12px;
+        }
+
+        .approveButton,
+        .paidButton,
+        .rejectButton {
+          padding: 17px;
           border-radius: 999px;
           border: none;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
           font-weight: 900;
           cursor: pointer;
         }
 
-        .payoutCard button:disabled {
-          opacity: 0.55;
+        .approveButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .paidButton {
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        }
+
+        .rejectButton {
+          background: linear-gradient(135deg, #ef4444, #b91c1c);
+        }
+
+        button:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
         }
 
-        .transaction {
-          display: grid;
-          grid-template-columns: 50px 1fr auto;
-          gap: 14px;
-          align-items: center;
-          border-radius: 20px;
-          padding: 16px;
-          margin-top: 12px;
+        .empty {
+          padding: 26px;
+          border-radius: 22px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .transactionIcon {
-          width: 50px;
-          height: 50px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
+        .empty h3 {
+          margin: 0 0 8px;
           font-size: 24px;
         }
 
-        .transaction strong {
-          display: block;
-          margin-bottom: 5px;
-        }
-
-        .transaction p,
-        .transaction small {
+        .empty p {
           color: #a1a1aa;
+          line-height: 1.5;
           margin: 0;
-          overflow-wrap: anywhere;
         }
 
-        .amount {
-          font-size: 20px;
-          font-weight: 900;
+        @media (max-width: 1100px) {
+          .stats {
+            grid-template-columns: repeat(3, 1fr);
+          }
         }
 
-        .amount.good,
-        .amount.approved {
-          color: #22c55e;
-        }
-
-        .amount.pending {
-          color: #fde68a;
-        }
-
-        .amount.rejected {
-          color: #fca5a5;
-        }
-
-        .amount.paid,
-        .amount.paidOut {
-          color: #fca5a5;
-        }
-
-        .emptyCard {
-          border-radius: 24px;
-          padding: 24px;
-        }
-
-        @media (max-width: 760px) {
+        @media (max-width: 900px) {
           .page {
             padding: 16px;
-            padding-bottom: 110px;
           }
 
-          .hero,
-          .payoutCard,
-          .history {
-            padding: 24px;
-            border-radius: 28px;
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 28px;
           }
 
           h1 {
@@ -664,17 +667,15 @@ export default function WalletPage() {
           }
 
           .stats,
-          .payoutCard,
-          .transaction {
+          .adminGrid,
+          .infoGrid,
+          .actionRow {
             grid-template-columns: 1fr;
           }
 
-          .balanceBox strong {
-            font-size: 44px;
-          }
-
-          .amount {
-            font-size: 24px;
+          .requestsCard,
+          .detailsCard {
+            padding: 24px;
           }
         }
       `}</style>
@@ -696,6 +697,15 @@ function Metric({
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
       <div className="metricValue">{value}</div>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="infoBox">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
