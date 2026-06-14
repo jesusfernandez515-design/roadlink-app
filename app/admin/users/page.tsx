@@ -11,19 +11,17 @@ import {
 } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type UserItem = {
+type UserProfile = {
   id: string;
   name?: string;
   email?: string;
+  role?: string;
   photoURL?: string;
   city?: string;
   state?: string;
-  role?: string;
   verified?: boolean;
   driverVerified?: boolean;
   licenseVerified?: boolean;
-  phoneVerified?: boolean;
-  emailVerified?: boolean;
   suspended?: boolean;
   verificationStatus?: string;
   createdAt?: string;
@@ -31,8 +29,8 @@ type UserItem = {
 };
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<UserItem[]>([]);
-  const [selected, setSelected] = useState<UserItem | null>(null);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [selected, setSelected] = useState<UserProfile | null>(null);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading users...");
   const [loadingId, setLoadingId] = useState("");
@@ -44,7 +42,7 @@ export default function AdminUsersPage() {
         const data = snapshot.docs.map((document) => ({
           id: document.id,
           ...document.data(),
-        })) as UserItem[];
+        })) as UserProfile[];
 
         data.sort((a, b) =>
           String(b.createdAt || b.updatedAt || "").localeCompare(
@@ -53,10 +51,12 @@ export default function AdminUsersPage() {
         );
 
         setUsers(data);
+
         setSelected((current) => {
           if (!current) return data[0] || null;
-          return data.find((item) => item.id === current.id) || data[0] || null;
+          return data.find((user) => user.id === current.id) || data[0] || null;
         });
+
         setMessage("");
       },
       (error) => setMessage(error.message)
@@ -66,17 +66,17 @@ export default function AdminUsersPage() {
   }, []);
 
   const filteredUsers = useMemo(() => {
-    const value = search.toLowerCase().trim();
+    const text = search.toLowerCase().trim();
 
-    if (!value) return users;
+    if (!text) return users;
 
     return users.filter((user) => {
       return (
-        String(user.name || "").toLowerCase().includes(value) ||
-        String(user.email || "").toLowerCase().includes(value) ||
-        String(user.city || "").toLowerCase().includes(value) ||
-        String(user.state || "").toLowerCase().includes(value) ||
-        String(user.id || "").toLowerCase().includes(value)
+        user.name?.toLowerCase().includes(text) ||
+        user.email?.toLowerCase().includes(text) ||
+        user.role?.toLowerCase().includes(text) ||
+        user.city?.toLowerCase().includes(text) ||
+        user.state?.toLowerCase().includes(text)
       );
     });
   }, [users, search]);
@@ -84,11 +84,9 @@ export default function AdminUsersPage() {
   const totalUsers = users.length;
   const verifiedDrivers = users.filter((user) => user.driverVerified).length;
   const suspendedUsers = users.filter((user) => user.suspended).length;
-  const pendingDrivers = users.filter(
-    (user) => user.verificationStatus === "pending"
-  ).length;
+  const members = users.filter((user) => user.role === "member").length;
 
-  async function updateUser(user: UserItem, data: Partial<UserItem>, success: string) {
+  async function updateUser(user: UserProfile, updates: Partial<UserProfile>) {
     try {
       setLoadingId(user.id);
       setMessage("");
@@ -96,13 +94,13 @@ export default function AdminUsersPage() {
       await setDoc(
         doc(db, "users", user.id),
         {
-          ...data,
+          ...updates,
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
       );
 
-      setMessage(success);
+      setMessage("User updated successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
@@ -124,18 +122,17 @@ export default function AdminUsersPage() {
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
           <Link href="/admin/verifications" className="miniButton">Verifications</Link>
           <Link href="/admin/payouts" className="miniButton">Payouts</Link>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Admin</p>
-            <h1>Users <span>Management</span></h1>
+            <h1>User <span>Management</span></h1>
             <p className="subtitle">
-              View users, verify drivers, suspend accounts, reactivate users, and manage platform trust.
+              View users, manage roles, verify drivers, and suspend unsafe accounts.
             </p>
           </div>
 
@@ -145,42 +142,47 @@ export default function AdminUsersPage() {
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="👥" label="Total Users" value={String(totalUsers)} />
-          <Metric icon="🛡️" label="Verified Drivers" value={String(verifiedDrivers)} />
-          <Metric icon="⏳" label="Pending Drivers" value={String(pendingDrivers)} />
+          <Metric icon="👤" label="Total Users" value={String(totalUsers)} />
+          <Metric icon="✅" label="Verified Drivers" value={String(verifiedDrivers)} />
+          <Metric icon="🧑‍💼" label="Members" value={String(members)} />
           <Metric icon="⛔" label="Suspended" value={String(suspendedUsers)} />
-        </section>
-
-        <section className="searchCard">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name, email, city, state, or UID..."
-          />
         </section>
 
         <section className="adminGrid">
           <div className="usersCard">
-            <p className="eyebrow">Users</p>
-            <h2>Registered Accounts</h2>
+            <div className="sectionHeader">
+              <div>
+                <p className="eyebrow">Users</p>
+                <h2>Accounts</h2>
+              </div>
+            </div>
+
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search users..."
+              className="searchInput"
+            />
 
             {filteredUsers.length === 0 ? (
               <div className="empty">
                 <h3>No users found</h3>
-                <p>Try a different search.</p>
+                <p>Try searching by name, email, role, city or state.</p>
               </div>
             ) : (
               <div className="userList">
                 {filteredUsers.map((user) => (
                   <button
                     key={user.id}
-                    className={selected?.id === user.id ? "userRow activeUser" : "userRow"}
+                    className={selected?.id === user.id ? "userButton activeUser" : "userButton"}
                     onClick={() => setSelected(user)}
                   >
                     {user.photoURL ? (
                       <img src={user.photoURL} alt={user.name || "User"} className="avatarImage" />
                     ) : (
-                      <div className="avatar">{(user.name || user.email || "R").charAt(0).toUpperCase()}</div>
+                      <div className="avatar">
+                        {(user.name || user.email || "R").charAt(0).toUpperCase()}
+                      </div>
                     )}
 
                     <div>
@@ -200,50 +202,50 @@ export default function AdminUsersPage() {
           <div className="detailsCard">
             {selected ? (
               <>
-                <div className="sectionHeader">
+                <div className="profileHeader">
+                  {selected.photoURL ? (
+                    <img src={selected.photoURL} alt={selected.name || "User"} className="bigAvatarImage" />
+                  ) : (
+                    <div className="bigAvatar">
+                      {(selected.name || selected.email || "R").charAt(0).toUpperCase()}
+                    </div>
+                  )}
+
                   <div>
                     <p className="eyebrow">Selected User</p>
                     <h2>{selected.name || "RoadLink User"}</h2>
                     <p className="email">{selected.email || "No email"}</p>
                   </div>
-
-                  {selected.photoURL ? (
-                    <img src={selected.photoURL} alt={selected.name || "User"} className="bigAvatarImage" />
-                  ) : (
-                    <div className="bigAvatar">{(selected.name || selected.email || "R").charAt(0).toUpperCase()}</div>
-                  )}
                 </div>
 
                 <div className="infoGrid">
                   <Info label="User ID" value={selected.id} />
                   <Info label="Role" value={selected.role || "member"} />
-                  <Info label="City" value={selected.city || "Not set"} />
-                  <Info label="State" value={selected.state || "Not set"} />
+                  <Info label="Location" value={`${selected.city || ""}${selected.city && selected.state ? ", " : ""}${selected.state || ""}` || "Not added"} />
                   <Info label="Created" value={dateText(selected.createdAt)} />
-                  <Info label="Updated" value={dateText(selected.updatedAt)} />
-                  <Info label="Email Verified" value={selected.emailVerified ? "Yes" : "No"} />
-                  <Info label="Phone Verified" value={selected.phoneVerified ? "Yes" : "No"} />
-                  <Info label="Driver Verified" value={selected.driverVerified ? "Yes" : "No"} />
-                  <Info label="License Verified" value={selected.licenseVerified ? "Yes" : "No"} />
-                  <Info label="Verification Status" value={selected.verificationStatus || "not_submitted"} />
-                  <Info label="Account Status" value={selected.suspended ? "Suspended" : "Active"} />
+                  <Info label="Verification" value={selected.verificationStatus || "not submitted"} />
+                  <Info label="Suspended" value={selected.suspended ? "Yes" : "No"} />
+                </div>
+
+                <div className="badges">
+                  <span className={selected.verified ? "goodBadge" : ""}>Verified</span>
+                  <span className={selected.driverVerified ? "goodBadge" : ""}>Driver Verified</span>
+                  <span className={selected.licenseVerified ? "goodBadge" : ""}>License Verified</span>
+                  <span className={selected.suspended ? "dangerBadge" : ""}>
+                    {selected.suspended ? "Suspended" : "Active"}
+                  </span>
                 </div>
 
                 <div className="actionRow">
                   <button
                     className="approveButton"
                     onClick={() =>
-                      updateUser(
-                        selected,
-                        {
-                          verified: true,
-                          driverVerified: true,
-                          licenseVerified: true,
-                          verificationStatus: "approved",
-                          suspended: false,
-                        },
-                        "User marked as verified driver."
-                      )
+                      updateUser(selected, {
+                        verified: true,
+                        driverVerified: true,
+                        licenseVerified: true,
+                        verificationStatus: "approved",
+                      })
                     }
                     disabled={loadingId === selected.id}
                   >
@@ -251,61 +253,34 @@ export default function AdminUsersPage() {
                   </button>
 
                   <button
-                    className="basicButton"
+                    className="roleButton"
                     onClick={() =>
-                      updateUser(
-                        selected,
-                        {
-                          verified: false,
-                          driverVerified: false,
-                          licenseVerified: false,
-                          verificationStatus: "not_submitted",
-                        },
-                        "Driver verification removed."
-                      )
+                      updateUser(selected, {
+                        role: selected.role === "admin" ? "member" : "admin",
+                      })
                     }
                     disabled={loadingId === selected.id}
                   >
-                    Remove Driver
+                    {selected.role === "admin" ? "Make Member" : "Make Admin"}
                   </button>
 
                   <button
-                    className="rejectButton"
+                    className={selected.suspended ? "restoreButton" : "suspendButton"}
                     onClick={() =>
-                      updateUser(
-                        selected,
-                        {
-                          suspended: true,
-                        },
-                        "User suspended."
-                      )
+                      updateUser(selected, {
+                        suspended: !selected.suspended,
+                      })
                     }
                     disabled={loadingId === selected.id}
                   >
-                    Suspend
-                  </button>
-
-                  <button
-                    className="paidButton"
-                    onClick={() =>
-                      updateUser(
-                        selected,
-                        {
-                          suspended: false,
-                        },
-                        "User reactivated."
-                      )
-                    }
-                    disabled={loadingId === selected.id}
-                  >
-                    Reactivate
+                    {selected.suspended ? "Restore User" : "Suspend User"}
                   </button>
                 </div>
               </>
             ) : (
               <div className="empty">
                 <h3>Select a user</h3>
-                <p>Choose a user to manage account details.</p>
+                <p>Choose a user account to manage.</p>
               </div>
             )}
           </div>
@@ -323,7 +298,6 @@ export default function AdminUsersPage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
-          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
@@ -351,7 +325,6 @@ export default function AdminUsersPage() {
 
         .hero,
         .metric,
-        .searchCard,
         .usersCard,
         .detailsCard {
           background: rgba(8, 13, 25, 0.92);
@@ -393,14 +366,17 @@ export default function AdminUsersPage() {
 
         h2 {
           font-size: 32px;
-          margin: 0 0 8px;
+          margin: 0;
         }
 
         .subtitle,
-        .email,
-        .empty p {
+        .email {
+          max-width: 700px;
           color: #a1a1aa;
+          font-size: 18px;
           line-height: 1.5;
+          margin: 0;
+          overflow-wrap: anywhere;
         }
 
         .heroIcon {
@@ -425,7 +401,7 @@ export default function AdminUsersPage() {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 14px;
-          margin-bottom: 18px;
+          margin-bottom: 24px;
         }
 
         .metric {
@@ -458,26 +434,9 @@ export default function AdminUsersPage() {
           font-weight: 900;
         }
 
-        .searchCard {
-          border-radius: 24px;
-          padding: 18px;
-          margin-bottom: 24px;
-        }
-
-        .searchCard input {
-          width: 100%;
-          padding: 16px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.05);
-          color: white;
-          font-size: 16px;
-          outline: none;
-        }
-
         .adminGrid {
           display: grid;
-          grid-template-columns: 0.9fr 1.4fr;
+          grid-template-columns: 0.95fr 1.45fr;
           gap: 24px;
         }
 
@@ -487,15 +446,35 @@ export default function AdminUsersPage() {
           padding: 28px;
         }
 
+        .sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: center;
+          margin-bottom: 18px;
+        }
+
+        .searchInput {
+          width: 100%;
+          padding: 16px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.04);
+          color: white;
+          font-size: 16px;
+          outline: none;
+          margin-bottom: 18px;
+        }
+
         .userList {
           display: grid;
           gap: 12px;
         }
 
-        .userRow {
+        .userButton {
           width: 100%;
           display: grid;
-          grid-template-columns: 52px 1fr auto;
+          grid-template-columns: 48px 1fr auto;
           gap: 12px;
           align-items: center;
           padding: 14px;
@@ -514,10 +493,9 @@ export default function AdminUsersPage() {
 
         .avatar,
         .avatarImage {
-          width: 52px;
-          height: 52px;
+          width: 48px;
+          height: 48px;
           border-radius: 50%;
-          border: 2px solid rgba(34,197,94,0.5);
         }
 
         .avatar {
@@ -526,32 +504,32 @@ export default function AdminUsersPage() {
           align-items: center;
           justify-content: center;
           font-weight: 900;
-          font-size: 22px;
         }
 
         .avatarImage {
           object-fit: cover;
+          border: 2px solid rgba(34,197,94,0.45);
         }
 
-        .userRow strong,
-        .userRow span {
+        .userButton strong {
           display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          margin-bottom: 5px;
+          overflow-wrap: anywhere;
         }
 
-        .userRow span {
+        .userButton span {
+          display: block;
           color: #a1a1aa;
-          font-size: 13px;
+          font-size: 12px;
+          overflow-wrap: anywhere;
         }
 
         .status {
           border-radius: 999px;
-          padding: 8px 11px;
+          padding: 8px 10px;
           font-style: normal;
           font-weight: 900;
-          font-size: 12px;
+          font-size: 11px;
           white-space: nowrap;
         }
 
@@ -573,21 +551,19 @@ export default function AdminUsersPage() {
           border: 1px solid rgba(239,68,68,0.35);
         }
 
-        .sectionHeader {
+        .profileHeader {
           display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 20px;
+          gap: 18px;
+          align-items: center;
+          margin-bottom: 24px;
         }
 
         .bigAvatar,
         .bigAvatarImage {
-          min-width: 86px;
-          width: 86px;
-          height: 86px;
+          min-width: 92px;
+          width: 92px;
+          height: 92px;
           border-radius: 50%;
-          border: 2px solid rgba(34,197,94,0.5);
         }
 
         .bigAvatar {
@@ -595,12 +571,13 @@ export default function AdminUsersPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 34px;
+          font-size: 40px;
           font-weight: 900;
         }
 
         .bigAvatarImage {
           object-fit: cover;
+          border: 2px solid rgba(34,197,94,0.45);
         }
 
         .infoGrid {
@@ -627,19 +604,48 @@ export default function AdminUsersPage() {
 
         .infoBox strong {
           overflow-wrap: anywhere;
+          text-transform: capitalize;
+        }
+
+        .badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 22px;
+        }
+
+        .badges span {
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: #d4d4d8;
+          font-weight: 900;
+        }
+
+        .badges .goodBadge {
+          color: #22c55e;
+          background: rgba(34,197,94,0.12);
+          border-color: rgba(34,197,94,0.35);
+        }
+
+        .badges .dangerBadge {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border-color: rgba(239,68,68,0.35);
         }
 
         .actionRow {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: 1fr 1fr 1fr;
           gap: 12px;
         }
 
         .approveButton,
-        .paidButton,
-        .rejectButton,
-        .basicButton {
-          padding: 16px;
+        .roleButton,
+        .suspendButton,
+        .restoreButton {
+          padding: 17px;
           border-radius: 999px;
           border: none;
           color: white;
@@ -651,17 +657,16 @@ export default function AdminUsersPage() {
           background: linear-gradient(135deg, #22c55e, #16a34a);
         }
 
-        .paidButton {
+        .roleButton {
           background: linear-gradient(135deg, #3b82f6, #1d4ed8);
         }
 
-        .rejectButton {
+        .suspendButton {
           background: linear-gradient(135deg, #ef4444, #b91c1c);
         }
 
-        .basicButton {
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.12);
+        .restoreButton {
+          background: linear-gradient(135deg, #f59e0b, #b45309);
         }
 
         button:disabled {
@@ -681,27 +686,20 @@ export default function AdminUsersPage() {
           font-size: 24px;
         }
 
-        @media (max-width: 1000px) {
-          .stats,
-          .adminGrid,
-          .infoGrid,
-          .actionRow {
-            grid-template-columns: 1fr;
+        .empty p {
+          color: #a1a1aa;
+          line-height: 1.5;
+          margin: 0;
+        }
+
+        @media (max-width: 900px) {
+          .page {
+            padding: 16px;
           }
 
           .hero {
             flex-direction: column;
             align-items: flex-start;
-          }
-        }
-
-        @media (max-width: 620px) {
-          .page {
-            padding: 16px;
-            padding-bottom: 140px;
-          }
-
-          .hero {
             padding: 28px;
           }
 
@@ -709,28 +707,29 @@ export default function AdminUsersPage() {
             font-size: 44px;
           }
 
+          .stats,
+          .adminGrid,
+          .infoGrid,
+          .actionRow {
+            grid-template-columns: 1fr;
+          }
+
           .usersCard,
           .detailsCard {
             padding: 24px;
           }
 
-          .userRow {
-            grid-template-columns: 46px 1fr;
+          .userButton {
+            grid-template-columns: 48px 1fr;
           }
 
-          .userRow .status {
-            grid-column: 1 / -1;
+          .status {
+            grid-column: 2;
             width: fit-content;
           }
 
-          .avatar,
-          .avatarImage {
-            width: 46px;
-            height: 46px;
-          }
-
-          .sectionHeader {
-            flex-direction: column;
+          .profileHeader {
+            align-items: flex-start;
           }
         }
       `}</style>
@@ -760,7 +759,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
 }
