@@ -43,6 +43,11 @@ type ReportItem = {
 
 type DisputeItem = {
   id: string;
+  userId?: string;
+  userEmail?: string;
+  subject?: string;
+  description?: string;
+  category?: string;
   driverId?: string;
   driverEmail?: string;
   passengerId?: string;
@@ -142,8 +147,13 @@ export default function AdminFraudPage() {
   const fraudCases = useMemo(() => {
     const cases = users.map((user) => {
       const userEmail = user.email || "No email";
+
       const userReports = reports.filter(
-        (item) => item.targetUserId === user.id || item.targetUserEmail === user.email
+        (item) =>
+          item.targetUserId === user.id ||
+          item.targetUserEmail === user.email ||
+          item.reporterId === user.id ||
+          item.reporterEmail === user.email
       );
 
       const userDisputes = disputes.filter(
@@ -151,7 +161,9 @@ export default function AdminFraudPage() {
           item.driverId === user.id ||
           item.passengerId === user.id ||
           item.driverEmail === user.email ||
-          item.passengerEmail === user.email
+          item.passengerEmail === user.email ||
+          item.userId === user.id ||
+          item.userEmail === user.email
       );
 
       const userBookings = bookings.filter(
@@ -163,11 +175,17 @@ export default function AdminFraudPage() {
       );
 
       const cancelledBookings = userBookings.filter(
-        (item) => item.status === "cancelled" || item.status === "rejected"
+        (item) =>
+          item.status === "cancelled" ||
+          item.status === "rejected" ||
+          item.status === "no_show"
       );
 
       const userPayouts = payouts.filter(
-        (item) => item.userId === user.id || item.driverEmail === user.email || item.email === user.email
+        (item) =>
+          item.userId === user.id ||
+          item.driverEmail === user.email ||
+          item.email === user.email
       );
 
       const urgentReports = userReports.filter((item) => item.priority === "urgent").length;
@@ -199,7 +217,9 @@ export default function AdminFraudPage() {
       if (cancelledBookings.length > 0) reasons.push(`${cancelledBookings.length} cancellation(s)`);
       if (pendingPayouts > 0) reasons.push(`${pendingPayouts} pending payout(s)`);
       if (user.suspended) reasons.push("account suspended");
-      if (!user.driverVerified && userPayouts.length > 0) reasons.push("payout activity without verified driver status");
+      if (!user.driverVerified && userPayouts.length > 0) {
+        reasons.push("payout activity without verified driver status");
+      }
 
       return {
         id: user.id,
@@ -210,9 +230,9 @@ export default function AdminFraudPage() {
         score,
         details:
           score >= 70
-            ? "High risk user. Review reports, disputes, payouts, and account history before allowing further platform activity."
+            ? "High risk user. Review reports, disputes, payouts, cancellations, and account history before allowing more activity."
             : score >= 35
-            ? "Medium risk user. Monitor activity and review recent complaints or cancellations."
+            ? "Medium risk user. Monitor activity and review recent complaints, disputes, or cancellations."
             : "Low risk user. No major fraud pattern detected.",
         reports: userReports.length,
         disputes: userDisputes.length,
@@ -275,12 +295,30 @@ export default function AdminFraudPage() {
         {
           userId: item.userId,
           userEmail: item.email,
-          action: suspended ? "User Suspended From Fraud Center" : "User Cleared From Fraud Center",
+          action: suspended
+            ? "User Suspended From Fraud Center"
+            : "User Cleared From Fraud Center",
           targetId: item.userId,
           targetType: "user",
           details: item.reason,
           severity: suspended ? "danger" : "success",
           createdAt: now,
+        },
+        { merge: true }
+      );
+
+      await setDoc(
+        doc(db, "notifications", `${item.userId}-fraud-${Date.now()}`),
+        {
+          userId: item.userId,
+          type: "account",
+          title: suspended ? "Account Suspended" : "Account Reactivated",
+          message: suspended
+            ? "Your RoadLink account was suspended after an admin review."
+            : "Your RoadLink account was reactivated after an admin review.",
+          read: false,
+          createdAt: now,
+          actionUrl: "/profile",
         },
         { merge: true }
       );
@@ -347,7 +385,7 @@ export default function AdminFraudPage() {
           <Link href="/admin" className="miniButton">Admin Home</Link>
           <Link href="/admin/reports" className="miniButton">Reports</Link>
           <Link href="/admin/disputes" className="miniButton">Disputes</Link>
-          <Link href="/admin/payments" className="miniButton">Payments</Link>
+          <Link href="/admin/payouts" className="miniButton">Payouts</Link>
           <Link href="/admin/logs" className="miniButton">Logs</Link>
         </div>
 
@@ -818,6 +856,12 @@ export default function AdminFraudPage() {
           font-weight: 900;
         }
 
+        .detailsBox strong {
+          display: block;
+          color: #22c55e;
+          margin-bottom: 8px;
+        }
+
         .detailsBox p {
           color: #e5e7eb;
           line-height: 1.5;
@@ -995,7 +1039,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
 }
