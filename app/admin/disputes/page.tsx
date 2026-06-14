@@ -13,10 +13,15 @@ import {
 import { db } from "../../../lib/firebase";
 
 type DisputeStatus = "open" | "reviewing" | "resolved" | "refunded" | "closed";
-type DisputePriority = "low" | "medium" | "high" | "urgent";
+type DisputePriority = "low" | "normal" | "medium" | "high" | "urgent";
 
 type DisputeItem = {
   id: string;
+  userId?: string;
+  userEmail?: string;
+  subject?: string;
+  description?: string;
+  category?: string;
   bookingId?: string;
   rideId?: string;
   driverId?: string;
@@ -61,6 +66,7 @@ export default function AdminDisputesPage() {
         );
 
         setDisputes(data);
+
         setSelected((current) => {
           if (!current) return data[0] || null;
           return data.find((item) => item.id === current.id) || data[0] || null;
@@ -76,26 +82,30 @@ export default function AdminDisputesPage() {
 
   useEffect(() => {
     setAdminNote(selected?.adminNote || "");
-  }, [selected?.id]);
+  }, [selected?.id, selected?.adminNote]);
 
   const filteredDisputes = useMemo(() => {
     const value = search.toLowerCase().trim();
 
     return disputes.filter((item) => {
+      const title = item.reason || item.subject || "";
+      const body = item.details || item.description || "";
+      const openedEmail = item.openedByEmail || item.userEmail || "";
+
       const matchesSearch =
         !value ||
-        String(item.openedByEmail || "").toLowerCase().includes(value) ||
+        String(openedEmail).toLowerCase().includes(value) ||
         String(item.driverEmail || "").toLowerCase().includes(value) ||
         String(item.passengerEmail || "").toLowerCase().includes(value) ||
-        String(item.reason || "").toLowerCase().includes(value) ||
-        String(item.details || "").toLowerCase().includes(value) ||
+        String(title).toLowerCase().includes(value) ||
+        String(body).toLowerCase().includes(value) ||
+        String(item.category || "").toLowerCase().includes(value) ||
         String(item.bookingId || "").toLowerCase().includes(value) ||
         String(item.rideId || "").toLowerCase().includes(value) ||
         String(item.id || "").toLowerCase().includes(value);
 
       const matchesStatus =
-        statusFilter === "all" ||
-        String(item.status || "open") === statusFilter;
+        statusFilter === "all" || String(item.status || "open") === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
@@ -122,6 +132,8 @@ export default function AdminDisputesPage() {
       await updateDoc(doc(db, "disputes", item.id), {
         status,
         adminNote: adminNote.trim(),
+        readByUser: false,
+        readByAdmin: true,
         updatedAt: now,
         resolvedAt:
           status === "resolved" || status === "refunded" || status === "closed"
@@ -146,6 +158,8 @@ export default function AdminDisputesPage() {
 
       await updateDoc(doc(db, "disputes", item.id), {
         adminNote: adminNote.trim(),
+        readByUser: false,
+        readByAdmin: true,
         updatedAt: new Date().toISOString(),
       });
 
@@ -158,39 +172,35 @@ export default function AdminDisputesPage() {
   }
 
   async function notifyUsers(item: DisputeItem, status: DisputeStatus, now: string) {
-    const notificationMessage = `A dispute for your RoadLink trip was marked as ${status}.`;
+    const title = item.reason || item.subject || "Dispute Update";
+    const notificationMessage = `Your RoadLink dispute "${title}" was marked as ${status}.`;
 
-    if (item.driverId) {
-      await setDoc(
-        doc(db, "notifications", `${item.driverId}-dispute-${Date.now()}`),
-        {
-          userId: item.driverId,
-          type: "dispute",
-          title: "Dispute Update",
-          message: notificationMessage,
-          read: false,
-          createdAt: now,
-          actionUrl: "/notifications",
-        },
-        { merge: true }
-      );
-    }
+    const userIds = [
+      item.userId,
+      item.openedById,
+      item.driverId,
+      item.passengerId,
+    ].filter(Boolean) as string[];
 
-    if (item.passengerId) {
-      await setDoc(
-        doc(db, "notifications", `${item.passengerId}-dispute-${Date.now()}`),
-        {
-          userId: item.passengerId,
-          type: "dispute",
-          title: "Dispute Update",
-          message: notificationMessage,
-          read: false,
-          createdAt: now,
-          actionUrl: "/notifications",
-        },
-        { merge: true }
-      );
-    }
+    const uniqueUserIds = Array.from(new Set(userIds));
+
+    await Promise.all(
+      uniqueUserIds.map((targetUserId) =>
+        setDoc(
+          doc(db, "notifications", `${targetUserId}-dispute-${Date.now()}`),
+          {
+            userId: targetUserId,
+            type: "dispute",
+            title: "Dispute Update",
+            message: notificationMessage,
+            read: false,
+            createdAt: now,
+            actionUrl: "/disputes",
+          },
+          { merge: true }
+        )
+      )
+    );
   }
 
   function statusLabel(status?: DisputeStatus) {
@@ -205,6 +215,7 @@ export default function AdminDisputesPage() {
     if (priority === "urgent") return "Urgent";
     if (priority === "high") return "High";
     if (priority === "low") return "Low";
+    if (priority === "normal") return "Normal";
     return "Medium";
   }
 
@@ -218,12 +229,28 @@ export default function AdminDisputesPage() {
     }
   }
 
+  function disputeTitle(item?: DisputeItem | null) {
+    return item?.reason || item?.subject || "Trip Dispute";
+  }
+
+  function disputeBody(item?: DisputeItem | null) {
+    return item?.details || item?.description || "No dispute details provided.";
+  }
+
+  function disputeEmail(item?: DisputeItem | null) {
+    return item?.openedByEmail || item?.userEmail || item?.passengerEmail || "No opener email";
+  }
+
+  function disputeUserId(item?: DisputeItem | null) {
+    return item?.openedById || item?.userId || item?.passengerId || "Not available";
+  }
+
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin Home</Link>
-          <Link href="/admin/payments" className="miniButton">Payments</Link>
+          <Link href="/admin/payouts" className="miniButton">Payouts</Link>
           <Link href="/admin/reports" className="miniButton">Reports</Link>
           <Link href="/admin/support" className="miniButton">Support</Link>
         </div>
@@ -233,8 +260,8 @@ export default function AdminDisputesPage() {
             <p className="eyebrow">RoadLink Admin</p>
             <h1>Disputes <span>Center</span></h1>
             <p className="subtitle">
-              Manage conflicts between passengers and drivers, review disputed
-              bookings, track refund decisions, and notify both sides.
+              Manage conflicts between passengers and drivers, review trip issues,
+              track decisions, and notify users.
             </p>
           </div>
 
@@ -258,7 +285,7 @@ export default function AdminDisputesPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by email, reason, dispute ID, booking ID, ride ID..."
+            placeholder="Search by email, subject, category, dispute ID, booking ID, ride ID..."
           />
 
           <select
@@ -299,10 +326,10 @@ export default function AdminDisputesPage() {
                     <div className="disputeIcon">⚖️</div>
 
                     <div className="disputeInfo">
-                      <strong>{item.reason || "Trip Dispute"}</strong>
-                      <span>{item.openedByEmail || "Opened by user"}</span>
+                      <strong>{disputeTitle(item)}</strong>
+                      <span>{disputeEmail(item)}</span>
                       <small>
-                        {item.driverEmail || "Driver"} • {item.passengerEmail || "Passenger"}
+                        {item.category || "general"} • {item.priority || "normal"}
                       </small>
                     </div>
 
@@ -321,8 +348,8 @@ export default function AdminDisputesPage() {
                 <div className="sectionHeader">
                   <div>
                     <p className="eyebrow">Selected Dispute</p>
-                    <h2>{selected.reason || "Trip Dispute"}</h2>
-                    <p className="email">{selected.openedByEmail || "No opener email"}</p>
+                    <h2>{disputeTitle(selected)}</h2>
+                    <p className="email">{disputeEmail(selected)}</p>
                   </div>
 
                   <span className={`statusPill ${selected.status || "open"}`}>
@@ -337,16 +364,17 @@ export default function AdminDisputesPage() {
 
                 <div className="detailsBox">
                   <strong>User Details</strong>
-                  <p>{selected.details || "No dispute details provided."}</p>
+                  <p>{disputeBody(selected)}</p>
                 </div>
 
                 <div className="infoGrid">
                   <Info label="Dispute ID" value={selected.id} />
+                  <Info label="Category" value={selected.category || "Not available"} />
                   <Info label="Booking ID" value={selected.bookingId || "Not available"} />
                   <Info label="Ride ID" value={selected.rideId || "Not available"} />
                   <Info label="Priority" value={priorityLabel(selected.priority)} />
-                  <Info label="Opened By ID" value={selected.openedById || "Not available"} />
-                  <Info label="Opened By Email" value={selected.openedByEmail || "Not available"} />
+                  <Info label="Opened By ID" value={disputeUserId(selected)} />
+                  <Info label="Opened By Email" value={disputeEmail(selected)} />
                   <Info label="Driver ID" value={selected.driverId || "Not available"} />
                   <Info label="Driver Email" value={selected.driverEmail || "Not available"} />
                   <Info label="Passenger ID" value={selected.passengerId || "Not available"} />
@@ -357,7 +385,7 @@ export default function AdminDisputesPage() {
                   <Info label="Resolved" value={dateText(selected.resolvedAt)} />
                 </div>
 
-                <label className="noteLabel">Admin Note</label>
+                <label className="noteLabel">Admin Note / Resolution</label>
                 <textarea
                   value={adminNote}
                   onChange={(event) => setAdminNote(event.target.value)}
@@ -671,6 +699,7 @@ export default function AdminDisputesPage() {
           font-weight: 900;
           font-size: 12px;
           white-space: nowrap;
+          text-transform: capitalize;
         }
 
         .status.open,
@@ -735,6 +764,12 @@ export default function AdminDisputesPage() {
         .amountBox strong {
           font-size: 44px;
           font-weight: 900;
+        }
+
+        .detailsBox strong {
+          display: block;
+          margin-bottom: 8px;
+          color: #22c55e;
         }
 
         .detailsBox p {
@@ -917,7 +952,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
 }
