@@ -82,7 +82,6 @@ export default function AdminEmergencyPage() {
 
   function dateText(value?: string) {
     if (!value) return "Not available";
-
     try {
       return new Date(value).toLocaleString();
     } catch {
@@ -92,7 +91,6 @@ export default function AdminEmergencyPage() {
 
   function shortDate(value?: string) {
     if (!value) return "Recently";
-
     try {
       return new Date(value).toLocaleString([], {
         month: "short",
@@ -137,7 +135,15 @@ export default function AdminEmergencyPage() {
       return "";
     }
 
-    return `https://www.google.com/maps?q=${alert.latitude},${alert.longitude}`;
+    return `https://maps.google.com/?q=${alert.latitude},${alert.longitude}`;
+  }
+
+  function mapEmbedUrl(alert: EmergencyAlert) {
+    if (typeof alert.latitude !== "number" || typeof alert.longitude !== "number") {
+      return "";
+    }
+
+    return `https://maps.google.com/maps?q=${alert.latitude},${alert.longitude}&z=15&output=embed`;
   }
 
   async function updateAlertStatus(alert: EmergencyAlert, status: EmergencyStatus) {
@@ -212,7 +218,7 @@ export default function AdminEmergencyPage() {
             <p className="eyebrow">RoadLink Admin Safety</p>
             <h1>Emergency <span>Center</span></h1>
             <p className="subtitle">
-              Monitor SOS alerts, location, status, and safety response.
+              Monitor SOS alerts, GPS location, status, and safety response.
             </p>
           </div>
 
@@ -291,21 +297,31 @@ export default function AdminEmergencyPage() {
                 <Info label="Location" value={locationText(selected)} />
               </div>
 
-              {mapUrl(selected) ? (
-                <a href={mapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
-                  Open Location in Google Maps
-                </a>
+              {mapEmbedUrl(selected) ? (
+                <div className="mapPreview">
+                  <iframe
+                    src={mapEmbedUrl(selected)}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
               ) : (
                 <div className="locationMissing">
                   Location was not available for this SOS alert.
                 </div>
               )}
 
+              {mapUrl(selected) && (
+                <a href={mapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
+                  Open Location in Google Maps
+                </a>
+              )}
+
               <button
                 className="detailsToggle"
                 onClick={() => setShowFullDetails((value) => !value)}
               >
-                {showFullDetails ? "Hide Details" : "View Full Details"}
+                {showFullDetails ? "Hide Full Details" : "View Full Details"}
               </button>
 
               {showFullDetails && (
@@ -331,7 +347,7 @@ export default function AdminEmergencyPage() {
                   onClick={() => updateAlertStatus(selected, "in_progress")}
                   disabled={loadingId === selected.id}
                 >
-                  Review
+                  👀 Review
                 </button>
 
                 <button
@@ -339,7 +355,7 @@ export default function AdminEmergencyPage() {
                   onClick={() => updateAlertStatus(selected, "active")}
                   disabled={loadingId === selected.id}
                 >
-                  Active
+                  🚨 Active
                 </button>
 
                 <button
@@ -347,7 +363,7 @@ export default function AdminEmergencyPage() {
                   onClick={() => updateAlertStatus(selected, "resolved")}
                   disabled={loadingId === selected.id}
                 >
-                  Resolve
+                  ✅ Resolve
                 </button>
               </div>
             </>
@@ -425,13 +441,15 @@ export default function AdminEmergencyPage() {
         }
 
         .hero {
+          position: relative;
           border-radius: 24px;
           padding: 18px;
+          min-height: 118px;
           margin-bottom: 12px;
           display: grid;
           grid-template-columns: 1fr auto;
           gap: 14px;
-          align-items: center;
+          align-items: start;
         }
 
         .eyebrow {
@@ -476,16 +494,17 @@ export default function AdminEmergencyPage() {
         }
 
         .heroIcon {
-          width: 50px;
-          height: 50px;
-          min-width: 50px;
+          width: 48px;
+          height: 48px;
+          min-width: 48px;
           border-radius: 50%;
           background: rgba(239,68,68,0.12);
           border: 1px solid rgba(239,68,68,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
+          font-size: 23px;
+          box-shadow: 0 0 28px rgba(239,68,68,0.18);
         }
 
         .message {
@@ -498,13 +517,18 @@ export default function AdminEmergencyPage() {
         .stats {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
+          gap: 8px;
           margin-bottom: 12px;
         }
 
         .metric {
           border-radius: 18px;
-          padding: 13px;
+          padding: 11px 12px;
+          display: grid;
+          grid-template-columns: 34px 1fr auto;
+          align-items: center;
+          gap: 8px;
+          min-height: 58px;
         }
 
         .metricIcon {
@@ -516,7 +540,6 @@ export default function AdminEmergencyPage() {
           align-items: center;
           justify-content: center;
           font-size: 18px;
-          margin-bottom: 8px;
         }
 
         .metricLabel {
@@ -524,7 +547,6 @@ export default function AdminEmergencyPage() {
           color: #a1a1aa;
           font-size: 10px;
           font-weight: 900;
-          margin-bottom: 5px;
         }
 
         .metricValue {
@@ -554,17 +576,17 @@ export default function AdminEmergencyPage() {
 
         .alertList {
           display: grid;
-          gap: 10px;
+          gap: 9px;
         }
 
         .alertRow {
           width: 100%;
           max-width: 100%;
           display: grid;
-          grid-template-columns: 38px minmax(0, 1fr);
+          grid-template-columns: 38px minmax(0, 1fr) auto;
           gap: 10px;
-          align-items: start;
-          padding: 12px;
+          align-items: center;
+          padding: 11px;
           border-radius: 16px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
@@ -615,12 +637,6 @@ export default function AdminEmergencyPage() {
           color: #a1a1aa;
           margin-top: 3px;
           font-size: 10px;
-        }
-
-        .status {
-          grid-column: 2;
-          width: fit-content;
-          margin-top: 6px;
         }
 
         .status,
@@ -713,6 +729,23 @@ export default function AdminEmergencyPage() {
           word-break: break-word;
         }
 
+        .mapPreview {
+          width: 100%;
+          height: 190px;
+          border-radius: 20px;
+          overflow: hidden;
+          margin-bottom: 12px;
+          border: 1px solid rgba(59,130,246,0.35);
+          background: rgba(59,130,246,0.08);
+        }
+
+        .mapPreview iframe {
+          width: 100%;
+          height: 100%;
+          border: 0;
+          display: block;
+        }
+
         .mapButton,
         .detailsToggle {
           display: flex;
@@ -754,7 +787,7 @@ export default function AdminEmergencyPage() {
 
         textarea {
           width: 100%;
-          min-height: 86px;
+          min-height: 82px;
           padding: 13px;
           border-radius: 15px;
           border: 1px solid rgba(255,255,255,0.12);
@@ -777,7 +810,8 @@ export default function AdminEmergencyPage() {
         .activeButton,
         .resolveButton {
           width: 100%;
-          padding: 12px 8px;
+          min-height: 44px;
+          padding: 10px 8px;
           border-radius: 999px;
           border: none;
           color: white;
@@ -821,6 +855,22 @@ export default function AdminEmergencyPage() {
           margin: 0;
         }
 
+        @media (max-width: 430px) {
+          .alertRow {
+            grid-template-columns: 38px minmax(0, 1fr);
+          }
+
+          .status {
+            grid-column: 2;
+            width: fit-content;
+            margin-top: 6px;
+          }
+
+          .mapPreview {
+            height: 170px;
+          }
+        }
+
         @media (min-width: 900px) {
           .container {
             max-width: 1180px;
@@ -840,18 +890,13 @@ export default function AdminEmergencyPage() {
             padding: 22px;
           }
 
-          .alertRow {
-            grid-template-columns: 44px minmax(0, 1fr) auto;
-          }
-
-          .status {
-            grid-column: auto;
-            margin-top: 0;
-          }
-
           .summaryGrid,
           .fullDetails {
             grid-template-columns: repeat(2, 1fr);
+          }
+
+          .mapPreview {
+            height: 260px;
           }
         }
       `}</style>
