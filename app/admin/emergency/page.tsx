@@ -103,11 +103,41 @@ export default function AdminEmergencyPage() {
     }
   }
 
+  function timeAgo(value?: string) {
+    if (!value) return "Recently";
+
+    try {
+      const date = new Date(value);
+      const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+
+      if (seconds < 60) return "Just now";
+
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes} min ago`;
+
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours} hr ago`;
+
+      const days = Math.floor(hours / 24);
+      return `${days} day${days === 1 ? "" : "s"} ago`;
+    } catch {
+      return "Recently";
+    }
+  }
+
   function shortEmail(value?: string) {
     if (!value) return "RoadLink User";
-    if (value.length <= 22) return value;
+
     const [name, domain] = value.split("@");
-    return `${name.slice(0, 12)}...@${domain || "email.com"}`;
+
+    if (!domain) {
+      return value.length > 18 ? `${value.slice(0, 18)}...` : value;
+    }
+
+    const shortName = name.length > 13 ? `${name.slice(0, 13)}...` : name;
+    const shortDomain = domain.length > 11 ? `${domain.slice(0, 11)}...` : domain;
+
+    return `${shortName}@${shortDomain}`;
   }
 
   function shortId(value?: string) {
@@ -130,20 +160,18 @@ export default function AdminEmergencyPage() {
     return `${alert.latitude.toFixed(6)}, ${alert.longitude.toFixed(6)}`;
   }
 
-  function mapUrl(alert: EmergencyAlert) {
-    if (typeof alert.latitude !== "number" || typeof alert.longitude !== "number") {
-      return "";
-    }
+  function hasLocation(alert: EmergencyAlert) {
+    return typeof alert.latitude === "number" && typeof alert.longitude === "number";
+  }
 
+  function mapUrl(alert: EmergencyAlert) {
+    if (!hasLocation(alert)) return "";
     return `https://maps.google.com/?q=${alert.latitude},${alert.longitude}`;
   }
 
   function mapEmbedUrl(alert: EmergencyAlert) {
-    if (typeof alert.latitude !== "number" || typeof alert.longitude !== "number") {
-      return "";
-    }
-
-    return `https://maps.google.com/maps?q=${alert.latitude},${alert.longitude}&z=15&output=embed`;
+    if (!hasLocation(alert)) return "";
+    return `https://maps.google.com/maps?q=${alert.latitude},${alert.longitude}&z=16&output=embed`;
   }
 
   async function updateAlertStatus(alert: EmergencyAlert, status: EmergencyStatus) {
@@ -218,7 +246,7 @@ export default function AdminEmergencyPage() {
             <p className="eyebrow">RoadLink Admin Safety</p>
             <h1>Emergency <span>Center</span></h1>
             <p className="subtitle">
-              Monitor SOS alerts, GPS location, status, and safety response.
+              Monitor active SOS alerts, GPS location, status, and safety response.
             </p>
           </div>
 
@@ -235,8 +263,19 @@ export default function AdminEmergencyPage() {
         </section>
 
         <section className="alertsCard">
-          <p className="eyebrow">SOS Queue</p>
-          <h2>Emergency Alerts</h2>
+          <div className="sectionTitle">
+            <div>
+              <p className="eyebrow">SOS Queue</p>
+              <h2>Emergency Alerts</h2>
+            </div>
+
+            {activeCount > 0 && (
+              <div className="liveBadge">
+                <span></span>
+                LIVE
+              </div>
+            )}
+          </div>
 
           <div className="filters">
             <button onClick={() => setFilter("all")} className={filter === "all" ? "activeFilter" : ""}>All</button>
@@ -261,9 +300,11 @@ export default function AdminEmergencyPage() {
                   <div className="alertIcon">🚨</div>
 
                   <div className="alertText">
-                    <strong>{shortEmail(alert.userEmail)}</strong>
-                    <span>{shortDate(alert.createdAt)}</span>
-                    <small>{locationText(alert)}</small>
+                    <strong title={alert.userEmail || ""}>
+                      {shortEmail(alert.userEmail)}
+                    </strong>
+                    <span>{timeAgo(alert.createdAt)} • {shortDate(alert.createdAt)}</span>
+                    <small>{hasLocation(alert) ? "📍 Location available" : "Location not available"}</small>
                   </div>
 
                   <em className={`status ${alert.status || "active"}`}>
@@ -279,9 +320,11 @@ export default function AdminEmergencyPage() {
           {selected ? (
             <>
               <div className="selectedTop">
-                <div>
+                <div className="selectedIdentity">
                   <p className="eyebrow">Selected Alert</p>
-                  <h2>{shortEmail(selected.userEmail)}</h2>
+                  <h2 title={selected.userEmail || ""}>
+                    {shortEmail(selected.userEmail)}
+                  </h2>
                   <p className="email">{shortId(selected.userId)}</p>
                 </div>
 
@@ -290,11 +333,28 @@ export default function AdminEmergencyPage() {
                 </span>
               </div>
 
-              <div className="summaryGrid">
-                <Info label="Priority" value={(selected.priority || "critical").toUpperCase()} />
-                <Info label="Status" value={statusLabel(selected.status)} />
-                <Info label="Created" value={shortDate(selected.createdAt)} />
-                <Info label="Location" value={locationText(selected)} />
+              {selected.status === "active" && (
+                <div className="liveEmergency">
+                  <span></span>
+                  LIVE EMERGENCY
+                </div>
+              )}
+
+              <div className="emergencySummary">
+                <div>
+                  <span>Priority</span>
+                  <strong>{(selected.priority || "critical").toUpperCase()}</strong>
+                </div>
+
+                <div>
+                  <span>Created</span>
+                  <strong>{timeAgo(selected.createdAt)}</strong>
+                </div>
+
+                <div>
+                  <span>Location</span>
+                  <strong>{hasLocation(selected) ? "Available" : "Missing"}</strong>
+                </div>
               </div>
 
               {mapEmbedUrl(selected) ? (
@@ -329,8 +389,11 @@ export default function AdminEmergencyPage() {
                   <Info label="Alert ID" value={selected.id} />
                   <Info label="User Email" value={selected.userEmail || "Not available"} />
                   <Info label="User ID" value={selected.userId || "Not available"} />
+                  <Info label="Status" value={statusLabel(selected.status)} />
+                  <Info label="Created" value={dateText(selected.createdAt)} />
                   <Info label="Updated" value={dateText(selected.updatedAt)} />
                   <Info label="Resolved" value={dateText(selected.resolvedAt)} />
+                  <Info label="Coordinates" value={locationText(selected)} />
                 </div>
               )}
 
@@ -444,11 +507,11 @@ export default function AdminEmergencyPage() {
           position: relative;
           border-radius: 24px;
           padding: 18px;
-          min-height: 118px;
+          min-height: 110px;
           margin-bottom: 12px;
           display: grid;
           grid-template-columns: 1fr auto;
-          gap: 14px;
+          gap: 12px;
           align-items: start;
         }
 
@@ -462,7 +525,7 @@ export default function AdminEmergencyPage() {
         }
 
         h1 {
-          font-size: 34px;
+          font-size: 33px;
           line-height: 0.98;
           margin: 0 0 10px;
         }
@@ -480,7 +543,10 @@ export default function AdminEmergencyPage() {
           font-size: 23px;
           line-height: 1.05;
           margin: 0 0 12px;
-          overflow-wrap: anywhere;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .subtitle,
@@ -489,8 +555,10 @@ export default function AdminEmergencyPage() {
           font-size: 13px;
           line-height: 1.4;
           margin: 0;
-          overflow-wrap: anywhere;
-          word-break: break-word;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .heroIcon {
@@ -561,6 +629,44 @@ export default function AdminEmergencyPage() {
           margin-bottom: 12px;
         }
 
+        .sectionTitle {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: flex-start;
+        }
+
+        .liveBadge,
+        .liveEmergency {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          border-radius: 999px;
+          border: 1px solid rgba(239,68,68,0.4);
+          background: rgba(239,68,68,0.12);
+          color: #fca5a5;
+          font-size: 10px;
+          font-weight: 900;
+          padding: 8px 10px;
+          white-space: nowrap;
+        }
+
+        .liveBadge span,
+        .liveEmergency span {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #ef4444;
+          box-shadow: 0 0 0 rgba(239,68,68,0.7);
+          animation: pulse 1.3s infinite;
+        }
+
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.7); }
+          70% { box-shadow: 0 0 0 9px rgba(239,68,68,0); }
+          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+        }
+
         .filters {
           display: flex;
           flex-wrap: wrap;
@@ -583,9 +689,9 @@ export default function AdminEmergencyPage() {
           width: 100%;
           max-width: 100%;
           display: grid;
-          grid-template-columns: 38px minmax(0, 1fr) auto;
+          grid-template-columns: 38px minmax(0, 1fr);
           gap: 10px;
-          align-items: center;
+          align-items: start;
           padding: 11px;
           border-radius: 16px;
           background: rgba(255,255,255,0.04);
@@ -639,6 +745,12 @@ export default function AdminEmergencyPage() {
           font-size: 10px;
         }
 
+        .status {
+          grid-column: 2;
+          width: fit-content;
+          margin-top: 6px;
+        }
+
         .status,
         .statusPill {
           border-radius: 999px;
@@ -672,11 +784,15 @@ export default function AdminEmergencyPage() {
         }
 
         .selectedTop {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
           gap: 10px;
           align-items: flex-start;
           margin-bottom: 12px;
+        }
+
+        .selectedIdentity {
+          min-width: 0;
         }
 
         .statusPill {
@@ -685,14 +801,20 @@ export default function AdminEmergencyPage() {
           margin-top: 4px;
         }
 
-        .summaryGrid,
-        .fullDetails {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 9px;
+        .liveEmergency {
+          width: 100%;
+          justify-content: center;
           margin-bottom: 12px;
         }
 
+        .emergencySummary {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .emergencySummary div,
         .infoBox,
         .locationMissing {
           max-width: 100%;
@@ -703,16 +825,12 @@ export default function AdminEmergencyPage() {
           overflow: hidden;
         }
 
-        .summaryGrid .infoBox:first-child {
+        .emergencySummary div:first-child {
           background: rgba(239,68,68,0.1);
           border-color: rgba(239,68,68,0.25);
         }
 
-        .summaryGrid .infoBox:first-child strong {
-          color: #ef4444;
-          font-size: 20px;
-        }
-
+        .emergencySummary span,
         .infoBox span {
           display: block;
           color: #a1a1aa;
@@ -721,17 +839,31 @@ export default function AdminEmergencyPage() {
           margin-bottom: 5px;
         }
 
+        .emergencySummary strong,
         .infoBox strong,
         .locationMissing {
           display: block;
           font-size: 11px;
-          overflow-wrap: anywhere;
-          word-break: break-word;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .emergencySummary div:first-child strong {
+          color: #ef4444;
+          font-size: 16px;
+        }
+
+        .fullDetails {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 9px;
+          margin-bottom: 12px;
         }
 
         .mapPreview {
           width: 100%;
-          height: 190px;
+          height: 240px;
           border-radius: 20px;
           overflow: hidden;
           margin-bottom: 12px;
@@ -810,12 +942,12 @@ export default function AdminEmergencyPage() {
         .activeButton,
         .resolveButton {
           width: 100%;
-          min-height: 44px;
+          min-height: 52px;
           padding: 10px 8px;
           border-radius: 999px;
           border: none;
           color: white;
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 900;
           cursor: pointer;
         }
@@ -856,18 +988,12 @@ export default function AdminEmergencyPage() {
         }
 
         @media (max-width: 430px) {
-          .alertRow {
-            grid-template-columns: 38px minmax(0, 1fr);
-          }
-
-          .status {
-            grid-column: 2;
-            width: fit-content;
-            margin-top: 6px;
+          .emergencySummary {
+            grid-template-columns: 1fr;
           }
 
           .mapPreview {
-            height: 170px;
+            height: 220px;
           }
         }
 
@@ -890,13 +1016,22 @@ export default function AdminEmergencyPage() {
             padding: 22px;
           }
 
-          .summaryGrid,
+          .alertRow {
+            grid-template-columns: 44px minmax(0, 1fr) auto;
+            align-items: center;
+          }
+
+          .status {
+            grid-column: auto;
+            margin-top: 0;
+          }
+
           .fullDetails {
             grid-template-columns: repeat(2, 1fr);
           }
 
           .mapPreview {
-            height: 260px;
+            height: 280px;
           }
         }
       `}</style>
