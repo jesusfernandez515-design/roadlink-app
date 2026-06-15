@@ -14,7 +14,6 @@ type UserItem = {
   email?: string;
   suspended?: boolean;
   driverVerified?: boolean;
-  createdAt?: string;
 };
 
 type BookingItem = {
@@ -24,8 +23,6 @@ type BookingItem = {
   passengerId?: string;
   passengerEmail?: string;
   status?: string;
-  price?: number;
-  createdAt?: string;
 };
 
 type ReportItem = {
@@ -34,7 +31,6 @@ type ReportItem = {
   targetUserEmail?: string;
   reporterId?: string;
   reporterEmail?: string;
-  status?: string;
   priority?: string;
 };
 
@@ -42,16 +38,11 @@ type DisputeItem = {
   id: string;
   userId?: string;
   userEmail?: string;
-  subject?: string;
-  description?: string;
-  category?: string;
   driverId?: string;
   driverEmail?: string;
   passengerId?: string;
   passengerEmail?: string;
-  status?: string;
   priority?: string;
-  amount?: number;
 };
 
 type PayoutItem = {
@@ -59,7 +50,6 @@ type PayoutItem = {
   userId?: string;
   driverEmail?: string;
   email?: string;
-  amount?: number;
   status?: string;
 };
 
@@ -105,7 +95,7 @@ export default function AdminFraudPage() {
       (snapshot) => {
         setBookings(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as BookingItem[]);
       },
-      (error) => setMessage(error.message)
+      () => setBookings([])
     );
 
     const unsubReports = onSnapshot(
@@ -129,7 +119,7 @@ export default function AdminFraudPage() {
       (snapshot) => {
         setPayouts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as PayoutItem[]);
       },
-      (error) => setMessage(error.message)
+      () => setPayouts([])
     );
 
     return () => {
@@ -215,9 +205,7 @@ export default function AdminFraudPage() {
         if (cancelledBookings.length > 0) reasons.push(`${cancelledBookings.length} cancellation(s)`);
         if (pendingPayouts > 0) reasons.push(`${pendingPayouts} pending payout(s)`);
         if (user.suspended) reasons.push("account suspended");
-        if (!user.driverVerified && userPayouts.length > 0) {
-          reasons.push("payout activity without verified driver status");
-        }
+        if (!user.driverVerified && userPayouts.length > 0) reasons.push("payout without verification");
 
         return {
           id: user.id,
@@ -228,9 +216,9 @@ export default function AdminFraudPage() {
           score,
           details:
             score >= 70
-              ? "High risk user. Review reports, disputes, payouts, cancellations, and account history before allowing more activity."
+              ? "High risk user. Review reports, disputes, payouts, cancellations, and account history."
               : score >= 35
-              ? "Medium risk user. Monitor activity and review recent complaints, disputes, or cancellations."
+              ? "Medium risk user. Monitor activity and recent complaints."
               : "Low risk user. No major fraud pattern detected.",
           reports: userReports.length,
           disputes: userDisputes.length,
@@ -271,6 +259,11 @@ export default function AdminFraudPage() {
   const lowRiskCount = fraudCases.filter((item) => item.risk === "low").length;
   const suspendedCount = fraudCases.filter((item) => item.suspended).length;
 
+  const fraudHealth = Math.max(
+    100 - highRiskCount * 20 - mediumRiskCount * 8 - suspendedCount * 5,
+    0
+  );
+
   async function updateUserSuspension(item: FraudCase, suspended: boolean) {
     try {
       setLoadingId(item.userId);
@@ -293,9 +286,7 @@ export default function AdminFraudPage() {
         {
           userId: item.userId,
           userEmail: item.email,
-          action: suspended
-            ? "User Suspended From Fraud Center"
-            : "User Cleared From Fraud Center",
+          action: suspended ? "User Suspended From Fraud Center" : "User Cleared From Fraud Center",
           targetId: item.userId,
           targetType: "user",
           details: item.reason,
@@ -376,11 +367,17 @@ export default function AdminFraudPage() {
     return "Low Risk";
   }
 
+  function shortText(value: string, max = 34) {
+    if (!value) return "Not available";
+    if (value.length <= max) return value;
+    return `${value.slice(0, max)}...`;
+  }
+
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
+          <Link href="/admin" className="miniButton">Admin</Link>
           <Link href="/admin/reports" className="miniButton">Reports</Link>
           <Link href="/admin/disputes" className="miniButton">Disputes</Link>
           <Link href="/admin/payouts" className="miniButton">Payouts</Link>
@@ -392,22 +389,24 @@ export default function AdminFraudPage() {
             <p className="eyebrow">RoadLink Admin</p>
             <h1>Fraud <span>Center</span></h1>
             <p className="subtitle">
-              Detect risky accounts using reports, disputes, cancellations, payout activity,
-              suspended status, and driver verification signals.
+              Detect risky users, suspicious payouts, cancelled bookings and safety reports.
             </p>
           </div>
 
-          <div className="heroIcon">🚨</div>
+          <div className={fraudHealth < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
+            <strong>{fraudHealth}</strong>
+            <span>Health</span>
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚨" label="High Risk" value={String(highRiskCount)} />
-          <Metric icon="⚠️" label="Medium Risk" value={String(mediumRiskCount)} />
-          <Metric icon="✅" label="Low Risk" value={String(lowRiskCount)} />
-          <Metric icon="⛔" label="Suspended" value={String(suspendedCount)} />
-          <Metric icon="👥" label="Users Scanned" value={String(fraudCases.length)} />
+          <Metric icon="🚨" label="High" value={String(highRiskCount)} danger={highRiskCount > 0} />
+          <Metric icon="⚠️" label="Medium" value={String(mediumRiskCount)} danger={mediumRiskCount > 0} />
+          <Metric icon="✅" label="Low" value={String(lowRiskCount)} />
+          <Metric icon="⛔" label="Suspended" value={String(suspendedCount)} danger={suspendedCount > 0} />
+          <Metric icon="👥" label="Scanned" value={String(fraudCases.length)} />
           <Metric icon="📋" label="Filtered" value={String(filteredCases.length)} />
         </section>
 
@@ -415,7 +414,7 @@ export default function AdminFraudPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by email, UID, or fraud reason..."
+            placeholder="Search email, UID, reason..."
           />
 
           <select
@@ -437,7 +436,7 @@ export default function AdminFraudPage() {
             {filteredCases.length === 0 ? (
               <div className="empty">
                 <h3>No fraud cases found</h3>
-                <p>No suspicious accounts match your current filters.</p>
+                <p>No suspicious accounts match your filters.</p>
               </div>
             ) : (
               <div className="fraudList">
@@ -452,9 +451,9 @@ export default function AdminFraudPage() {
                     </div>
 
                     <div className="fraudInfo">
-                      <strong>{item.email}</strong>
-                      <span>{item.reason}</span>
-                      <small>Risk score: {item.score}/100</small>
+                      <strong>{shortText(item.email, 32)}</strong>
+                      <span>{shortText(item.reason, 48)}</span>
+                      <small>Score {item.score}/100</small>
                     </div>
 
                     <em className={`risk ${item.risk}`}>{riskLabel(item.risk)}</em>
@@ -470,8 +469,8 @@ export default function AdminFraudPage() {
                 <div className="sectionHeader">
                   <div>
                     <p className="eyebrow">Selected Account</p>
-                    <h2>{selected.email}</h2>
-                    <p className="email">{selected.userId}</p>
+                    <h2>{shortText(selected.email, 36)}</h2>
+                    <p className="email">{shortText(selected.userId, 40)}</p>
                   </div>
 
                   <span className={`riskPill ${selected.risk}`}>
@@ -491,14 +490,14 @@ export default function AdminFraudPage() {
                 </div>
 
                 <div className="infoGrid">
-                  <Info label="User ID" value={selected.userId} />
-                  <Info label="Email" value={selected.email} />
                   <Info label="Reports" value={String(selected.reports)} />
                   <Info label="Disputes" value={String(selected.disputes)} />
                   <Info label="Cancellations" value={String(selected.cancellations)} />
-                  <Info label="Payout Records" value={String(selected.payouts)} />
+                  <Info label="Payouts" value={String(selected.payouts)} />
                   <Info label="Suspended" value={selected.suspended ? "Yes" : "No"} />
                   <Info label="Risk Level" value={riskLabel(selected.risk)} />
+                  <Info label="Email" value={selected.email} />
+                  <Info label="User ID" value={selected.userId} />
                 </div>
 
                 <div className="actionRow">
@@ -507,7 +506,7 @@ export default function AdminFraudPage() {
                     onClick={() => markForReview(selected)}
                     disabled={loadingId === selected.userId}
                   >
-                    Mark Review
+                    Review
                   </button>
 
                   <button
@@ -527,7 +526,7 @@ export default function AdminFraudPage() {
                   </button>
 
                   <Link href="/admin/users" className="linkButton">
-                    Open Users
+                    Users
                   </Link>
                 </div>
               </>
@@ -544,19 +543,26 @@ export default function AdminFraudPage() {
       <style>{`
         * { box-sizing: border-box; }
 
+        html,
+        body {
+          overflow-x: hidden;
+        }
+
         .page {
+          width: 100%;
           min-height: 100vh;
           background:
             radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
             radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 24px;
-          padding-bottom: 140px;
+          padding: 12px;
+          padding-bottom: 150px;
           font-family: Arial, sans-serif;
         }
 
         .container {
+          width: 100%;
           max-width: 1180px;
           margin: auto;
         }
@@ -564,17 +570,18 @@ export default function AdminFraudPage() {
         .topNav {
           display: flex;
           flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 24px;
+          gap: 8px;
+          margin-bottom: 12px;
         }
 
         .miniButton {
-          padding: 11px 18px;
+          padding: 9px 12px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
+          font-size: 12px;
           font-weight: 900;
         }
 
@@ -583,35 +590,35 @@ export default function AdminFraudPage() {
         .filters,
         .fraudCard,
         .detailsCard {
-          background: rgba(8, 13, 25, 0.92);
+          background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          box-shadow: 0 16px 44px rgba(0,0,0,0.45);
           backdrop-filter: blur(16px);
         }
 
         .hero {
-          border-radius: 34px;
-          padding: 34px;
-          margin-bottom: 22px;
-          display: flex;
-          justify-content: space-between;
+          border-radius: 24px;
+          padding: 18px;
+          margin-bottom: 12px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 14px;
           align-items: center;
-          gap: 24px;
         }
 
         .eyebrow {
-          margin: 0 0 10px;
+          margin: 0 0 7px;
           color: #22c55e;
-          font-size: 13px;
+          font-size: 10px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
         h1 {
-          font-size: 58px;
-          line-height: 1;
-          margin: 0 0 16px;
+          font-size: 34px;
+          line-height: 0.98;
+          margin: 0 0 10px;
         }
 
         h1 span,
@@ -622,90 +629,127 @@ export default function AdminFraudPage() {
         }
 
         h2 {
-          font-size: 32px;
-          margin: 0 0 8px;
+          font-size: 24px;
+          margin: 0 0 12px;
+          overflow-wrap: anywhere;
         }
 
         .subtitle,
         .email,
         .empty p {
           color: #a1a1aa;
-          line-height: 1.5;
+          line-height: 1.45;
+          font-size: 13px;
+          margin: 0;
+          overflow-wrap: anywhere;
         }
 
-        .heroIcon {
-          min-width: 92px;
-          height: 92px;
+        .scoreOrb {
+          min-width: 74px;
+          width: 74px;
+          height: 74px;
           border-radius: 50%;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 42px;
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .warningScore {
+          background: rgba(250,204,21,0.12);
+          border-color: rgba(250,204,21,0.35);
+        }
+
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 24px;
+          font-weight: 900;
+        }
+
+        .warningScore strong {
+          color: #fde68a;
+        }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 9px;
+          font-weight: 900;
         }
 
         .message {
           color: #22c55e;
           font-weight: 900;
-          margin: 16px 0;
+          margin: 10px 0;
+          font-size: 13px;
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(6, 1fr);
-          gap: 14px;
-          margin-bottom: 18px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 12px;
         }
 
         .metric {
-          border-radius: 24px;
-          padding: 18px;
+          border-radius: 16px;
+          padding: 11px;
+          min-height: 58px;
+          display: grid;
+          grid-template-columns: 34px 1fr auto;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .dangerMetric {
+          border-color: rgba(239,68,68,0.35);
+          background: rgba(127,29,29,0.2);
         }
 
         .metricIcon {
-          width: 42px;
-          height: 42px;
+          width: 34px;
+          height: 34px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 22px;
-          margin-bottom: 12px;
+          font-size: 17px;
         }
 
         .metricLabel {
           display: block;
           color: #a1a1aa;
-          font-size: 12px;
+          font-size: 10px;
           font-weight: 900;
-          margin-bottom: 8px;
         }
 
         .metricValue {
-          font-size: 24px;
+          display: block;
+          font-size: 20px;
           font-weight: 900;
         }
 
         .filters {
           display: grid;
-          grid-template-columns: 1fr 220px;
-          gap: 12px;
-          border-radius: 24px;
-          padding: 18px;
-          margin-bottom: 24px;
+          grid-template-columns: 1fr;
+          gap: 10px;
+          border-radius: 18px;
+          padding: 12px;
+          margin-bottom: 12px;
         }
 
         .filters input,
         .filters select {
           width: 100%;
-          padding: 15px;
-          border-radius: 16px;
+          padding: 12px;
+          border-radius: 14px;
           border: 1px solid rgba(255,255,255,0.12);
           background: rgba(255,255,255,0.05);
           color: white;
-          font-size: 16px;
+          font-size: 13px;
           outline: none;
         }
 
@@ -715,34 +759,36 @@ export default function AdminFraudPage() {
 
         .adminGrid {
           display: grid;
-          grid-template-columns: 0.9fr 1.4fr;
-          gap: 24px;
+          grid-template-columns: 1fr;
+          gap: 12px;
         }
 
         .fraudCard,
         .detailsCard {
-          border-radius: 30px;
-          padding: 28px;
+          border-radius: 22px;
+          padding: 16px;
+          overflow: hidden;
         }
 
         .fraudList {
           display: grid;
-          gap: 12px;
+          gap: 8px;
         }
 
         .fraudRow {
           width: 100%;
           display: grid;
-          grid-template-columns: 52px 1fr auto;
-          gap: 12px;
+          grid-template-columns: 42px minmax(0, 1fr);
+          gap: 10px;
           align-items: center;
-          padding: 14px;
-          border-radius: 18px;
+          padding: 12px;
+          border-radius: 16px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
           color: white;
           cursor: pointer;
           text-align: left;
+          overflow: hidden;
         }
 
         .activeFraud {
@@ -751,13 +797,13 @@ export default function AdminFraudPage() {
         }
 
         .fraudIcon {
-          width: 52px;
-          height: 52px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
+          font-size: 19px;
         }
 
         .fraudIcon.high {
@@ -788,19 +834,29 @@ export default function AdminFraudPage() {
           white-space: nowrap;
         }
 
+        .fraudInfo strong {
+          font-size: 13px;
+        }
+
         .fraudInfo span,
         .fraudInfo small {
           color: #a1a1aa;
           margin-top: 4px;
+          font-size: 11px;
+        }
+
+        .risk {
+          grid-column: 2;
+          width: fit-content;
         }
 
         .risk,
         .riskPill {
           border-radius: 999px;
-          padding: 8px 11px;
+          padding: 7px 10px;
           font-style: normal;
           font-weight: 900;
-          font-size: 12px;
+          font-size: 10px;
           white-space: nowrap;
         }
 
@@ -826,31 +882,32 @@ export default function AdminFraudPage() {
         }
 
         .sectionHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
           align-items: flex-start;
-          margin-bottom: 20px;
+          margin-bottom: 12px;
         }
 
         .scoreBox,
         .detailsBox {
-          padding: 22px;
-          border-radius: 22px;
+          padding: 14px;
+          border-radius: 16px;
           background: rgba(34,197,94,0.1);
           border: 1px solid rgba(34,197,94,0.35);
-          margin-bottom: 20px;
+          margin-bottom: 12px;
         }
 
         .scoreBox span {
           display: block;
           color: #a1a1aa;
           font-weight: 900;
-          margin-bottom: 8px;
+          font-size: 11px;
+          margin-bottom: 6px;
         }
 
         .scoreBox strong {
-          font-size: 44px;
+          font-size: 30px;
           font-weight: 900;
         }
 
@@ -858,45 +915,50 @@ export default function AdminFraudPage() {
           display: block;
           color: #22c55e;
           margin-bottom: 8px;
+          font-size: 13px;
         }
 
         .detailsBox p {
           color: #e5e7eb;
-          line-height: 1.5;
-          margin-bottom: 8px;
+          line-height: 1.45;
+          margin: 0 0 7px;
+          font-size: 12px;
           overflow-wrap: anywhere;
         }
 
         .infoGrid {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
-          margin-bottom: 20px;
+          grid-template-columns: 1fr;
+          gap: 8px;
+          margin-bottom: 12px;
         }
 
         .infoBox {
-          padding: 14px;
-          border-radius: 16px;
+          padding: 11px;
+          border-radius: 14px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
+          overflow: hidden;
         }
 
         .infoBox span {
           display: block;
           color: #a1a1aa;
-          font-size: 12px;
+          font-size: 10px;
           font-weight: 900;
-          margin-bottom: 6px;
+          margin-bottom: 5px;
         }
 
         .infoBox strong {
+          display: block;
+          font-size: 12px;
           overflow-wrap: anywhere;
         }
 
         .actionRow {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 10px;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
         }
 
         .reviewButton,
@@ -906,10 +968,12 @@ export default function AdminFraudPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 15px;
+          min-height: 42px;
+          padding: 10px;
           border-radius: 999px;
           border: none;
           color: white;
+          font-size: 11px;
           font-weight: 900;
           cursor: pointer;
           text-decoration: none;
@@ -939,75 +1003,56 @@ export default function AdminFraudPage() {
         }
 
         .empty {
-          padding: 26px;
-          border-radius: 22px;
+          padding: 18px;
+          border-radius: 18px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
         }
 
         .empty h3 {
           margin: 0 0 8px;
-          font-size: 24px;
+          font-size: 18px;
         }
 
-        @media (max-width: 1100px) {
+        @media (min-width: 900px) {
+          .page {
+            padding: 24px;
+            padding-bottom: 80px;
+          }
+
           .stats {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(6, 1fr);
+          }
+
+          .filters {
+            grid-template-columns: 1fr 220px;
+            padding: 18px;
           }
 
           .adminGrid {
-            grid-template-columns: 1fr;
-          }
-
-          .actionRow {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        @media (max-width: 720px) {
-          .page {
-            padding: 16px;
-            padding-bottom: 140px;
-          }
-
-          .hero {
-            flex-direction: column;
-            align-items: flex-start;
-            padding: 28px;
-          }
-
-          h1 {
-            font-size: 44px;
-          }
-
-          .stats,
-          .filters,
-          .infoGrid,
-          .actionRow {
-            grid-template-columns: 1fr;
+            grid-template-columns: 0.9fr 1.4fr;
+            gap: 24px;
           }
 
           .fraudCard,
           .detailsCard {
-            padding: 24px;
+            padding: 28px;
           }
 
           .fraudRow {
-            grid-template-columns: 46px 1fr;
+            grid-template-columns: 52px 1fr auto;
           }
 
-          .fraudRow .risk {
-            grid-column: 1 / -1;
-            width: fit-content;
+          .risk {
+            grid-column: auto;
           }
 
-          .fraudIcon {
-            width: 46px;
-            height: 46px;
+          .infoGrid {
+            grid-template-columns: repeat(2, 1fr);
           }
 
-          .sectionHeader {
-            flex-direction: column;
+          .actionRow {
+            grid-template-columns: repeat(4, 1fr);
           }
         }
       `}</style>
@@ -1019,16 +1064,18 @@ function Metric({
   icon,
   label,
   value,
+  danger,
 }: {
   icon: string;
   label: string;
   value: string;
+  danger?: boolean;
 }) {
   return (
-    <div className="metric">
+    <div className={danger ? "metric dangerMetric" : "metric"}>
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
-      <div className="metricValue">{value}</div>
+      <strong className="metricValue">{value}</strong>
     </div>
   );
 }
