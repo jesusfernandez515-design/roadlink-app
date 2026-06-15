@@ -33,6 +33,7 @@ export default function AdminEmergencyPage() {
   const [selected, setSelected] = useState<EmergencyAlert | null>(null);
   const [filter, setFilter] = useState<"all" | EmergencyStatus>("all");
   const [adminNote, setAdminNote] = useState("");
+  const [showFullDetails, setShowFullDetails] = useState(false);
   const [message, setMessage] = useState("Loading emergency alerts...");
   const [loadingId, setLoadingId] = useState("");
 
@@ -66,6 +67,7 @@ export default function AdminEmergencyPage() {
 
   useEffect(() => {
     setAdminNote(selected?.adminNote || "");
+    setShowFullDetails(false);
   }, [selected]);
 
   const filteredAlerts = useMemo(() => {
@@ -101,6 +103,25 @@ export default function AdminEmergencyPage() {
     } catch {
       return "Recently";
     }
+  }
+
+  function shortEmail(value?: string) {
+    if (!value) return "RoadLink User";
+    if (value.length <= 22) return value;
+    const [name, domain] = value.split("@");
+    return `${name.slice(0, 12)}...@${domain || "email.com"}`;
+  }
+
+  function shortId(value?: string) {
+    if (!value) return "No user ID";
+    if (value.length <= 14) return value;
+    return `${value.slice(0, 7)}...${value.slice(-5)}`;
+  }
+
+  function statusLabel(status?: EmergencyStatus) {
+    if (status === "in_progress") return "In Review";
+    if (status === "resolved") return "Resolved";
+    return "Active";
   }
 
   function locationText(alert: EmergencyAlert) {
@@ -191,8 +212,7 @@ export default function AdminEmergencyPage() {
             <p className="eyebrow">RoadLink Admin Safety</p>
             <h1>Emergency <span>Center</span></h1>
             <p className="subtitle">
-              Monitor SOS alerts, review GPS location, update emergency status,
-              and create safety audit records.
+              Monitor SOS alerts, location, status, and safety response.
             </p>
           </div>
 
@@ -208,131 +228,135 @@ export default function AdminEmergencyPage() {
           <Metric icon="🔥" label="Critical" value={String(criticalCount)} />
         </section>
 
-        <section className="adminGrid">
-          <div className="alertsCard">
-            <div className="cardHeader">
-              <div>
-                <p className="eyebrow">SOS Queue</p>
-                <h2>Emergency Alerts</h2>
-              </div>
-            </div>
+        <section className="alertsCard">
+          <p className="eyebrow">SOS Queue</p>
+          <h2>Emergency Alerts</h2>
 
-            <div className="filters">
-              <button onClick={() => setFilter("all")} className={filter === "all" ? "activeFilter" : ""}>All</button>
-              <button onClick={() => setFilter("active")} className={filter === "active" ? "activeFilter" : ""}>Active</button>
-              <button onClick={() => setFilter("in_progress")} className={filter === "in_progress" ? "activeFilter" : ""}>Review</button>
-              <button onClick={() => setFilter("resolved")} className={filter === "resolved" ? "activeFilter" : ""}>Resolved</button>
-            </div>
-
-            {filteredAlerts.length === 0 ? (
-              <div className="empty">
-                <h3>No emergency alerts found</h3>
-                <p>SOS alerts will appear here after users submit them.</p>
-              </div>
-            ) : (
-              <div className="alertList">
-                {filteredAlerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    onClick={() => setSelected(alert)}
-                    className={selected?.id === alert.id ? "alertRow activeAlert" : "alertRow"}
-                  >
-                    <div className="alertIcon">🚨</div>
-
-                    <div className="alertText">
-                      <strong>{alert.userEmail || "RoadLink User"}</strong>
-                      <span>{shortDate(alert.createdAt)}</span>
-                      <small>{locationText(alert)}</small>
-                    </div>
-
-                    <em className={`status ${alert.status || "active"}`}>
-                      {String(alert.status || "active").replace("_", " ")}
-                    </em>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="filters">
+            <button onClick={() => setFilter("all")} className={filter === "all" ? "activeFilter" : ""}>All</button>
+            <button onClick={() => setFilter("active")} className={filter === "active" ? "activeFilter" : ""}>Active</button>
+            <button onClick={() => setFilter("in_progress")} className={filter === "in_progress" ? "activeFilter" : ""}>Review</button>
+            <button onClick={() => setFilter("resolved")} className={filter === "resolved" ? "activeFilter" : ""}>Resolved</button>
           </div>
 
-          <div className="detailsCard">
-            {selected ? (
-              <>
-                <div className="sectionHeader">
-                  <div>
-                    <p className="eyebrow">Selected Alert</p>
-                    <h2>{selected.userEmail || "RoadLink User"}</h2>
-                    <p className="email">{selected.userId || "No user ID"}</p>
+          {filteredAlerts.length === 0 ? (
+            <div className="empty">
+              <h3>No emergency alerts found</h3>
+              <p>SOS alerts will appear here after users submit them.</p>
+            </div>
+          ) : (
+            <div className="alertList">
+              {filteredAlerts.map((alert) => (
+                <button
+                  key={alert.id}
+                  onClick={() => setSelected(alert)}
+                  className={selected?.id === alert.id ? "alertRow activeAlert" : "alertRow"}
+                >
+                  <div className="alertIcon">🚨</div>
+
+                  <div className="alertText">
+                    <strong>{shortEmail(alert.userEmail)}</strong>
+                    <span>{shortDate(alert.createdAt)}</span>
+                    <small>{locationText(alert)}</small>
                   </div>
 
-                  <span className={`statusPill ${selected.status || "active"}`}>
-                    {String(selected.status || "active").replace("_", " ")}
-                  </span>
+                  <em className={`status ${alert.status || "active"}`}>
+                    {statusLabel(alert.status)}
+                  </em>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="detailsCard">
+          {selected ? (
+            <>
+              <div className="selectedTop">
+                <div>
+                  <p className="eyebrow">Selected Alert</p>
+                  <h2>{shortEmail(selected.userEmail)}</h2>
+                  <p className="email">{shortId(selected.userId)}</p>
                 </div>
 
-                <div className="dangerBox">
-                  <span>Emergency Priority</span>
-                  <strong>{selected.priority || "critical"}</strong>
-                </div>
+                <span className={`statusPill ${selected.status || "active"}`}>
+                  {statusLabel(selected.status)}
+                </span>
+              </div>
 
-                <div className="infoGrid">
+              <div className="summaryGrid">
+                <Info label="Priority" value={(selected.priority || "critical").toUpperCase()} />
+                <Info label="Status" value={statusLabel(selected.status)} />
+                <Info label="Created" value={shortDate(selected.createdAt)} />
+                <Info label="Location" value={locationText(selected)} />
+              </div>
+
+              {mapUrl(selected) ? (
+                <a href={mapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
+                  Open Location in Google Maps
+                </a>
+              ) : (
+                <div className="locationMissing">
+                  Location was not available for this SOS alert.
+                </div>
+              )}
+
+              <button
+                className="detailsToggle"
+                onClick={() => setShowFullDetails((value) => !value)}
+              >
+                {showFullDetails ? "Hide Details" : "View Full Details"}
+              </button>
+
+              {showFullDetails && (
+                <div className="fullDetails">
                   <Info label="Alert ID" value={selected.id} />
                   <Info label="User Email" value={selected.userEmail || "Not available"} />
-                  <Info label="Created" value={dateText(selected.createdAt)} />
+                  <Info label="User ID" value={selected.userId || "Not available"} />
                   <Info label="Updated" value={dateText(selected.updatedAt)} />
                   <Info label="Resolved" value={dateText(selected.resolvedAt)} />
-                  <Info label="Location" value={locationText(selected)} />
                 </div>
+              )}
 
-                {mapUrl(selected) ? (
-                  <a href={mapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
-                    Open Location in Google Maps
-                  </a>
-                ) : (
-                  <div className="locationMissing">
-                    Location was not available for this SOS alert.
-                  </div>
-                )}
+              <label>Admin Note</label>
+              <textarea
+                value={adminNote}
+                onChange={(event) => setAdminNote(event.target.value)}
+                placeholder="Write a note about this emergency case..."
+              />
 
-                <label>Admin Note</label>
-                <textarea
-                  value={adminNote}
-                  onChange={(event) => setAdminNote(event.target.value)}
-                  placeholder="Write a note about this emergency case..."
-                />
+              <div className="actionRow">
+                <button
+                  className="reviewButton"
+                  onClick={() => updateAlertStatus(selected, "in_progress")}
+                  disabled={loadingId === selected.id}
+                >
+                  Review
+                </button>
 
-                <div className="actionRow">
-                  <button
-                    className="reviewButton"
-                    onClick={() => updateAlertStatus(selected, "in_progress")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Mark Review
-                  </button>
+                <button
+                  className="activeButton"
+                  onClick={() => updateAlertStatus(selected, "active")}
+                  disabled={loadingId === selected.id}
+                >
+                  Active
+                </button>
 
-                  <button
-                    className="activeButton"
-                    onClick={() => updateAlertStatus(selected, "active")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Keep Active
-                  </button>
-
-                  <button
-                    className="resolveButton"
-                    onClick={() => updateAlertStatus(selected, "resolved")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Resolve
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="empty">
-                <h3>Select an alert</h3>
-                <p>Choose an SOS alert to review safety details.</p>
+                <button
+                  className="resolveButton"
+                  onClick={() => updateAlertStatus(selected, "resolved")}
+                  disabled={loadingId === selected.id}
+                >
+                  Resolve
+                </button>
               </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <div className="empty">
+              <h3>Select an alert</h3>
+              <p>Choose an SOS alert to review safety details.</p>
+            </div>
+          )}
         </section>
       </section>
 
@@ -361,7 +385,7 @@ export default function AdminEmergencyPage() {
 
         .container {
           width: 100%;
-          max-width: 1080px;
+          max-width: 760px;
           margin: auto;
           overflow-x: hidden;
         }
@@ -374,7 +398,8 @@ export default function AdminEmergencyPage() {
         }
 
         .miniButton,
-        .filters button {
+        .filters button,
+        .detailsToggle {
           padding: 9px 12px;
           border-radius: 999px;
           background: rgba(255,255,255,0.05);
@@ -424,8 +449,7 @@ export default function AdminEmergencyPage() {
           margin: 0 0 10px;
         }
 
-        h1 span,
-        .dangerBox strong {
+        h1 span {
           color: #ef4444;
         }
 
@@ -435,7 +459,7 @@ export default function AdminEmergencyPage() {
         }
 
         h2 {
-          font-size: 24px;
+          font-size: 23px;
           line-height: 1.05;
           margin: 0 0 12px;
           overflow-wrap: anywhere;
@@ -508,23 +532,10 @@ export default function AdminEmergencyPage() {
           font-weight: 900;
         }
 
-        .adminGrid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 12px;
-          width: 100%;
-          overflow-x: hidden;
-        }
-
         .alertsCard,
         .detailsCard {
           border-radius: 22px;
           padding: 16px;
-        }
-
-        .cardHeader,
-        .sectionHeader {
-          display: block;
           margin-bottom: 12px;
         }
 
@@ -644,34 +655,22 @@ export default function AdminEmergencyPage() {
           border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .statusPill {
-          display: inline-flex;
-          margin-top: 10px;
-        }
-
-        .dangerBox {
-          padding: 16px;
-          border-radius: 18px;
-          background: rgba(239,68,68,0.1);
-          border: 1px solid rgba(239,68,68,0.25);
+        .selectedTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: flex-start;
           margin-bottom: 12px;
         }
 
-        .dangerBox span {
-          display: block;
-          color: #a1a1aa;
-          font-size: 11px;
-          font-weight: 900;
-          margin-bottom: 5px;
+        .statusPill {
+          display: inline-flex;
+          flex-shrink: 0;
+          margin-top: 4px;
         }
 
-        .dangerBox strong {
-          font-size: 28px;
-          font-weight: 900;
-          text-transform: uppercase;
-        }
-
-        .infoGrid {
+        .summaryGrid,
+        .fullDetails {
           display: grid;
           grid-template-columns: 1fr;
           gap: 9px;
@@ -686,6 +685,16 @@ export default function AdminEmergencyPage() {
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
           overflow: hidden;
+        }
+
+        .summaryGrid .infoBox:first-child {
+          background: rgba(239,68,68,0.1);
+          border-color: rgba(239,68,68,0.25);
+        }
+
+        .summaryGrid .infoBox:first-child strong {
+          color: #ef4444;
+          font-size: 20px;
         }
 
         .infoBox span {
@@ -704,7 +713,8 @@ export default function AdminEmergencyPage() {
           word-break: break-word;
         }
 
-        .mapButton {
+        .mapButton,
+        .detailsToggle {
           display: flex;
           width: 100%;
           justify-content: center;
@@ -712,13 +722,22 @@ export default function AdminEmergencyPage() {
           padding: 13px;
           margin-bottom: 12px;
           border-radius: 999px;
-          background: rgba(59,130,246,0.15);
-          border: 1px solid rgba(59,130,246,0.4);
-          color: #93c5fd;
           font-weight: 900;
           text-decoration: none;
           font-size: 12px;
           text-align: center;
+        }
+
+        .mapButton {
+          background: rgba(59,130,246,0.15);
+          border: 1px solid rgba(59,130,246,0.4);
+          color: #93c5fd;
+        }
+
+        .detailsToggle {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: white;
         }
 
         .locationMissing {
@@ -735,7 +754,7 @@ export default function AdminEmergencyPage() {
 
         textarea {
           width: 100%;
-          min-height: 100px;
+          min-height: 86px;
           padding: 13px;
           border-radius: 15px;
           border: 1px solid rgba(255,255,255,0.12);
@@ -750,19 +769,19 @@ export default function AdminEmergencyPage() {
 
         .actionRow {
           display: grid;
-          grid-template-columns: 1fr;
-          gap: 9px;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
         }
 
         .reviewButton,
         .activeButton,
         .resolveButton {
           width: 100%;
-          padding: 14px;
+          padding: 12px 8px;
           border-radius: 999px;
           border: none;
           color: white;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 900;
           cursor: pointer;
         }
@@ -803,26 +822,22 @@ export default function AdminEmergencyPage() {
         }
 
         @media (min-width: 900px) {
+          .container {
+            max-width: 1180px;
+          }
+
           .page {
             padding: 24px;
             padding-bottom: 60px;
-          }
-
-          .adminGrid {
-            grid-template-columns: 0.95fr 1.45fr;
-            gap: 18px;
           }
 
           .stats {
             grid-template-columns: repeat(4, 1fr);
           }
 
-          .infoGrid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .actionRow {
-            grid-template-columns: repeat(3, 1fr);
+          .alertsCard,
+          .detailsCard {
+            padding: 22px;
           }
 
           .alertRow {
@@ -832,6 +847,11 @@ export default function AdminEmergencyPage() {
           .status {
             grid-column: auto;
             margin-top: 0;
+          }
+
+          .summaryGrid,
+          .fullDetails {
+            grid-template-columns: repeat(2, 1fr);
           }
         }
       `}</style>
