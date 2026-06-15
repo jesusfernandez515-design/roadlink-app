@@ -88,12 +88,27 @@ export default function AdminEmergencyPage() {
     }
   }
 
+  function shortDate(value?: string) {
+    if (!value) return "Recently";
+
+    try {
+      return new Date(value).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Recently";
+    }
+  }
+
   function locationText(alert: EmergencyAlert) {
     if (typeof alert.latitude !== "number" || typeof alert.longitude !== "number") {
       return "Location not available";
     }
 
-    return `${alert.latitude}, ${alert.longitude}`;
+    return `${alert.latitude.toFixed(6)}, ${alert.longitude.toFixed(6)}`;
   }
 
   function mapUrl(alert: EmergencyAlert) {
@@ -165,7 +180,7 @@ export default function AdminEmergencyPage() {
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
+          <Link href="/admin" className="miniButton">Admin</Link>
           <Link href="/admin/support" className="miniButton">Support</Link>
           <Link href="/admin/fraud" className="miniButton">Fraud</Link>
           <Link href="/admin/users" className="miniButton">Users</Link>
@@ -176,7 +191,7 @@ export default function AdminEmergencyPage() {
             <p className="eyebrow">RoadLink Admin Safety</p>
             <h1>Emergency <span>Center</span></h1>
             <p className="subtitle">
-              Monitor SOS alerts, review user location, update emergency status,
+              Monitor SOS alerts, review GPS location, update emergency status,
               and create safety audit records.
             </p>
           </div>
@@ -188,15 +203,19 @@ export default function AdminEmergencyPage() {
 
         <section className="stats">
           <Metric icon="🚨" label="Active" value={String(activeCount)} />
-          <Metric icon="👀" label="In Review" value={String(inProgressCount)} />
+          <Metric icon="👀" label="Review" value={String(inProgressCount)} />
           <Metric icon="✅" label="Resolved" value={String(resolvedCount)} />
           <Metric icon="🔥" label="Critical" value={String(criticalCount)} />
         </section>
 
         <section className="adminGrid">
           <div className="alertsCard">
-            <p className="eyebrow">SOS Queue</p>
-            <h2>Emergency Alerts</h2>
+            <div className="cardHeader">
+              <div>
+                <p className="eyebrow">SOS Queue</p>
+                <h2>Emergency Alerts</h2>
+              </div>
+            </div>
 
             <div className="filters">
               <button onClick={() => setFilter("all")} className={filter === "all" ? "activeFilter" : ""}>All</button>
@@ -220,9 +239,9 @@ export default function AdminEmergencyPage() {
                   >
                     <div className="alertIcon">🚨</div>
 
-                    <div>
+                    <div className="alertText">
                       <strong>{alert.userEmail || "RoadLink User"}</strong>
-                      <span>{dateText(alert.createdAt)}</span>
+                      <span>{shortDate(alert.createdAt)}</span>
                       <small>{locationText(alert)}</small>
                     </div>
 
@@ -265,7 +284,7 @@ export default function AdminEmergencyPage() {
                 </div>
 
                 {mapUrl(selected) ? (
-                  <a href={mapUrl(selected)} target="_blank" className="mapButton">
+                  <a href={mapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
                     Open Location in Google Maps
                   </a>
                 ) : (
@@ -287,7 +306,7 @@ export default function AdminEmergencyPage() {
                     onClick={() => updateAlertStatus(selected, "in_progress")}
                     disabled={loadingId === selected.id}
                   >
-                    Mark In Review
+                    Mark Review
                   </button>
 
                   <button
@@ -323,12 +342,12 @@ export default function AdminEmergencyPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.25), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(34,197,94,0.12), transparent 35%),
+            radial-gradient(circle at top right, rgba(239,68,68,0.22), transparent 32%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.1), transparent 34%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 24px;
-          padding-bottom: 140px;
+          padding: 18px;
+          padding-bottom: 150px;
           font-family: Arial, sans-serif;
         }
 
@@ -337,30 +356,24 @@ export default function AdminEmergencyPage() {
           margin: auto;
         }
 
-        .topNav,
-        .filters {
+        .topNav {
           display: flex;
+          gap: 8px;
           flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 24px;
+          margin-bottom: 14px;
         }
 
         .miniButton,
         .filters button {
-          padding: 11px 18px;
+          padding: 10px 14px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
+          font-size: 13px;
           font-weight: 900;
           cursor: pointer;
-        }
-
-        .filters .activeFilter {
-          background: rgba(239,68,68,0.14);
-          border-color: rgba(239,68,68,0.45);
-          color: #fca5a5;
         }
 
         .hero,
@@ -369,33 +382,33 @@ export default function AdminEmergencyPage() {
         .detailsCard {
           background: rgba(8, 13, 25, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          box-shadow: 0 18px 55px rgba(0,0,0,0.45);
           backdrop-filter: blur(16px);
         }
 
         .hero {
-          border-radius: 34px;
-          padding: 34px;
-          margin-bottom: 22px;
+          border-radius: 28px;
+          padding: 24px;
+          margin-bottom: 14px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 24px;
+          gap: 18px;
         }
 
         .eyebrow {
-          margin: 0 0 10px;
+          margin: 0 0 8px;
           color: #ef4444;
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
         h1 {
-          font-size: 58px;
+          font-size: 44px;
           line-height: 1;
-          margin: 0 0 16px;
+          margin: 0 0 12px;
         }
 
         h1 span,
@@ -409,99 +422,123 @@ export default function AdminEmergencyPage() {
         }
 
         h2 {
-          font-size: 32px;
-          margin: 0 0 18px;
+          font-size: 26px;
+          margin: 0 0 14px;
         }
 
         .subtitle,
         .email {
           max-width: 700px;
           color: #a1a1aa;
-          font-size: 18px;
-          line-height: 1.5;
+          font-size: 15px;
+          line-height: 1.45;
           margin: 0;
           overflow-wrap: anywhere;
         }
 
         .heroIcon {
-          min-width: 92px;
-          height: 92px;
+          min-width: 64px;
+          width: 64px;
+          height: 64px;
           border-radius: 50%;
           background: rgba(239,68,68,0.12);
           border: 1px solid rgba(239,68,68,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 42px;
+          font-size: 32px;
         }
 
         .message {
           color: #22c55e;
           font-weight: 900;
-          margin: 16px 0;
+          margin: 12px 0;
+          font-size: 14px;
         }
 
         .stats {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 14px;
-          margin-bottom: 24px;
+          gap: 10px;
+          margin-bottom: 14px;
         }
 
         .metric {
-          border-radius: 24px;
-          padding: 22px;
+          border-radius: 20px;
+          padding: 16px;
         }
 
         .metricIcon {
-          width: 46px;
-          height: 46px;
+          width: 38px;
+          height: 38px;
           border-radius: 50%;
           background: rgba(239,68,68,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
-          margin-bottom: 14px;
+          font-size: 20px;
+          margin-bottom: 10px;
         }
 
         .metricLabel {
           display: block;
           color: #a1a1aa;
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 900;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
 
         .metricValue {
-          font-size: 30px;
+          font-size: 24px;
           font-weight: 900;
         }
 
         .adminGrid {
           display: grid;
           grid-template-columns: 0.95fr 1.45fr;
-          gap: 24px;
+          gap: 16px;
         }
 
         .alertsCard,
         .detailsCard {
-          border-radius: 30px;
-          padding: 28px;
+          border-radius: 26px;
+          padding: 20px;
+        }
+
+        .cardHeader,
+        .sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          margin-bottom: 14px;
+        }
+
+        .filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+
+        .filters .activeFilter {
+          background: rgba(239,68,68,0.14);
+          border-color: rgba(239,68,68,0.45);
+          color: #fca5a5;
         }
 
         .alertList {
           display: grid;
-          gap: 12px;
+          gap: 10px;
         }
 
         .alertRow {
           width: 100%;
           display: grid;
-          grid-template-columns: 52px 1fr auto;
-          gap: 12px;
+          grid-template-columns: 44px 1fr auto;
+          gap: 10px;
           align-items: center;
-          padding: 14px;
+          padding: 12px;
           border-radius: 18px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
@@ -516,37 +553,48 @@ export default function AdminEmergencyPage() {
         }
 
         .alertIcon {
-          width: 52px;
-          height: 52px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
           background: rgba(239,68,68,0.13);
           border: 1px solid rgba(239,68,68,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
+          font-size: 20px;
+        }
+
+        .alertText {
+          min-width: 0;
         }
 
         .alertRow strong,
         .alertRow span,
         .alertRow small {
           display: block;
-          overflow-wrap: anywhere;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .alertRow strong {
+          font-size: 13px;
         }
 
         .alertRow span,
         .alertRow small {
           color: #a1a1aa;
-          margin-top: 4px;
+          margin-top: 3px;
+          font-size: 11px;
         }
 
         .status,
         .statusPill {
           border-radius: 999px;
-          padding: 8px 11px;
+          padding: 7px 10px;
           font-style: normal;
           font-weight: 900;
-          font-size: 12px;
+          font-size: 11px;
           white-space: nowrap;
           text-transform: capitalize;
         }
@@ -572,51 +620,15 @@ export default function AdminEmergencyPage() {
           border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .sectionHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 20px;
-        }
-
         .dangerBox {
-          padding: 24px;
-          border-radius: 24px;
+          padding: 18px;
+          border-radius: 20px;
           background: rgba(239,68,68,0.1);
           border: 1px solid rgba(239,68,68,0.25);
-          margin-bottom: 20px;
+          margin-bottom: 14px;
         }
 
         .dangerBox span {
-          display: block;
-          color: #a1a1aa;
-          font-weight: 900;
-          margin-bottom: 8px;
-        }
-
-        .dangerBox strong {
-          font-size: 44px;
-          font-weight: 900;
-          text-transform: uppercase;
-        }
-
-        .infoGrid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-
-        .infoBox,
-        .locationMissing {
-          padding: 14px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .infoBox span {
           display: block;
           color: #a1a1aa;
           font-size: 12px;
@@ -624,8 +636,38 @@ export default function AdminEmergencyPage() {
           margin-bottom: 6px;
         }
 
+        .dangerBox strong {
+          font-size: 32px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .infoGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+
+        .infoBox,
+        .locationMissing {
+          padding: 12px;
+          border-radius: 14px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .infoBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 11px;
+          font-weight: 900;
+          margin-bottom: 5px;
+        }
+
         .infoBox strong,
         .locationMissing {
+          font-size: 12px;
           overflow-wrap: anywhere;
         }
 
@@ -634,55 +676,58 @@ export default function AdminEmergencyPage() {
           width: 100%;
           justify-content: center;
           align-items: center;
-          padding: 16px;
-          margin-bottom: 18px;
+          padding: 14px;
+          margin-bottom: 14px;
           border-radius: 999px;
           background: rgba(59,130,246,0.15);
           border: 1px solid rgba(59,130,246,0.4);
           color: #93c5fd;
           font-weight: 900;
           text-decoration: none;
+          font-size: 13px;
         }
 
         .locationMissing {
           color: #a1a1aa;
-          margin-bottom: 18px;
+          margin-bottom: 14px;
         }
 
         label {
           display: block;
           font-weight: 900;
+          font-size: 13px;
           margin-bottom: 8px;
         }
 
         textarea {
           width: 100%;
-          min-height: 140px;
-          padding: 16px;
-          border-radius: 18px;
+          min-height: 110px;
+          padding: 14px;
+          border-radius: 16px;
           border: 1px solid rgba(255,255,255,0.12);
           background: rgba(255,255,255,0.04);
           color: white;
-          font-size: 15px;
+          font-size: 14px;
           outline: none;
           resize: vertical;
-          margin-bottom: 16px;
+          margin-bottom: 14px;
           font-family: Arial, sans-serif;
         }
 
         .actionRow {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
-          gap: 12px;
+          gap: 10px;
         }
 
         .reviewButton,
         .activeButton,
         .resolveButton {
-          padding: 17px;
+          padding: 14px;
           border-radius: 999px;
           border: none;
           color: white;
+          font-size: 12px;
           font-weight: 900;
           cursor: pointer;
         }
@@ -705,15 +750,15 @@ export default function AdminEmergencyPage() {
         }
 
         .empty {
-          padding: 26px;
-          border-radius: 22px;
+          padding: 22px;
+          border-radius: 20px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
         }
 
         .empty h3 {
           margin: 0 0 8px;
-          font-size: 24px;
+          font-size: 20px;
         }
 
         .empty p {
@@ -724,39 +769,77 @@ export default function AdminEmergencyPage() {
 
         @media (max-width: 900px) {
           .page {
-            padding: 16px;
-            padding-bottom: 140px;
+            padding: 14px;
+            padding-bottom: 150px;
           }
 
           .hero {
-            flex-direction: column;
-            align-items: flex-start;
-            padding: 28px;
+            padding: 20px;
           }
 
           h1 {
-            font-size: 44px;
+            font-size: 36px;
           }
 
-          .stats,
-          .adminGrid,
-          .infoGrid,
-          .actionRow {
+          .subtitle {
+            font-size: 14px;
+          }
+
+          .heroIcon {
+            min-width: 54px;
+            width: 54px;
+            height: 54px;
+            font-size: 26px;
+          }
+
+          .stats {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .adminGrid {
             grid-template-columns: 1fr;
           }
 
           .alertsCard,
           .detailsCard {
-            padding: 24px;
+            padding: 18px;
+          }
+
+          .infoGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .actionRow {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .hero {
+            align-items: flex-start;
+          }
+
+          .stats {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .metric {
+            padding: 14px;
           }
 
           .alertRow {
-            grid-template-columns: 52px 1fr;
+            grid-template-columns: 40px 1fr;
+          }
+
+          .alertIcon {
+            width: 40px;
+            height: 40px;
           }
 
           .status {
             grid-column: 2;
             width: fit-content;
+            margin-top: 4px;
           }
         }
       `}</style>
