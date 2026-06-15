@@ -7,17 +7,24 @@ import { db } from "../../../lib/firebase";
 
 type UserItem = {
   id: string;
-  verified?: boolean;
+  email?: string;
+  name?: string;
+  role?: string;
   driverVerified?: boolean;
+  verified?: boolean;
   suspended?: boolean;
-  verificationStatus?: string;
   createdAt?: string;
 };
 
 type RideItem = {
   id: string;
+  from?: string;
+  to?: string;
   status?: string;
   price?: number;
+  seats?: number;
+  driverId?: string;
+  driverEmail?: string;
   createdAt?: string;
 };
 
@@ -25,7 +32,11 @@ type BookingItem = {
   id: string;
   status?: string;
   price?: number;
-  seatsBooked?: number;
+  amount?: number;
+  driverId?: string;
+  passengerId?: string;
+  driverEmail?: string;
+  passengerEmail?: string;
   createdAt?: string;
 };
 
@@ -36,13 +47,23 @@ type PayoutItem = {
   createdAt?: string;
 };
 
-type VerificationItem = {
+type SupportTicket = {
   id: string;
   status?: string;
-  submittedAt?: string;
+  priority?: string;
+  category?: string;
+  createdAt?: string;
 };
 
-type ReportItem = {
+type DisputeItem = {
+  id: string;
+  status?: string;
+  priority?: string;
+  amount?: number;
+  createdAt?: string;
+};
+
+type EmergencyAlert = {
   id: string;
   status?: string;
   priority?: string;
@@ -54,15 +75,16 @@ export default function AdminAnalyticsPage() {
   const [rides, setRides] = useState<RideItem[]>([]);
   const [bookings, setBookings] = useState<BookingItem[]>([]);
   const [payouts, setPayouts] = useState<PayoutItem[]>([]);
-  const [verifications, setVerifications] = useState<VerificationItem[]>([]);
-  const [reports, setReports] = useState<ReportItem[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [disputes, setDisputes] = useState<DisputeItem[]>([]);
+  const [emergencies, setEmergencies] = useState<EmergencyAlert[]>([]);
   const [message, setMessage] = useState("Loading analytics...");
 
   useEffect(() => {
     const unsubUsers = onSnapshot(
       query(collection(db, "users")),
       (snapshot) => {
-        setUsers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as UserItem[]);
+        setUsers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as UserItem[]);
         setMessage("");
       },
       (error) => setMessage(error.message)
@@ -71,7 +93,7 @@ export default function AdminAnalyticsPage() {
     const unsubRides = onSnapshot(
       query(collection(db, "rides")),
       (snapshot) => {
-        setRides(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as RideItem[]);
+        setRides(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as RideItem[]);
       },
       (error) => setMessage(error.message)
     );
@@ -79,7 +101,7 @@ export default function AdminAnalyticsPage() {
     const unsubBookings = onSnapshot(
       query(collection(db, "bookings")),
       (snapshot) => {
-        setBookings(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as BookingItem[]);
+        setBookings(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as BookingItem[]);
       },
       (error) => setMessage(error.message)
     );
@@ -87,23 +109,31 @@ export default function AdminAnalyticsPage() {
     const unsubPayouts = onSnapshot(
       query(collection(db, "payoutRequests")),
       (snapshot) => {
-        setPayouts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as PayoutItem[]);
+        setPayouts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as PayoutItem[]);
       },
       (error) => setMessage(error.message)
     );
 
-    const unsubVerifications = onSnapshot(
-      query(collection(db, "driverVerifications")),
+    const unsubSupport = onSnapshot(
+      query(collection(db, "supportTickets")),
       (snapshot) => {
-        setVerifications(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as VerificationItem[]);
+        setSupportTickets(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as SupportTicket[]);
       },
       (error) => setMessage(error.message)
     );
 
-    const unsubReports = onSnapshot(
-      query(collection(db, "reports")),
+    const unsubDisputes = onSnapshot(
+      query(collection(db, "disputes")),
       (snapshot) => {
-        setReports(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as ReportItem[]);
+        setDisputes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as DisputeItem[]);
+      },
+      (error) => setMessage(error.message)
+    );
+
+    const unsubEmergencies = onSnapshot(
+      query(collection(db, "emergencyAlerts")),
+      (snapshot) => {
+        setEmergencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as EmergencyAlert[]);
       },
       (error) => setMessage(error.message)
     );
@@ -113,119 +143,146 @@ export default function AdminAnalyticsPage() {
       unsubRides();
       unsubBookings();
       unsubPayouts();
-      unsubVerifications();
-      unsubReports();
+      unsubSupport();
+      unsubDisputes();
+      unsubEmergencies();
     };
   }, []);
 
-  function isThisMonth(value?: string) {
+  function money(value: number) {
+    return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  }
+
+  function isToday(value?: string) {
     if (!value) return false;
 
     const date = new Date(value);
     const now = new Date();
 
-    if (Number.isNaN(date.getTime())) return false;
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate()
+    );
+  }
 
-    return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+  function isThisWeek(value?: string) {
+    if (!value) return false;
+
+    const date = new Date(value);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+
+    return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000;
   }
 
   const analytics = useMemo(() => {
-    const verifiedDrivers = users.filter((user) => user.driverVerified).length;
-    const suspendedUsers = users.filter((user) => user.suspended).length;
-    const newUsersThisMonth = users.filter((user) => isThisMonth(user.createdAt)).length;
+    const totalUsers = users.length;
+    const newUsersToday = users.filter((item) => isToday(item.createdAt)).length;
+    const newUsersWeek = users.filter((item) => isThisWeek(item.createdAt)).length;
+    const verifiedDrivers = users.filter((item) => item.driverVerified || item.verified).length;
+    const suspendedUsers = users.filter((item) => item.suspended).length;
 
-    const activeRides = rides.filter((ride) => ride.status === "active").length;
-    const fullRides = rides.filter((ride) => ride.status === "full").length;
-    const completedRides = rides.filter((ride) => ride.status === "completed").length;
-    const cancelledRides = rides.filter((ride) => ride.status === "cancelled").length;
+    const totalRides = rides.length;
+    const activeRides = rides.filter((item) => item.status === "active" || item.status === "open").length;
+    const completedRides = rides.filter((item) => item.status === "completed").length;
 
-    const pendingBookings = bookings.filter((booking) => booking.status === "pending").length;
-    const reservedBookings = bookings.filter((booking) => booking.status === "reserved").length;
-    const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
-    const completedBookings = bookings.filter((booking) => booking.status === "completed").length;
-    const cancelledBookings = bookings.filter((booking) => booking.status === "cancelled").length;
+    const totalBookings = bookings.length;
+    const confirmedBookings = bookings.filter((item) => item.status === "confirmed").length;
+    const completedBookings = bookings.filter((item) => item.status === "completed").length;
+    const cancelledBookings = bookings.filter((item) => item.status === "cancelled" || item.status === "rejected").length;
 
-    const completedRevenue = bookings
-      .filter((booking) => booking.status === "completed")
-      .reduce((total, booking) => {
-        return total + Number(booking.price || 0) * Number(booking.seatsBooked || 1);
-      }, 0);
+    const grossBookingValue = bookings.reduce(
+      (sum, item) => sum + Number(item.price || item.amount || 0),
+      0
+    );
 
-    const roadLinkFees = Math.round(completedRevenue * 0.12);
-
-    const pendingPayouts = payouts.filter((payout) => payout.status === "pending").length;
-    const approvedPayouts = payouts.filter((payout) => payout.status === "approved").length;
-    const paidPayouts = payouts.filter((payout) => payout.status === "paid").length;
-
-    const paidOutAmount = payouts
-      .filter((payout) => payout.status === "paid")
-      .reduce((total, payout) => total + Number(payout.amount || 0), 0);
+    const estimatedFees = grossBookingValue * 0.12;
 
     const pendingPayoutAmount = payouts
-      .filter((payout) => payout.status === "pending" || payout.status === "approved")
-      .reduce((total, payout) => total + Number(payout.amount || 0), 0);
+      .filter((item) => item.status === "pending" || item.status === "approved")
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const pendingVerifications = verifications.filter((item) => item.status === "pending").length;
-    const approvedVerifications = verifications.filter((item) => item.status === "approved").length;
-    const rejectedVerifications = verifications.filter((item) => item.status === "rejected").length;
+    const paidOutAmount = payouts
+      .filter((item) => item.status === "paid")
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const openReports = reports.filter((report) => !report.status || report.status === "open").length;
-    const reviewingReports = reports.filter((report) => report.status === "reviewing").length;
-    const resolvedReports = reports.filter((report) => report.status === "resolved").length;
-    const urgentReports = reports.filter((report) => report.priority === "urgent").length;
+    const openSupport = supportTickets.filter((item) => item.status !== "resolved" && item.status !== "closed").length;
+    const urgentSupport = supportTickets.filter((item) => item.priority === "urgent").length;
+
+    const openDisputes = disputes.filter((item) => item.status !== "resolved" && item.status !== "closed").length;
+    const urgentDisputes = disputes.filter((item) => item.priority === "urgent").length;
+
+    const activeEmergencies = emergencies.filter((item) => item.status === "active").length;
+    const criticalEmergencies = emergencies.filter((item) => item.priority === "critical").length;
+
+    const conversionRate =
+      totalRides > 0 ? Math.round((totalBookings / totalRides) * 100) : 0;
 
     return {
+      totalUsers,
+      newUsersToday,
+      newUsersWeek,
       verifiedDrivers,
       suspendedUsers,
-      newUsersThisMonth,
+      totalRides,
       activeRides,
-      fullRides,
       completedRides,
-      cancelledRides,
-      pendingBookings,
-      reservedBookings,
+      totalBookings,
       confirmedBookings,
       completedBookings,
       cancelledBookings,
-      completedRevenue,
-      roadLinkFees,
-      pendingPayouts,
-      approvedPayouts,
-      paidPayouts,
-      paidOutAmount,
+      grossBookingValue,
+      estimatedFees,
       pendingPayoutAmount,
-      pendingVerifications,
-      approvedVerifications,
-      rejectedVerifications,
-      openReports,
-      reviewingReports,
-      resolvedReports,
-      urgentReports,
+      paidOutAmount,
+      openSupport,
+      urgentSupport,
+      openDisputes,
+      urgentDisputes,
+      activeEmergencies,
+      criticalEmergencies,
+      conversionRate,
     };
-  }, [users, rides, bookings, payouts, verifications, reports]);
+  }, [users, rides, bookings, payouts, supportTickets, disputes, emergencies]);
 
-  const completionRate =
-    bookings.length > 0
-      ? Math.round((analytics.completedBookings / bookings.length) * 100)
-      : 0;
+  const topRoutes = useMemo(() => {
+    const routeMap = new Map<string, number>();
 
-  const cancellationRate =
-    bookings.length > 0
-      ? Math.round((analytics.cancelledBookings / bookings.length) * 100)
-      : 0;
+    rides.forEach((ride) => {
+      const from = ride.from || "Unknown";
+      const to = ride.to || "Unknown";
+      const key = `${from} → ${to}`;
+      routeMap.set(key, (routeMap.get(key) || 0) + 1);
+    });
 
-  const driverRatio =
-    users.length > 0 ? Math.round((analytics.verifiedDrivers / users.length) * 100) : 0;
+    return Array.from(routeMap.entries())
+      .map(([route, count]) => ({ route, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [rides]);
+
+  const healthScore = useMemo(() => {
+    let score = 100;
+
+    if (analytics.activeEmergencies > 0) score -= 20;
+    if (analytics.openDisputes > 0) score -= Math.min(20, analytics.openDisputes * 5);
+    if (analytics.urgentSupport > 0) score -= Math.min(15, analytics.urgentSupport * 5);
+    if (analytics.suspendedUsers > 0) score -= Math.min(15, analytics.suspendedUsers * 3);
+    if (analytics.verifiedDrivers === 0 && analytics.totalUsers > 0) score -= 15;
+
+    return Math.max(score, 0);
+  }, [analytics]);
 
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
+          <Link href="/admin" className="miniButton">Admin</Link>
           <Link href="/admin/users" className="miniButton">Users</Link>
           <Link href="/admin/rides" className="miniButton">Rides</Link>
-          <Link href="/admin/bookings" className="miniButton">Bookings</Link>
-          <Link href="/admin/reports" className="miniButton">Reports</Link>
+          <Link href="/admin/revenue" className="miniButton">Revenue</Link>
+          <Link href="/admin/emergency" className="miniButton dangerLink">SOS</Link>
         </div>
 
         <section className="hero">
@@ -233,114 +290,136 @@ export default function AdminAnalyticsPage() {
             <p className="eyebrow">RoadLink Admin</p>
             <h1>Analytics <span>Dashboard</span></h1>
             <p className="subtitle">
-              Track users, rides, bookings, revenue, payouts, reports, verification
-              requests, and platform health from one executive dashboard.
+              Monitor growth, rides, bookings, revenue, safety, payouts, and platform health.
             </p>
           </div>
 
-          <div className="heroIcon">📊</div>
+          <div className="scoreOrb">
+            <strong>{healthScore}</strong>
+            <span>Health Score</span>
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="kpiGrid">
-          <Kpi icon="👥" label="Users" value={String(users.length)} detail={`${analytics.newUsersThisMonth} new this month`} />
-          <Kpi icon="🚘" label="Rides" value={String(rides.length)} detail={`${analytics.activeRides} active`} />
-          <Kpi icon="🎟️" label="Bookings" value={String(bookings.length)} detail={`${completionRate}% completed`} />
-          <Kpi icon="💰" label="Revenue" value={`$${analytics.completedRevenue}`} detail={`$${analytics.roadLinkFees} RoadLink fee`} />
-          <Kpi icon="🏦" label="Paid Out" value={`$${analytics.paidOutAmount}`} detail={`$${analytics.pendingPayoutAmount} pending`} />
-          <Kpi icon="🛡️" label="Verified Drivers" value={String(analytics.verifiedDrivers)} detail={`${driverRatio}% of users`} />
-          <Kpi icon="🚨" label="Open Reports" value={String(analytics.openReports)} detail={`${analytics.urgentReports} urgent`} alert={analytics.openReports > 0} />
-          <Kpi icon="⛔" label="Suspended" value={String(analytics.suspendedUsers)} detail="Accounts restricted" alert={analytics.suspendedUsers > 0} />
+          <Metric icon="👥" label="Total Users" value={String(analytics.totalUsers)} />
+          <Metric icon="🆕" label="New Today" value={String(analytics.newUsersToday)} />
+          <Metric icon="🚘" label="Total Rides" value={String(analytics.totalRides)} />
+          <Metric icon="🎟️" label="Bookings" value={String(analytics.totalBookings)} />
+          <Metric icon="💰" label="Gross Value" value={money(analytics.grossBookingValue)} />
+          <Metric icon="🏦" label="Est. Fees" value={money(analytics.estimatedFees)} />
+          <Metric icon="✅" label="Verified Drivers" value={String(analytics.verifiedDrivers)} />
+          <Metric icon="🚨" label="Active SOS" value={String(analytics.activeEmergencies)} danger={analytics.activeEmergencies > 0} />
         </section>
 
-        <section className="analyticsGrid">
-          <Panel title="Users" eyebrow="Community" icon="👥">
-            <Metric label="Total Users" value={String(users.length)} />
-            <Metric label="New This Month" value={String(analytics.newUsersThisMonth)} />
-            <Metric label="Verified Drivers" value={String(analytics.verifiedDrivers)} />
-            <Metric label="Suspended Users" value={String(analytics.suspendedUsers)} />
-          </Panel>
+        <section className="gridTwo">
+          <div className="panel">
+            <p className="eyebrow">Growth</p>
+            <h2>User Growth</h2>
 
-          <Panel title="Rides" eyebrow="Trips" icon="🚘">
-            <Metric label="Total Rides" value={String(rides.length)} />
-            <Metric label="Active" value={String(analytics.activeRides)} />
-            <Metric label="Full" value={String(analytics.fullRides)} />
-            <Metric label="Completed" value={String(analytics.completedRides)} />
-            <Metric label="Cancelled" value={String(analytics.cancelledRides)} />
-          </Panel>
-
-          <Panel title="Bookings" eyebrow="Reservations" icon="🎟️">
-            <Metric label="Total Bookings" value={String(bookings.length)} />
-            <Metric label="Pending" value={String(analytics.pendingBookings)} />
-            <Metric label="Reserved" value={String(analytics.reservedBookings)} />
-            <Metric label="Confirmed" value={String(analytics.confirmedBookings)} />
-            <Metric label="Completed" value={String(analytics.completedBookings)} />
-            <Metric label="Cancelled" value={String(analytics.cancelledBookings)} />
-          </Panel>
-
-          <Panel title="Money" eyebrow="Revenue" icon="💵">
-            <Metric label="Completed Revenue" value={`$${analytics.completedRevenue}`} />
-            <Metric label="RoadLink Fees" value={`$${analytics.roadLinkFees}`} />
-            <Metric label="Paid Payouts" value={`$${analytics.paidOutAmount}`} />
-            <Metric label="Pending Payout $" value={`$${analytics.pendingPayoutAmount}`} />
-            <Metric label="Pending Payouts" value={String(analytics.pendingPayouts)} />
-            <Metric label="Paid Payouts Count" value={String(analytics.paidPayouts)} />
-          </Panel>
-
-          <Panel title="Verification" eyebrow="Trust" icon="🛡️">
-            <Metric label="Total Requests" value={String(verifications.length)} />
-            <Metric label="Pending" value={String(analytics.pendingVerifications)} />
-            <Metric label="Approved" value={String(analytics.approvedVerifications)} />
-            <Metric label="Rejected" value={String(analytics.rejectedVerifications)} />
-          </Panel>
-
-          <Panel title="Reports" eyebrow="Safety" icon="🚨">
-            <Metric label="Total Reports" value={String(reports.length)} />
-            <Metric label="Open" value={String(analytics.openReports)} />
-            <Metric label="Reviewing" value={String(analytics.reviewingReports)} />
-            <Metric label="Resolved" value={String(analytics.resolvedReports)} />
-            <Metric label="Urgent" value={String(analytics.urgentReports)} />
-          </Panel>
-
-          <Panel title="Platform Health" eyebrow="Executive" icon="📈">
-            <Metric label="Completion Rate" value={`${completionRate}%`} />
-            <Metric label="Cancellation Rate" value={`${cancellationRate}%`} />
-            <Metric label="Driver Ratio" value={`${driverRatio}%`} />
-            <Metric label="Platform Status" value="Live" />
-          </Panel>
-
-          <Panel title="Quick Access" eyebrow="Admin Tools" icon="⚡">
-            <div className="quickLinks">
-              <Link href="/admin/users">👥 Users</Link>
-              <Link href="/admin/rides">🚘 Rides</Link>
-              <Link href="/admin/bookings">🎟️ Bookings</Link>
-              <Link href="/admin/payouts">🏦 Payouts</Link>
-              <Link href="/admin/verifications">🛡️ Verifications</Link>
-              <Link href="/admin/reports">🚨 Reports</Link>
-              <Link href="/admin/messages">💬 Messages</Link>
-              <Link href="/dashboard">🏠 Dashboard</Link>
+            <div className="miniStats">
+              <Info label="Users This Week" value={String(analytics.newUsersWeek)} />
+              <Info label="Suspended Users" value={String(analytics.suspendedUsers)} />
+              <Info label="Driver Verification Rate" value={`${analytics.totalUsers ? Math.round((analytics.verifiedDrivers / analytics.totalUsers) * 100) : 0}%`} />
             </div>
-          </Panel>
+          </div>
+
+          <div className="panel">
+            <p className="eyebrow">Trips</p>
+            <h2>Ride Activity</h2>
+
+            <div className="miniStats">
+              <Info label="Active Rides" value={String(analytics.activeRides)} />
+              <Info label="Completed Rides" value={String(analytics.completedRides)} />
+              <Info label="Booking / Ride Ratio" value={`${analytics.conversionRate}%`} />
+            </div>
+          </div>
+        </section>
+
+        <section className="gridTwo">
+          <div className="panel">
+            <p className="eyebrow">Bookings</p>
+            <h2>Booking Status</h2>
+
+            <div className="statusList">
+              <StatusRow label="Confirmed" value={analytics.confirmedBookings} />
+              <StatusRow label="Completed" value={analytics.completedBookings} />
+              <StatusRow label="Cancelled" value={analytics.cancelledBookings} danger={analytics.cancelledBookings > 0} />
+            </div>
+          </div>
+
+          <div className="panel">
+            <p className="eyebrow">Money</p>
+            <h2>Payouts</h2>
+
+            <div className="miniStats">
+              <Info label="Pending Payouts" value={money(analytics.pendingPayoutAmount)} />
+              <Info label="Paid Out" value={money(analytics.paidOutAmount)} />
+              <Info label="Estimated Platform Fees" value={money(analytics.estimatedFees)} />
+            </div>
+          </div>
+        </section>
+
+        <section className="gridTwo">
+          <div className="panel dangerPanel">
+            <p className="eyebrow">Safety</p>
+            <h2>Risk Center</h2>
+
+            <div className="miniStats">
+              <Info label="Active SOS Alerts" value={String(analytics.activeEmergencies)} />
+              <Info label="Critical SOS Alerts" value={String(analytics.criticalEmergencies)} />
+              <Info label="Open Disputes" value={String(analytics.openDisputes)} />
+              <Info label="Urgent Support" value={String(analytics.urgentSupport)} />
+            </div>
+          </div>
+
+          <div className="panel">
+            <p className="eyebrow">Routes</p>
+            <h2>Top Routes</h2>
+
+            {topRoutes.length === 0 ? (
+              <div className="empty">
+                <h3>No routes yet</h3>
+                <p>Popular routes will appear when drivers publish rides.</p>
+              </div>
+            ) : (
+              <div className="routeList">
+                {topRoutes.map((route) => (
+                  <div className="routeRow" key={route.route}>
+                    <span>{route.route}</span>
+                    <strong>{route.count}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </section>
       </section>
 
       <style>{`
         * { box-sizing: border-box; }
 
+        html,
+        body {
+          overflow-x: hidden;
+        }
+
         .page {
+          width: 100%;
           min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 24px;
-          padding-bottom: 140px;
+          padding: 14px;
+          padding-bottom: 150px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 32%),
+            radial-gradient(circle at bottom left, rgba(59,130,246,0.12), transparent 36%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
         .container {
+          width: 100%;
           max-width: 1180px;
           margin: auto;
         }
@@ -348,257 +427,334 @@ export default function AdminAnalyticsPage() {
         .topNav {
           display: flex;
           flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 24px;
+          gap: 8px;
+          margin-bottom: 12px;
         }
 
         .miniButton {
-          padding: 11px 18px;
+          padding: 9px 12px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
+          font-size: 12px;
           font-weight: 900;
         }
 
+        .dangerLink {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border-color: rgba(239,68,68,0.35);
+        }
+
         .hero,
-        .kpi,
+        .metric,
         .panel {
-          background: rgba(8, 13, 25, 0.92);
+          background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          box-shadow: 0 16px 44px rgba(0,0,0,0.45);
           backdrop-filter: blur(16px);
         }
 
         .hero {
-          border-radius: 34px;
-          padding: 34px;
-          margin-bottom: 22px;
+          border-radius: 26px;
+          padding: 22px;
+          margin-bottom: 12px;
           display: flex;
           justify-content: space-between;
+          gap: 18px;
           align-items: center;
-          gap: 24px;
         }
 
         .eyebrow {
-          margin: 0 0 10px;
+          margin: 0 0 7px;
           color: #22c55e;
-          font-size: 13px;
+          font-size: 10px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
         h1 {
-          font-size: 58px;
-          line-height: 1;
-          margin: 0 0 16px;
+          font-size: 42px;
+          line-height: 0.98;
+          margin: 0 0 10px;
         }
 
         h1 span,
         h2,
-        .kpiValue,
         .metricValue {
           color: #22c55e;
         }
 
-        h2 {
-          font-size: 30px;
-          margin: 0;
-        }
-
         .subtitle {
-          max-width: 780px;
           color: #a1a1aa;
-          font-size: 18px;
-          line-height: 1.5;
+          font-size: 14px;
+          line-height: 1.45;
           margin: 0;
         }
 
-        .heroIcon {
-          min-width: 92px;
-          height: 92px;
+        .scoreOrb {
+          min-width: 96px;
+          height: 96px;
           border-radius: 50%;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 42px;
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 30px;
+          font-weight: 900;
+        }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 10px;
+          font-weight: 900;
         }
 
         .message {
           color: #22c55e;
+          font-size: 13px;
           font-weight: 900;
-          margin: 16px 0;
         }
 
         .kpiGrid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 14px;
-          margin-bottom: 24px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 12px;
         }
 
-        .kpi {
-          position: relative;
-          border-radius: 24px;
-          padding: 20px;
-          overflow: hidden;
+        .metric {
+          border-radius: 18px;
+          padding: 13px;
+          min-height: 92px;
         }
 
-        .kpi.alert {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.2);
-        }
-
-        .kpiIcon {
-          width: 46px;
-          height: 46px;
+        .metricIcon {
+          width: 36px;
+          height: 36px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
-          margin-bottom: 14px;
-        }
-
-        .kpiLabel {
-          display: block;
-          color: #a1a1aa;
-          font-size: 13px;
-          font-weight: 900;
+          font-size: 18px;
           margin-bottom: 8px;
         }
 
-        .kpiValue {
-          display: block;
-          font-size: 30px;
-          font-weight: 900;
-          overflow-wrap: anywhere;
+        .dangerMetric .metricIcon {
+          background: rgba(239,68,68,0.16);
         }
 
-        .kpiDetail {
-          display: block;
-          color: #d4d4d8;
-          font-size: 13px;
-          margin-top: 8px;
-        }
-
-        .analyticsGrid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 18px;
-        }
-
-        .panel {
-          border-radius: 28px;
-          padding: 24px;
-        }
-
-        .panelHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 18px;
-        }
-
-        .panelIcon {
-          width: 54px;
-          height: 54px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          border: 1px solid rgba(34,197,94,0.25);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 26px;
-        }
-
-        .metricList {
-          display: grid;
-          gap: 10px;
-        }
-
-        .metricRow {
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
-          align-items: center;
-          padding: 13px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.08);
+        .dangerMetric .metricValue {
+          color: #ef4444;
         }
 
         .metricLabel {
+          display: block;
           color: #a1a1aa;
+          font-size: 10px;
           font-weight: 900;
-          font-size: 13px;
+          margin-bottom: 5px;
         }
 
         .metricValue {
+          display: block;
+          font-size: 22px;
           font-weight: 900;
           overflow-wrap: anywhere;
-          text-align: right;
         }
 
-        .quickLinks {
+        .gridTwo {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .panel {
+          border-radius: 22px;
+          padding: 18px;
+          overflow: hidden;
+        }
+
+        .dangerPanel {
+          border-color: rgba(239,68,68,0.35);
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.12), transparent 40%),
+            rgba(8,13,25,0.92);
+        }
+
+        .panel h2 {
+          font-size: 24px;
+          margin: 0 0 14px;
+        }
+
+        .miniStats {
+          display: grid;
+          gap: 9px;
+        }
+
+        .infoBox {
+          padding: 12px;
+          border-radius: 14px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .infoBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 10px;
+          font-weight: 900;
+          margin-bottom: 5px;
+        }
+
+        .infoBox strong {
+          display: block;
+          color: white;
+          font-size: 14px;
+          overflow-wrap: anywhere;
+        }
+
+        .statusList,
+        .routeList {
+          display: grid;
           gap: 10px;
         }
 
-        .quickLinks a {
-          padding: 14px;
-          border-radius: 16px;
+        .statusRow,
+        .routeRow {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 12px;
+          border-radius: 14px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          text-decoration: none;
+        }
+
+        .statusRow span,
+        .routeRow span {
+          color: #d4d4d8;
+          font-size: 13px;
           font-weight: 900;
-          text-align: center;
+          overflow-wrap: anywhere;
         }
 
-        @media (max-width: 1000px) {
-          .kpiGrid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .analyticsGrid {
-            grid-template-columns: 1fr;
-          }
+        .statusRow strong,
+        .routeRow strong {
+          color: #22c55e;
+          font-size: 18px;
+          font-weight: 900;
         }
 
-        @media (max-width: 620px) {
-          .page {
-            padding: 16px;
-            padding-bottom: 140px;
-          }
+        .dangerStatus strong {
+          color: #ef4444;
+        }
 
+        .empty {
+          padding: 18px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .empty h3 {
+          margin: 0 0 8px;
+          font-size: 18px;
+        }
+
+        .empty p {
+          color: #a1a1aa;
+          margin: 0;
+          line-height: 1.5;
+        }
+
+        @media (max-width: 900px) {
           .hero {
-            flex-direction: column;
             align-items: flex-start;
-            padding: 28px;
           }
 
           h1 {
-            font-size: 44px;
+            font-size: 34px;
           }
 
-          .kpiGrid {
+          .scoreOrb {
+            min-width: 78px;
+            height: 78px;
+          }
+
+          .kpiGrid,
+          .gridTwo {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 560px) {
+          .page {
+            padding: 12px;
+            padding-bottom: 150px;
+          }
+
+          .hero {
+            border-radius: 22px;
+            padding: 18px;
+            display: grid;
+            grid-template-columns: 1fr auto;
+          }
+
+          .scoreOrb {
+            min-width: 66px;
+            width: 66px;
+            height: 66px;
+          }
+
+          .scoreOrb strong {
+            font-size: 22px;
+          }
+
+          .scoreOrb span {
+            font-size: 8px;
+          }
+
+          h1 {
+            font-size: 30px;
+          }
+
+          .subtitle {
+            font-size: 13px;
+          }
+
+          .kpiGrid,
+          .gridTwo {
             grid-template-columns: 1fr;
           }
 
-          .panel {
-            padding: 22px;
+          .metric {
+            min-height: 72px;
+            display: grid;
+            grid-template-columns: 38px 1fr auto;
+            align-items: center;
+            gap: 10px;
           }
 
-          .quickLinks {
-            grid-template-columns: 1fr;
+          .metricIcon {
+            margin-bottom: 0;
+          }
+
+          .metricValue {
+            font-size: 20px;
           }
         }
       `}</style>
@@ -606,61 +762,48 @@ export default function AdminAnalyticsPage() {
   );
 }
 
-function Kpi({
+function Metric({
   icon,
   label,
   value,
-  detail,
-  alert,
+  danger,
 }: {
   icon: string;
   label: string;
   value: string;
-  detail: string;
-  alert?: boolean;
+  danger?: boolean;
 }) {
   return (
-    <div className={alert ? "kpi alert" : "kpi"}>
-      <div className="kpiIcon">{icon}</div>
-      <span className="kpiLabel">{label}</span>
-      <strong className="kpiValue">{value}</strong>
-      <span className="kpiDetail">{detail}</span>
+    <div className={danger ? "metric dangerMetric" : "metric"}>
+      <div className="metricIcon">{icon}</div>
+      <span className="metricLabel">{label}</span>
+      <strong className="metricValue">{value}</strong>
     </div>
   );
 }
 
-function Panel({
-  title,
-  eyebrow,
-  icon,
-  children,
-}: {
-  title: string;
-  eyebrow: string;
-  icon: string;
-  children: React.ReactNode;
-}) {
+function Info({ label, value }: { label: string; value: string }) {
   return (
-    <section className="panel">
-      <div className="panelHeader">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-
-        <div className="panelIcon">{icon}</div>
-      </div>
-
-      <div className="metricList">{children}</div>
-    </section>
+    <div className="infoBox">
+      <span>{label}</span>
+      <strong>{value || "Not available"}</strong>
+    </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function StatusRow({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: number;
+  danger?: boolean;
+}) {
   return (
-    <div className="metricRow">
-      <span className="metricLabel">{label}</span>
-      <strong className="metricValue">{value}</strong>
+    <div className={danger ? "statusRow dangerStatus" : "statusRow"}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
