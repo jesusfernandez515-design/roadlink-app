@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query, setDoc, doc } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
 type ActivityType =
@@ -23,6 +23,7 @@ type ActivityItem = {
   userEmail?: string;
   amount?: number;
   status?: string;
+  priority?: string;
   createdAt?: string;
 };
 
@@ -52,7 +53,7 @@ export default function AdminActivityPage() {
   const [sosAlerts, setSosAlerts] = useState<BasicItem[]>([]);
   const [filter, setFilter] = useState<"all" | ActivityType>("all");
   const [search, setSearch] = useState("");
-  const [message, setMessage] = useState("Loading activity feed...");
+  const [message, setMessage] = useState("Loading activity center...");
   const [seeding, setSeeding] = useState(false);
 
   useEffect(() => {
@@ -208,6 +209,7 @@ export default function AdminActivityPage() {
         type: "report",
         title: "Safety Report",
         description: item.priority === "urgent" ? "Urgent report submitted" : "Report submitted",
+        priority: item.priority,
         status: item.status,
         createdAt: item.createdAt,
       });
@@ -219,6 +221,7 @@ export default function AdminActivityPage() {
         type: "sos",
         title: "SOS Emergency Alert",
         description: item.userEmail || "Emergency alert activated",
+        priority: item.priority || "critical",
         status: item.status,
         createdAt: item.createdAt,
       });
@@ -233,11 +236,12 @@ export default function AdminActivityPage() {
       );
   }, [users, rides, bookings, payouts, verifications, reports, sosAlerts]);
 
+  const sourceActivity = activities.length > 0 ? activities : generatedActivity;
+
   const visibleActivity = useMemo(() => {
-    const source = activities.length > 0 ? activities : generatedActivity;
     const text = search.toLowerCase().trim();
 
-    return source.filter((item) => {
+    return sourceActivity.filter((item) => {
       const matchesFilter = filter === "all" || item.type === filter;
 
       const matchesSearch =
@@ -249,29 +253,39 @@ export default function AdminActivityPage() {
 
       return matchesFilter && matchesSearch;
     });
-  }, [activities, generatedActivity, filter, search]);
+  }, [sourceActivity, filter, search]);
 
   const counts = useMemo(() => {
-    const source = activities.length > 0 ? activities : generatedActivity;
+    const critical = sourceActivity.filter(
+      (item) =>
+        item.type === "sos" ||
+        item.type === "report" ||
+        item.priority === "critical" ||
+        item.priority === "urgent"
+    ).length;
+
+    const activityScore = Math.max(100 - critical * 8, 0);
 
     return {
-      all: source.length,
-      user: source.filter((item) => item.type === "user").length,
-      ride: source.filter((item) => item.type === "ride").length,
-      booking: source.filter((item) => item.type === "booking").length,
-      payout: source.filter((item) => item.type === "payout").length,
-      verification: source.filter((item) => item.type === "verification").length,
-      report: source.filter((item) => item.type === "report").length,
-      sos: source.filter((item) => item.type === "sos").length,
+      all: sourceActivity.length,
+      user: sourceActivity.filter((item) => item.type === "user").length,
+      ride: sourceActivity.filter((item) => item.type === "ride").length,
+      booking: sourceActivity.filter((item) => item.type === "booking").length,
+      payout: sourceActivity.filter((item) => item.type === "payout").length,
+      verification: sourceActivity.filter((item) => item.type === "verification").length,
+      report: sourceActivity.filter((item) => item.type === "report").length,
+      sos: sourceActivity.filter((item) => item.type === "sos").length,
+      critical,
+      activityScore,
     };
-  }, [activities, generatedActivity]);
+  }, [sourceActivity]);
 
   async function seedActivityFeed() {
     try {
       setSeeding(true);
       setMessage("");
 
-      const source = generatedActivity.slice(0, 30);
+      const source = generatedActivity.slice(0, 40);
 
       if (source.length === 0) {
         setMessage("No activity available to seed yet.");
@@ -287,6 +301,7 @@ export default function AdminActivityPage() {
               title: item.title || "RoadLink Activity",
               description: item.description || "Platform activity",
               status: item.status || "",
+              priority: item.priority || "",
               amount: Number(item.amount || 0),
               createdAt: item.createdAt || new Date().toISOString(),
             },
@@ -347,6 +362,16 @@ export default function AdminActivityPage() {
     }
   }
 
+  function shortText(value?: string, max = 42) {
+    if (!value) return "RoadLink activity";
+    if (value.length <= max) return value;
+    return `${value.slice(0, max)}...`;
+  }
+
+  function isDanger(item: ActivityItem) {
+    return item.type === "sos" || item.type === "report" || item.priority === "urgent" || item.priority === "critical";
+  }
+
   return (
     <main className="page">
       <section className="container">
@@ -360,23 +385,26 @@ export default function AdminActivityPage() {
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Admin</p>
-            <h1>Activity <span>Feed</span></h1>
+            <h1>Activity <span>Center</span></h1>
             <p className="subtitle">
-              Monitor realtime platform events, safety activity, rides, bookings, payouts, reports, and verifications.
+              Live timeline for users, rides, bookings, payouts, verifications, reports and SOS events.
             </p>
           </div>
 
-          <div className="heroIcon">📡</div>
+          <div className={counts.activityScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
+            <strong>{counts.activityScore}</strong>
+            <span>Score</span>
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="📡" label="Total Activity" value={String(counts.all)} />
+          <Metric icon="📡" label="Events" value={String(counts.all)} />
+          <Metric icon="🔥" label="Critical" value={String(counts.critical)} danger={counts.critical > 0} />
           <Metric icon="👥" label="Users" value={String(counts.user)} />
           <Metric icon="🚘" label="Rides" value={String(counts.ride)} />
           <Metric icon="🎟️" label="Bookings" value={String(counts.booking)} />
-          <Metric icon="🏦" label="Payouts" value={String(counts.payout)} />
           <Metric icon="🚨" label="SOS" value={String(counts.sos)} danger={counts.sos > 0} />
         </section>
 
@@ -407,13 +435,13 @@ export default function AdminActivityPage() {
         <section className="feedCard">
           <div className="sectionHeader">
             <div>
-              <p className="eyebrow">Realtime</p>
+              <p className="eyebrow">Realtime Timeline</p>
               <h2>Platform Activity</h2>
             </div>
 
             <div className="liveBadge">
               <span></span>
-              LIVE
+              LIVE · {visibleActivity.length}
             </div>
           </div>
 
@@ -427,21 +455,22 @@ export default function AdminActivityPage() {
               {visibleActivity.map((item) => (
                 <article
                   key={item.id}
-                  className={item.type === "sos" || item.type === "report" ? "activityRow dangerActivity" : "activityRow"}
+                  className={isDanger(item) ? "activityRow dangerActivity" : "activityRow"}
                 >
                   <div className="activityIcon">{iconFor(item.type)}</div>
 
                   <div className="activityContent">
                     <div className="titleRow">
-                      <strong>{item.title || "RoadLink Activity"}</strong>
+                      <strong>{shortText(item.title || "RoadLink Activity", 34)}</strong>
                       <em>{timeAgo(item.createdAt)}</em>
                     </div>
 
-                    <p>{item.description || "Platform update"}</p>
+                    <p>{shortText(item.description || "Platform update", 70)}</p>
 
                     <div className="metaRow">
                       <span>{labelFor(item.type)}</span>
-                      {item.status && <span>Status: {item.status}</span>}
+                      {item.status && <span>{item.status}</span>}
+                      {item.priority && <span>{item.priority}</span>}
                       {Number(item.amount || 0) > 0 && <span>${Number(item.amount || 0)}</span>}
                     </div>
                   </div>
@@ -464,7 +493,7 @@ export default function AdminActivityPage() {
           width: 100%;
           min-height: 100vh;
           color: white;
-          padding: 14px;
+          padding: 12px;
           padding-bottom: 150px;
           font-family: Arial, sans-serif;
           background:
@@ -489,7 +518,7 @@ export default function AdminActivityPage() {
         .miniButton,
         .filters button,
         .toolbar button {
-          padding: 10px 13px;
+          padding: 9px 12px;
           border-radius: 999px;
           background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
@@ -517,12 +546,12 @@ export default function AdminActivityPage() {
         }
 
         .hero {
-          border-radius: 26px;
-          padding: 22px;
+          border-radius: 24px;
+          padding: 18px;
           margin-bottom: 12px;
-          display: flex;
-          justify-content: space-between;
-          gap: 18px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 14px;
           align-items: center;
         }
 
@@ -536,7 +565,7 @@ export default function AdminActivityPage() {
         }
 
         h1 {
-          font-size: 42px;
+          font-size: 34px;
           line-height: 0.98;
           margin: 0 0 10px;
         }
@@ -549,26 +578,49 @@ export default function AdminActivityPage() {
 
         h2 {
           margin: 0;
-          font-size: 26px;
+          font-size: 24px;
         }
 
         .subtitle {
           color: #a1a1aa;
-          font-size: 14px;
+          font-size: 13px;
           line-height: 1.45;
           margin: 0;
         }
 
-        .heroIcon {
-          min-width: 84px;
-          height: 84px;
+        .scoreOrb {
+          min-width: 68px;
+          width: 68px;
+          height: 68px;
           border-radius: 50%;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 38px;
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .warningScore {
+          background: rgba(250,204,21,0.12);
+          border-color: rgba(250,204,21,0.35);
+        }
+
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 22px;
+          font-weight: 900;
+        }
+
+        .warningScore strong {
+          color: #fde68a;
+        }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 9px;
+          font-weight: 900;
         }
 
         .message {
@@ -579,15 +631,19 @@ export default function AdminActivityPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 10px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
           margin-bottom: 12px;
         }
 
         .metric {
-          border-radius: 18px;
-          padding: 13px;
-          min-height: 82px;
+          border-radius: 16px;
+          padding: 11px;
+          min-height: 58px;
+          display: grid;
+          grid-template-columns: 34px 1fr auto;
+          gap: 8px;
+          align-items: center;
         }
 
         .dangerMetric {
@@ -596,15 +652,14 @@ export default function AdminActivityPage() {
         }
 
         .metricIcon {
-          width: 36px;
-          height: 36px;
+          width: 34px;
+          height: 34px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 18px;
-          margin-bottom: 8px;
+          font-size: 17px;
         }
 
         .dangerMetric .metricIcon {
@@ -620,12 +675,11 @@ export default function AdminActivityPage() {
           color: #a1a1aa;
           font-size: 10px;
           font-weight: 900;
-          margin-bottom: 5px;
         }
 
         .metricValue {
           display: block;
-          font-size: 22px;
+          font-size: 20px;
           font-weight: 900;
         }
 
@@ -633,15 +687,15 @@ export default function AdminActivityPage() {
           display: grid;
           grid-template-columns: 1fr auto;
           gap: 10px;
-          padding: 14px;
-          border-radius: 20px;
+          padding: 12px;
+          border-radius: 18px;
           margin-bottom: 12px;
         }
 
         .toolbar input {
           width: 100%;
-          padding: 13px;
-          border-radius: 16px;
+          padding: 12px;
+          border-radius: 14px;
           border: 1px solid rgba(255,255,255,0.12);
           background: rgba(255,255,255,0.04);
           color: white;
@@ -667,16 +721,22 @@ export default function AdminActivityPage() {
         }
 
         .feedCard {
-          border-radius: 24px;
-          padding: 18px;
+          border-radius: 22px;
+          padding: 14px;
         }
 
         .sectionHeader {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          background: rgba(8,13,25,0.96);
+          border-radius: 18px;
           display: flex;
           justify-content: space-between;
           gap: 14px;
           align-items: center;
-          margin-bottom: 16px;
+          padding: 10px 0 14px;
+          margin-bottom: 8px;
         }
 
         .liveBadge {
@@ -690,6 +750,7 @@ export default function AdminActivityPage() {
           font-size: 10px;
           font-weight: 900;
           padding: 8px 10px;
+          white-space: nowrap;
         }
 
         .liveBadge span {
@@ -708,15 +769,15 @@ export default function AdminActivityPage() {
 
         .activityList {
           display: grid;
-          gap: 10px;
+          gap: 8px;
         }
 
         .activityRow {
           display: grid;
-          grid-template-columns: 46px 1fr;
-          gap: 12px;
-          padding: 14px;
-          border-radius: 18px;
+          grid-template-columns: 42px 1fr;
+          gap: 10px;
+          padding: 12px;
+          border-radius: 16px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
         }
@@ -727,14 +788,14 @@ export default function AdminActivityPage() {
         }
 
         .activityIcon {
-          width: 46px;
-          height: 46px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 22px;
+          font-size: 20px;
         }
 
         .dangerActivity .activityIcon {
@@ -746,9 +807,9 @@ export default function AdminActivityPage() {
         }
 
         .titleRow {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
           align-items: center;
         }
 
@@ -756,36 +817,39 @@ export default function AdminActivityPage() {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          font-size: 13px;
         }
 
         .titleRow em {
           color: #a1a1aa;
-          font-size: 11px;
+          font-size: 10px;
           font-style: normal;
           white-space: nowrap;
         }
 
         .activityContent p {
           color: #d4d4d8;
-          margin: 6px 0;
-          font-size: 13px;
+          margin: 5px 0;
+          font-size: 12px;
+          line-height: 1.35;
           overflow-wrap: anywhere;
         }
 
         .metaRow {
           display: flex;
           flex-wrap: wrap;
-          gap: 7px;
+          gap: 6px;
         }
 
         .metaRow span {
-          padding: 6px 9px;
+          padding: 5px 8px;
           border-radius: 999px;
           color: #a1a1aa;
           background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.08);
-          font-size: 10px;
+          font-size: 9px;
           font-weight: 900;
+          text-transform: capitalize;
         }
 
         .empty {
@@ -807,49 +871,16 @@ export default function AdminActivityPage() {
         }
 
         @media (max-width: 720px) {
-          .page {
-            padding: 12px;
-            padding-bottom: 150px;
-          }
-
-          .hero {
-            align-items: flex-start;
-            padding: 18px;
-          }
-
-          h1 {
-            font-size: 34px;
-          }
-
-          .heroIcon {
-            min-width: 64px;
-            width: 64px;
-            height: 64px;
-            font-size: 28px;
-          }
-
-          .stats {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .metric {
-            min-height: 70px;
-            display: grid;
-            grid-template-columns: 36px 1fr auto;
-            gap: 9px;
-            align-items: center;
-          }
-
-          .metricIcon {
-            margin-bottom: 0;
-          }
-
           .toolbar {
             grid-template-columns: 1fr;
           }
         }
 
         @media (max-width: 430px) {
+          h1 {
+            font-size: 31px;
+          }
+
           .stats {
             grid-template-columns: 1fr;
           }
@@ -859,9 +890,22 @@ export default function AdminActivityPage() {
           }
 
           .titleRow {
-            align-items: flex-start;
-            flex-direction: column;
-            gap: 4px;
+            grid-template-columns: 1fr;
+            gap: 3px;
+          }
+        }
+
+        @media (min-width: 900px) {
+          .page {
+            padding: 24px;
+          }
+
+          .stats {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+
+          .feedCard {
+            padding: 18px;
           }
         }
       `}</style>
