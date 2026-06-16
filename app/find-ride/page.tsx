@@ -46,6 +46,25 @@ export default function FindRidePage() {
   const [loadingRideId, setLoadingRideId] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function shortPlace(address: string) {
+    if (!address) return "Unknown";
+
+    const parts = address
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (!parts.length) return address;
+
+    const first = parts[0];
+
+    if (/^\d/.test(first) && parts[1]) {
+      return parts[1];
+    }
+
+    return first;
+  }
+
   async function loadRides() {
     try {
       setLoading(true);
@@ -167,7 +186,7 @@ export default function FindRidePage() {
           userId: ride.driverId,
           type: "booking",
           title: "New Ride Booking",
-          message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
+          message: `${userEmail} reserved a seat from ${shortPlace(ride.from)} to ${shortPlace(ride.to)}.`,
           read: false,
           createdAt: new Date().toISOString(),
         });
@@ -256,13 +275,22 @@ export default function FindRidePage() {
           const alreadyReserved = reservedRideIds.includes(ride.id);
           const isOwnRide = Boolean(userId && ride.driverId === userId);
           const noSeats = Number(ride.seats || 0) <= 0;
+          const shortFrom = shortPlace(ride.from);
+          const shortTo = shortPlace(ride.to);
 
           return (
             <div key={ride.id} className="rideCard">
               <div className="routeHeader">
                 <div>
                   <p className="label">ROUTE</p>
-                  <h2>{ride.from} <span>→</span> {ride.to}</h2>
+
+                  <h2>
+                    {shortFrom} <span>→</span> {shortTo}
+                  </h2>
+
+                  <p className="fullRoute">
+                    {ride.from} → {ride.to}
+                  </p>
                 </div>
 
                 <div className="priceBox">
@@ -507,6 +535,14 @@ export default function FindRidePage() {
           font-size: 34px;
           line-height: 1.15;
           margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .fullRoute {
+          margin: 10px 0 0;
+          color: #64748b;
+          font-size: 14px;
+          line-height: 1.5;
           overflow-wrap: anywhere;
         }
 
