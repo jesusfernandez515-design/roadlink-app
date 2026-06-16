@@ -29,6 +29,8 @@ export default function OfferRidePage() {
 
   const fromInputRef = useRef<HTMLInputElement | null>(null);
   const toInputRef = useRef<HTMLInputElement | null>(null);
+  const fromAutoRef = useRef<any>(null);
+  const toAutoRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
 
@@ -36,6 +38,7 @@ export default function OfferRidePage() {
   const [to, setTo] = useState("");
   const [fromCoords, setFromCoords] = useState<LatLng | null>(null);
   const [toCoords, setToCoords] = useState<LatLng | null>(null);
+  const [userLocation, setUserLocation] = useState<LatLng | null>(null);
 
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -71,36 +74,40 @@ export default function OfferRidePage() {
       directionsServiceRef.current = new window.google.maps.DirectionsService();
       geocoderRef.current = new window.google.maps.Geocoder();
 
-      if (fromInputRef.current) {
-        const fromAuto = new window.google.maps.places.Autocomplete(fromInputRef.current, {
+      if (fromInputRef.current && !fromAutoRef.current) {
+        fromAutoRef.current = new window.google.maps.places.Autocomplete(fromInputRef.current, {
           fields: ["formatted_address", "geometry", "name"],
         });
 
-        fromAuto.addListener("place_changed", () => {
-          const place = fromAuto.getPlace();
+        fromAutoRef.current.addListener("place_changed", () => {
+          const place = fromAutoRef.current.getPlace();
           const label = place.formatted_address || place.name || "";
 
           setFrom(label);
           resetRouteInfo();
 
           if (place.geometry?.location) {
-            setFromCoords({
+            const coords = {
               lat: place.geometry.location.lat(),
               lng: place.geometry.location.lng(),
-            });
+            };
+
+            setFromCoords(coords);
+            setUserLocation(coords);
+            biasAutocompleteToLocation(coords);
           } else {
             setFromCoords(null);
           }
         });
       }
 
-      if (toInputRef.current) {
-        const toAuto = new window.google.maps.places.Autocomplete(toInputRef.current, {
+      if (toInputRef.current && !toAutoRef.current) {
+        toAutoRef.current = new window.google.maps.places.Autocomplete(toInputRef.current, {
           fields: ["formatted_address", "geometry", "name"],
         });
 
-        toAuto.addListener("place_changed", () => {
-          const place = toAuto.getPlace();
+        toAutoRef.current.addListener("place_changed", () => {
+          const place = toAutoRef.current.getPlace();
           const label = place.formatted_address || place.name || "";
 
           setTo(label);
@@ -153,9 +160,7 @@ export default function OfferRidePage() {
       script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
       script.async = true;
       script.defer = true;
-
       script.onload = setupAutocomplete;
-
       script.onerror = () => {
         if (mounted) setMessage("Google Maps could not load.");
       };
@@ -175,6 +180,32 @@ export default function OfferRidePage() {
       calculateRoute(fromCoords, toCoords);
     }
   }, [fromCoords, toCoords, mapsReady]);
+
+  function biasAutocompleteToLocation(coords: LatLng) {
+    if (!window.google?.maps) return;
+
+    const circle = new window.google.maps.Circle({
+      center: coords,
+      radius: 50000,
+    });
+
+    const bounds = circle.getBounds();
+
+    if (bounds) {
+      fromAutoRef.current?.setBounds(bounds);
+      toAutoRef.current?.setBounds(bounds);
+
+      fromAutoRef.current?.setOptions({
+        bounds,
+        strictBounds: false,
+      });
+
+      toAutoRef.current?.setOptions({
+        bounds,
+        strictBounds: false,
+      });
+    }
+  }
 
   function buildMapUrl() {
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
@@ -288,6 +319,8 @@ export default function OfferRidePage() {
       const address = await reverseGeocode(coords);
 
       resetRouteInfo();
+      setUserLocation(coords);
+      biasAutocompleteToLocation(coords);
 
       if (target === "from") {
         setFrom(address);
@@ -299,8 +332,8 @@ export default function OfferRidePage() {
 
       setMessage(
         target === "from"
-          ? "Current location set as pickup point."
-          : "Current location set as destination."
+          ? "Current location set as pickup point. Nearby searches are now prioritized."
+          : "Current location set as destination. Nearby searches are now prioritized."
       );
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not get current location.");
@@ -392,8 +425,8 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with Google Places, GPS pickup, real distance,
-          estimated travel time and smart suggested pricing.
+          Publish your ride with Google Places, GPS pickup, nearby search priority,
+          real distance and smart suggested pricing.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -444,7 +477,7 @@ export default function OfferRidePage() {
                 setToCoords(null);
                 resetRouteInfo();
               }}
-              placeholder="Search destination or use GPS"
+              placeholder="Search destination near your pickup"
             />
 
             <button
@@ -459,8 +492,10 @@ export default function OfferRidePage() {
         </Field>
 
         <div className="gpsHelp">
-          <span>GPS Tip</span>
-          Use your phone location for exact pickup. The browser may ask for permission.
+          <span>Nearby Search Active</span>
+          {userLocation
+            ? "Google will prioritize airports, stations and places near your GPS or pickup point."
+            : "Tap Use GPS first to make searches like airport, Walmart or mall show nearby results."}
         </div>
 
         <div className="routeStats">
@@ -541,9 +576,7 @@ export default function OfferRidePage() {
 
           <strong>{from || "Starting point"} → {to || "Destination"}</strong>
 
-          <p>
-            {date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}
-          </p>
+          <p>{date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}</p>
 
           <p>
             🛣️ {routeInfo.distanceText || "Distance pending"} · ⏱️{" "}
