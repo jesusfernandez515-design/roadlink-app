@@ -1,16 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { addDoc, collection } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
+type LatLng = {
+  lat: number;
+  lng: number;
+};
+
 export default function OfferRidePage() {
   const router = useRouter();
 
+  const fromInputRef = useRef<HTMLInputElement | null>(null);
+  const toInputRef = useRef<HTMLInputElement | null>(null);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [fromCoords, setFromCoords] = useState<LatLng | null>(null);
+  const [toCoords, setToCoords] = useState<LatLng | null>(null);
+
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [seats, setSeats] = useState("1");
@@ -18,7 +35,107 @@ export default function OfferRidePage() {
   const [vehicle, setVehicle] = useState("");
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
+  const [mapsReady, setMapsReady] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    function setupAutocomplete() {
+      if (!window.google?.maps?.places) return;
+
+      if (fromInputRef.current) {
+        const fromAuto = new window.google.maps.places.Autocomplete(fromInputRef.current, {
+          fields: ["formatted_address", "geometry", "name"],
+        });
+
+        fromAuto.addListener("place_changed", () => {
+          const place = fromAuto.getPlace();
+
+          const label = place.formatted_address || place.name || "";
+          setFrom(label);
+
+          if (place.geometry?.location) {
+            setFromCoords({
+              lat: place.geometry.location.lat(),
+              lng: place.geometry.location.lng(),
+            });
+          }
+        });
+      }
+
+      if (toInputRef.current) {
+        const toAuto = new window.google.maps.places.Autocomplete(toInputRef.current, {
+          fields: ["formatted_address", "geometry", "name"],
+        });
+
+        toAuto.addListener("place_changed", () => {
+          const place = toAuto.getPlace();
+
+          const label = place.formatted_address || place.name || "";
+          setTo(label);
+
+          if (place.geometry?.location) {
+            setToCoords({
+              lat: place.geometry.location.lat(),
+              lng: place.geometry.location.lng(),
+            });
+          }
+        });
+      }
+
+      if (mounted) {
+        setMapsReady(true);
+        setMessage("");
+      }
+    }
+
+    function loadGoogleMaps() {
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+      if (!apiKey) {
+        setMessage("Google Maps API key is missing.");
+        return;
+      }
+
+      if (typeof window === "undefined") return;
+
+      if (window.google?.maps?.places) {
+        setupAutocomplete();
+        return;
+      }
+
+      const existingScript = document.getElementById("roadlink-google-maps");
+
+      if (existingScript) {
+        existingScript.addEventListener("load", setupAutocomplete);
+        existingScript.addEventListener("error", () => {
+          if (mounted) setMessage("Google Maps could not load.");
+        });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = "roadlink-google-maps";
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+
+      script.onload = setupAutocomplete;
+
+      script.onerror = () => {
+        if (mounted) setMessage("Google Maps could not load.");
+      };
+
+      document.head.appendChild(script);
+    }
+
+    loadGoogleMaps();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   function buildMapUrl() {
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
@@ -42,6 +159,16 @@ export default function OfferRidePage() {
       return;
     }
 
+    if (Number(price) <= 0) {
+      setMessage("Price must be greater than 0.");
+      return;
+    }
+
+    if (Number(seats) <= 0) {
+      setMessage("Seats must be greater than 0.");
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -50,6 +177,10 @@ export default function OfferRidePage() {
         driverEmail: user.email || "",
         from: from.trim(),
         to: to.trim(),
+        fromLat: fromCoords?.lat || null,
+        fromLng: fromCoords?.lng || null,
+        toLat: toCoords?.lat || null,
+        toLng: toCoords?.lng || null,
         date,
         time,
         seats: Number(seats),
@@ -82,16 +213,39 @@ export default function OfferRidePage() {
 
         <h1>Road<span>Link</span></h1>
         <h2>Offer a <span>Ride</span></h2>
-        <p>Publish your ride and generate a Google Maps route link.</p>
+
+        <p>
+          Publish your ride with Google Places autocomplete and automatic Google Maps route link.
+        </p>
+
+        <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
+          {mapsReady ? "Google Places ready" : "Loading Google Places..."}
+        </div>
       </section>
 
       <section className="card">
         <Field label="From *">
-          <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Miami, FL" />
+          <input
+            ref={fromInputRef}
+            value={from}
+            onChange={(e) => {
+              setFrom(e.target.value);
+              setFromCoords(null);
+            }}
+            placeholder="Miami, FL"
+          />
         </Field>
 
         <Field label="To *">
-          <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Orlando, FL" />
+          <input
+            ref={toInputRef}
+            value={to}
+            onChange={(e) => {
+              setTo(e.target.value);
+              setToCoords(null);
+            }}
+            placeholder="Orlando, FL"
+          />
         </Field>
 
         <Field label="Date *">
@@ -114,20 +268,42 @@ export default function OfferRidePage() {
         </Field>
 
         <Field label="Price per Seat *">
-          <input value={price} onChange={(e) => setPrice(e.target.value)} type="number" min="1" placeholder="45" />
+          <input
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            type="number"
+            min="1"
+            placeholder="45"
+          />
         </Field>
 
         <Field label="Vehicle *">
-          <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder="Toyota Camry..." />
+          <input
+            value={vehicle}
+            onChange={(e) => setVehicle(e.target.value)}
+            placeholder="Toyota Camry..."
+          />
         </Field>
 
         <Field label="Trip Notes">
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Pickup details..." />
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Pickup details..."
+          />
         </Field>
 
         <div className="preview">
           <strong>{from || "Starting point"} → {to || "Destination"}</strong>
           <p>{date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}</p>
+
+          <p className="coords">
+            Start GPS: {fromCoords ? `${fromCoords.lat.toFixed(5)}, ${fromCoords.lng.toFixed(5)}` : "Not selected from Google yet"}
+          </p>
+
+          <p className="coords">
+            Destination GPS: {toCoords ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}` : "Not selected from Google yet"}
+          </p>
 
           {from && to && (
             <a href={buildMapUrl()} target="_blank" rel="noopener noreferrer">
@@ -149,6 +325,7 @@ export default function OfferRidePage() {
           background: #020617;
           color: white;
           padding: 24px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
@@ -159,6 +336,7 @@ export default function OfferRidePage() {
           border-radius: 28px;
           background: rgba(15, 23, 42, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 22px 70px rgba(0,0,0,0.35);
         }
 
         .nav {
@@ -177,6 +355,7 @@ export default function OfferRidePage() {
           padding: 10px 16px;
           font-weight: 900;
           text-decoration: none;
+          cursor: pointer;
         }
 
         h1 {
@@ -187,6 +366,7 @@ export default function OfferRidePage() {
         h2 {
           font-size: 46px;
           margin: 0 0 14px;
+          line-height: 1;
         }
 
         span {
@@ -195,6 +375,25 @@ export default function OfferRidePage() {
 
         p {
           color: #a1a1aa;
+          line-height: 1.5;
+        }
+
+        .mapsStatus {
+          display: inline-block;
+          margin-top: 14px;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(234, 179, 8, 0.12);
+          border: 1px solid rgba(234, 179, 8, 0.35);
+          color: #facc15;
+          font-weight: 900;
+          font-size: 13px;
+        }
+
+        .mapsStatus.ready {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.35);
+          color: #22c55e;
         }
 
         .field {
@@ -220,6 +419,13 @@ export default function OfferRidePage() {
           outline: none;
         }
 
+        input:focus,
+        select:focus,
+        textarea:focus {
+          border-color: rgba(34,197,94,0.75);
+          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
+        }
+
         textarea {
           min-height: 110px;
           resize: vertical;
@@ -235,6 +441,19 @@ export default function OfferRidePage() {
           border-radius: 20px;
           background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .preview strong {
+          display: block;
+          font-size: 20px;
+          margin-bottom: 8px;
+          overflow-wrap: anywhere;
+        }
+
+        .coords {
+          margin: 6px 0;
+          font-size: 13px;
+          color: #94a3b8;
         }
 
         .preview a {
@@ -253,6 +472,12 @@ export default function OfferRidePage() {
           color: white;
           font-size: 18px;
           font-weight: 900;
+          cursor: pointer;
+        }
+
+        .publish:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .message {
