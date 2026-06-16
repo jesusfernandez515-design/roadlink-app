@@ -1,24 +1,284 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
 import { addDoc, collection } from "firebase/firestore";
 
+declare global {
+  interface Window {
+    google?: any;
+    initRoadLinkMap?: () => void;
+  }
+}
+
+type LatLng = {
+  lat: number;
+  lng: number;
+};
+
 export default function OfferRidePage() {
   const router = useRouter();
 
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const fromInputRef = useRef<HTMLInputElement | null>(null);
+  const toInputRef = useRef<HTMLInputElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const directionsRendererRef = useRef<any>(null);
+  const directionsServiceRef = useRef<any>(null);
+  const fromMarkerRef = useRef<any>(null);
+  const toMarkerRef = useRef<any>(null);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [fromCoords, setFromCoords] = useState<LatLng | null>(null);
+  const [toCoords, setToCoords] = useState<LatLng | null>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [seats, setSeats] = useState("1");
   const [price, setPrice] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [notes, setNotes] = useState("");
-  const [message, setMessage] = useState("");
+  const [distanceText, setDistanceText] = useState("");
+  const [durationText, setDurationText] = useState("");
+  const [distanceMiles, setDistanceMiles] = useState(0);
+  const [durationMinutes, setDurationMinutes] = useState(0);
+  const [selectMode, setSelectMode] = useState<"from" | "to">("from");
+  const [mapReady, setMapReady] = useState(false);
+  const [message, setMessage] = useState("Loading Google Maps...");
   const [loading, setLoading] = useState(false);
+
+  const suggestedPrice =
+    distanceMiles > 0 ? Math.max(10, Math.round(distanceMiles * 0.28)) : 0;
+
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+    if (!apiKey) {
+      setMessage("Google Maps API key is missing.");
+      return;
+    }
+
+    if (window.google?.maps) {
+      initializeMap();
+      return;
+    }
+
+    window.initRoadLinkMap = initializeMap;
+
+    const existingScript = document.getElementById("roadlink-google-maps");
+    if (existingScript) return;
+
+    const script = document.createElement("script");
+    script.id = "roadlink-google-maps";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initRoadLinkMap`;
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => setMessage("Google Maps could not load.");
+
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => {
+    if (fromCoords && toCoords && mapReady) {
+      calculateRoute(fromCoords, toCoords);
+    }
+  }, [fromCoords, toCoords, mapReady]);
+
+  function initializeMap() {
+    if (!mapRef.current || !window.google?.maps) return;
+
+    const defaultCenter = { lat: 18.2208, lng: -66.5901 };
+
+    const map = new window.google.maps.Map(mapRef.current, {
+      center: defaultCenter,
+      zoom: 8,
+      disableDefaultUI: false,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+      zoomControl: true,
+    });
+
+    const directionsRenderer = new window.google.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: false,
+      polylineOptions: {
+        strokeColor: "#22c55e",
+        strokeWeight: 6,
+        strokeOpacity: 0.9,
+      },
+    });
+
+    mapInstanceRef.current = map;
+    directionsRendererRef.current = directionsRenderer;
+    directionsServiceRef.current = new window.google.maps.DirectionsService();
+
+    setupAutocomplete();
+    setupMapClick(map);
+
+    setMapReady(true);
+    setMessage("");
+  }
+
+  function setupAutocomplete() {
+    if (!window.google?.maps?.places) return;
+
+    if (fromInputRef.current) {
+      const fromAutocomplete = new window.google.maps.places.Autocomplete(
+        fromInputRef.current,
+        {
+          fields: ["formatted_address", "geometry", "name"],
+        }
+      );
+
+      fromAutocomplete.addListener("place_changed", () => {
+        const place = fromAutocomplete.getPlace();
+        if (!place.geometry?.location) return;
+
+        const coords = {
+          lat: place.geometry.location.lat(),
+          lng: place.geometry.location.lng(),
+        };
+
+        setFrom(place.formatted_address || place.name || "");
+        setFromCoords(coords);
+        placeMarker("from", coords);
+      });
+    }
+
+    if (toInputRef.current) {
+      const toAutocomplete = new window.google.maps.places.Autocomplete(
+        toInputRef.current,
+        {
+          fields: ["formatted_address", "geometry", "name"],
+        }
+      );
+
+      toAutocomplete.addListener("place_changed", () => {
+        const place = toAutocomplete.getPlace();
+        if (!place.geometry?.location) return;
+
+        const coords = {
+          lat: place.geometry.location.lat(),
+          lng: place.geometry.location.lng(),
+        };
+
+        setTo(place.formatted_address || place.name || "");
+        setToCoords(coords);
+        placeMarker("to", coords);
+      });
+    }
+  }
+
+  function setupMapClick(map: any) {
+    map.addListener("click", async (event: any) => {
+      if (!event.latLng) return;
+
+      const coords = {
+        lat: event.latLng.lat(),
+        lng: event.latLng.lng(),
+      };
+
+      const address = await reverseGeocode(coords);
+
+      if (selectMode === "from") {
+        setFrom(address);
+        setFromCoords(coords);
+        placeMarker("from", coords);
+        setSelectMode("to");
+      } else {
+        setTo(address);
+        setToCoords(coords);
+        placeMarker("to", coords);
+      }
+    });
+  }
+
+  async function reverseGeocode(coords: LatLng) {
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+
+      const result = await geocoder.geocode({
+        location: coords,
+      });
+
+      return (
+        result.results?.[0]?.formatted_address ||
+        `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
+      );
+    } catch {
+      return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+    }
+  }
+
+  function placeMarker(type: "from" | "to", coords: LatLng) {
+    if (!mapInstanceRef.current || !window.google?.maps) return;
+
+    const marker =
+      type === "from" ? fromMarkerRef.current : toMarkerRef.current;
+
+    if (marker) marker.setMap(null);
+
+    const newMarker = new window.google.maps.Marker({
+      position: coords,
+      map: mapInstanceRef.current,
+      label: type === "from" ? "A" : "B",
+      title: type === "from" ? "Starting point" : "Destination",
+    });
+
+    if (type === "from") {
+      fromMarkerRef.current = newMarker;
+    } else {
+      toMarkerRef.current = newMarker;
+    }
+
+    mapInstanceRef.current.panTo(coords);
+    mapInstanceRef.current.setZoom(12);
+  }
+
+  function calculateRoute(origin: LatLng, destination: LatLng) {
+    if (!directionsServiceRef.current || !directionsRendererRef.current) return;
+
+    directionsServiceRef.current.route(
+      {
+        origin,
+        destination,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (result: any, status: string) => {
+        if (status !== "OK" || !result) {
+          setMessage("Route could not be calculated.");
+          return;
+        }
+
+        directionsRendererRef.current.setDirections(result);
+
+        const leg = result.routes?.[0]?.legs?.[0];
+
+        if (!leg) return;
+
+        const meters = Number(leg.distance?.value || 0);
+        const seconds = Number(leg.duration?.value || 0);
+
+        const miles = meters / 1609.344;
+        const minutes = seconds / 60;
+
+        setDistanceText(leg.distance?.text || "");
+        setDurationText(leg.duration?.text || "");
+        setDistanceMiles(Number(miles.toFixed(1)));
+        setDurationMinutes(Math.round(minutes));
+        setMessage("");
+      }
+    );
+  }
+
+  function useSuggestedPrice() {
+    if (suggestedPrice > 0) {
+      setPrice(String(suggestedPrice));
+    }
+  }
 
   async function publishRide() {
     setMessage("");
@@ -33,6 +293,11 @@ export default function OfferRidePage() {
 
     if (!from || !to || !date || !time || !price || !vehicle) {
       setMessage("Please complete all required fields.");
+      return;
+    }
+
+    if (!fromCoords || !toCoords) {
+      setMessage("Please select both route points from autocomplete or map.");
       return;
     }
 
@@ -54,11 +319,20 @@ export default function OfferRidePage() {
         driverEmail: user.email || "",
         from: from.trim(),
         to: to.trim(),
+        fromLat: fromCoords.lat,
+        fromLng: fromCoords.lng,
+        toLat: toCoords.lat,
+        toLng: toCoords.lng,
+        distanceText,
+        durationText,
+        distanceMiles,
+        durationMinutes,
         date,
         time,
         seats: Number(seats),
         originalSeats: Number(seats),
         price: Number(price),
+        suggestedPrice,
         vehicle: vehicle.trim(),
         notes: notes.trim(),
         status: "active",
@@ -69,18 +343,25 @@ export default function OfferRidePage() {
 
       setFrom("");
       setTo("");
+      setFromCoords(null);
+      setToCoords(null);
       setDate("");
       setTime("");
       setSeats("1");
       setPrice("");
       setVehicle("");
       setNotes("");
+      setDistanceText("");
+      setDurationText("");
+      setDistanceMiles(0);
+      setDurationMinutes(0);
+      directionsRendererRef.current?.setDirections({ routes: [] });
 
       setTimeout(() => {
         router.push("/find-ride");
       }, 800);
-    } catch (error: any) {
-      setMessage(error.message);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -94,29 +375,18 @@ export default function OfferRidePage() {
             ← Back
           </button>
 
-          <Link href="/" className="miniButton">
-            Home
-          </Link>
-
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
+          <Link href="/" className="miniButton">Home</Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
-        <div className="logo">
-          Road<span>Link</span>
-        </div>
+        <div className="logo">Road<span>Link</span></div>
 
-        <h1>
-          Offer a <span>Ride</span>
-        </h1>
+        <h1>Offer a <span>Ride</span></h1>
 
         <p className="subtitle">
-          Publish your route, set your price, and let passengers join your trip.
+          Publish your route with Google Maps, real distance, estimated time,
+          GPS coordinates and a premium route preview.
         </p>
       </section>
 
@@ -127,12 +397,45 @@ export default function OfferRidePage() {
             <h2>Where are you going?</h2>
           </div>
 
-          <div className="carBadge">🚗</div>
+          <div className="carBadge">🗺️</div>
+        </div>
+
+        <div className="mapTools">
+          <button
+            type="button"
+            className={selectMode === "from" ? "toolButton activeTool" : "toolButton"}
+            onClick={() => setSelectMode("from")}
+          >
+            📍 Pick Start
+          </button>
+
+          <button
+            type="button"
+            className={selectMode === "to" ? "toolButton activeTool" : "toolButton"}
+            onClick={() => setSelectMode("to")}
+          >
+            🏁 Pick Destination
+          </button>
+        </div>
+
+        <div className="mapBox" ref={mapRef}>
+          {!mapReady && <div className="mapLoading">Loading map...</div>}
+        </div>
+
+        <div className="routeSummary">
+          <InfoBox label="Distance" value={distanceText || "Select route"} />
+          <InfoBox label="Duration" value={durationText || "Select route"} />
+          <InfoBox label="Miles" value={distanceMiles ? `${distanceMiles} mi` : "0 mi"} />
+          <InfoBox
+            label="Suggested Price"
+            value={suggestedPrice ? `$${suggestedPrice}` : "$0"}
+          />
         </div>
 
         <div className="routeGrid">
           <Field label="From *" icon="📍">
             <input
+              ref={fromInputRef}
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               placeholder="City or address"
@@ -141,6 +444,7 @@ export default function OfferRidePage() {
 
           <Field label="To *" icon="🏁">
             <input
+              ref={toInputRef}
               value={to}
               onChange={(e) => setTo(e.target.value)}
               placeholder="City or address"
@@ -150,19 +454,11 @@ export default function OfferRidePage() {
 
         <div className="grid">
           <Field label="Date *" icon="📅">
-            <input
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              type="date"
-            />
+            <input value={date} onChange={(e) => setDate(e.target.value)} type="date" />
           </Field>
 
           <Field label="Departure Time *" icon="🕒">
-            <input
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              type="time"
-            />
+            <input value={time} onChange={(e) => setTime(e.target.value)} type="time" />
           </Field>
         </div>
 
@@ -179,13 +475,19 @@ export default function OfferRidePage() {
           </Field>
 
           <Field label="Price per Seat *" icon="💵">
-            <input
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              type="number"
-              min="1"
-              placeholder="45"
-            />
+            <div className="priceInputWrap">
+              <input
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                type="number"
+                min="1"
+                placeholder="45"
+              />
+
+              <button type="button" onClick={useSuggestedPrice}>
+                Use ${suggestedPrice || 0}
+              </button>
+            </div>
           </Field>
         </div>
 
@@ -217,6 +519,8 @@ export default function OfferRidePage() {
             <div className="chip">🕒 {time || "Time"}</div>
             <div className="chip">💺 {seats} seat{seats === "1" ? "" : "s"}</div>
             <div className="chip green">${price || "0"}</div>
+            <div className="chip">🛣️ {distanceText || "Distance"}</div>
+            <div className="chip">⏱️ {durationText || "Duration"}</div>
           </div>
 
           <p>{vehicle || "Vehicle information will appear here."}</p>
@@ -230,9 +534,7 @@ export default function OfferRidePage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -241,20 +543,23 @@ export default function OfferRidePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
         .hero,
         .formCard {
-          max-width: 860px;
+          max-width: 960px;
           margin-left: auto;
           margin-right: auto;
         }
 
         .hero,
         .formCard,
-        .previewCard {
-          background: rgba(8, 13, 25, 0.88);
+        .previewCard,
+        .mapBox,
+        .infoBox {
+          background: rgba(8,13,25,0.88);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.5);
           backdrop-filter: blur(14px);
@@ -271,14 +576,20 @@ export default function OfferRidePage() {
           padding: 30px;
         }
 
-        .topActions {
+        .topActions,
+        .mapTools,
+        .chips {
           display: flex;
           flex-wrap: wrap;
           gap: 12px;
+        }
+
+        .topActions {
           margin-bottom: 30px;
         }
 
-        .miniButton {
+        .miniButton,
+        .toolButton {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -290,6 +601,12 @@ export default function OfferRidePage() {
           text-decoration: none;
           font-weight: 900;
           cursor: pointer;
+        }
+
+        .activeTool {
+          color: #22c55e;
+          background: rgba(34,197,94,0.12);
+          border-color: rgba(34,197,94,0.45);
         }
 
         .logo {
@@ -325,7 +642,7 @@ export default function OfferRidePage() {
           justify-content: space-between;
           gap: 18px;
           align-items: center;
-          margin-bottom: 26px;
+          margin-bottom: 22px;
         }
 
         .eyebrow {
@@ -351,6 +668,62 @@ export default function OfferRidePage() {
           align-items: center;
           justify-content: center;
           font-size: 34px;
+        }
+
+        .mapTools {
+          margin-bottom: 14px;
+        }
+
+        .mapBox {
+          position: relative;
+          width: 100%;
+          height: 360px;
+          overflow: hidden;
+          border-radius: 26px;
+          margin-bottom: 16px;
+        }
+
+        .mapBox > div {
+          color: black;
+        }
+
+        .mapLoading {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white !important;
+          background: rgba(2,6,23,0.9);
+          font-weight: 900;
+          z-index: 5;
+        }
+
+        .routeSummary {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .infoBox {
+          border-radius: 18px;
+          padding: 14px;
+        }
+
+        .infoBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 5px;
+        }
+
+        .infoBox strong {
+          display: block;
+          color: #22c55e;
+          font-size: 18px;
+          overflow-wrap: anywhere;
         }
 
         .routeGrid,
@@ -419,6 +792,23 @@ export default function OfferRidePage() {
           resize: vertical;
         }
 
+        .priceInputWrap {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
+        }
+
+        .priceInputWrap button {
+          border: none;
+          border-radius: 16px;
+          padding: 0 16px;
+          background: rgba(34,197,94,0.14);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
         .previewCard {
           border-radius: 24px;
           padding: 22px;
@@ -430,19 +820,13 @@ export default function OfferRidePage() {
           font-size: 28px;
           line-height: 1.2;
           margin: 0 0 18px;
+          overflow-wrap: anywhere;
         }
 
         .previewCard p {
           color: #a1a1aa;
           line-height: 1.5;
           margin: 0;
-        }
-
-        .chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 16px;
         }
 
         .chip {
@@ -478,11 +862,13 @@ export default function OfferRidePage() {
           text-align: center;
           margin-top: 18px;
           font-weight: 900;
+          line-height: 1.5;
         }
 
         @media (max-width: 700px) {
           .page {
             padding: 16px;
+            padding-bottom: 140px;
           }
 
           .hero,
@@ -492,7 +878,7 @@ export default function OfferRidePage() {
           }
 
           h1 {
-            font-size: 50px;
+            font-size: 48px;
           }
 
           h2 {
@@ -500,8 +886,14 @@ export default function OfferRidePage() {
           }
 
           .routeGrid,
-          .grid {
+          .grid,
+          .routeSummary,
+          .priceInputWrap {
             grid-template-columns: 1fr;
+          }
+
+          .mapBox {
+            height: 300px;
           }
 
           .sectionHeader {
@@ -535,6 +927,15 @@ function Field({
         <span>{label}</span>
       </div>
       {children}
+    </div>
+  );
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="infoBox">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
