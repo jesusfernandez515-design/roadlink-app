@@ -354,9 +354,7 @@ export default function OfferRidePage() {
       return "airport";
     }
 
-    if (value.includes("hospital")) {
-      return "hospital";
-    }
+    if (value.includes("hospital")) return "hospital";
 
     if (value.includes("gasolinera") || value.includes("gas") || value.includes("station")) {
       return "gas_station";
@@ -457,7 +455,7 @@ export default function OfferRidePage() {
           };
         })
         .sort((a, b) => a.distanceMiles - b.distanceMiles)
-        .slice(0, 8);
+        .slice(0, 6);
 
       setNearbyPlaces(cleaned);
     });
@@ -569,9 +567,7 @@ export default function OfferRidePage() {
         <h1>Road<span>Link</span></h1>
         <h2>Offer a <span>Ride</span></h2>
 
-        <p>
-          Publish your ride with GPS pickup and destinations ranked by closest distance.
-        </p>
+        <p>Publish your ride with GPS pickup and nearby destinations ranked by distance.</p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
           {mapsReady ? "Google Maps ready" : "Loading Google Maps..."}
@@ -634,56 +630,48 @@ export default function OfferRidePage() {
         </Field>
 
         <div className="gpsHelp">
-          <span>Important</span>
-          The destination field now uses RoadLink nearby search only. Use GPS in From first,
-          then type airport, hospital, Walmart or gas station.
+          <span>Nearby Search</span>
+          Use GPS in From first, then type airport, hospital, Walmart or gas station.
         </div>
 
         {(nearbyLoading || nearbyPlaces.length > 0) && (
           <div className="nearbyPanel">
             <div className="nearbyHeader">
               <p className="eyebrow">Nearby Places</p>
-              <h4>{nearbyLoading ? "Searching closest places..." : `Closest results for ${nearbyQuery}`}</h4>
+              <h4>{nearbyLoading ? "Searching..." : `Closest for ${nearbyQuery}`}</h4>
             </div>
 
-            {nearbyPlaces.map((place) => (
-              <button
-                key={`${place.name}-${place.lat}-${place.lng}`}
-                type="button"
-                className="nearbyPlace"
-                onClick={() => selectNearbyPlace(place)}
-              >
-                <span className="nearbyIcon">📍</span>
-                <span>
-                  <strong>{place.name}</strong>
-                  <small>{place.address || "Address not available"}</small>
-                </span>
-                <b>{place.distanceMiles} mi</b>
-              </button>
-            ))}
+            <div className="nearbyList">
+              {nearbyPlaces.map((place) => (
+                <button
+                  key={`${place.name}-${place.lat}-${place.lng}`}
+                  type="button"
+                  className="nearbyPlace"
+                  onClick={() => selectNearbyPlace(place)}
+                >
+                  <span className="nearbyIcon">📍</span>
+                  <span className="nearbyText">
+                    <strong>{place.name}</strong>
+                    <small>{place.address || "Address not available"}</small>
+                  </span>
+                  <b>{place.distanceMiles} mi</b>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
         <div className="routeStats">
-          <div className="statBox">
-            <small>Distance</small>
-            <strong>{routeLoading ? "Calculating..." : routeInfo.distanceText || "Select route"}</strong>
-          </div>
-
-          <div className="statBox">
-            <small>Duration</small>
-            <strong>{routeLoading ? "Calculating..." : routeInfo.durationText || "Select route"}</strong>
-          </div>
-
-          <div className="statBox">
-            <small>Miles</small>
-            <strong>{routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"}</strong>
-          </div>
-
-          <div className="statBox">
-            <small>Suggested</small>
-            <strong>{suggestedPrice ? `$${suggestedPrice}` : "$0"}</strong>
-          </div>
+          <StatBox
+            label="Distance"
+            value={routeLoading ? "Calculating..." : routeInfo.distanceText || "Select route"}
+          />
+          <StatBox
+            label="Duration"
+            value={routeLoading ? "Calculating..." : routeInfo.durationText || "Select route"}
+          />
+          <StatBox label="Miles" value={routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"} />
+          <StatBox label="Suggested" value={suggestedPrice ? `$${suggestedPrice}` : "$0"} />
         </div>
 
         <Field label="Date *">
@@ -829,7 +817,7 @@ export default function OfferRidePage() {
         h1 { font-size: 36px; margin: 0 0 24px; }
         h2 { font-size: 46px; margin: 0 0 14px; line-height: 1; }
         h3 { font-size: 28px; margin: 0; }
-        h4 { margin: 0; font-size: 18px; }
+        h4 { margin: 0; font-size: 16px; }
         span { color: #22c55e; }
 
         p {
@@ -953,42 +941,51 @@ export default function OfferRidePage() {
         }
 
         .gpsHelp {
-          margin: -4px 0 20px;
-          padding: 14px;
+          margin: -4px 0 14px;
+          padding: 12px 14px;
           border-radius: 16px;
           background: rgba(59,130,246,0.08);
           border: 1px solid rgba(59,130,246,0.18);
           color: #93c5fd;
-          font-size: 14px;
-          line-height: 1.5;
+          font-size: 13px;
+          line-height: 1.4;
         }
 
         .gpsHelp span {
           display: block;
           color: #60a5fa;
           font-weight: 900;
-          margin-bottom: 4px;
+          margin-bottom: 3px;
         }
 
         .nearbyPanel {
-          margin: 18px 0 22px;
-          padding: 16px;
-          border-radius: 22px;
+          margin: 14px 0 18px;
+          padding: 14px;
+          border-radius: 20px;
           background: rgba(34,197,94,0.06);
           border: 1px solid rgba(34,197,94,0.18);
         }
 
-        .nearbyHeader { margin-bottom: 12px; }
+        .nearbyHeader {
+          margin-bottom: 10px;
+        }
+
+        .nearbyList {
+          display: grid;
+          gap: 8px;
+          max-height: 360px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
 
         .nearbyPlace {
           width: 100%;
           display: grid;
-          grid-template-columns: 40px 1fr auto;
-          gap: 12px;
+          grid-template-columns: 32px 1fr auto;
+          gap: 10px;
           align-items: center;
-          padding: 14px;
-          margin-top: 10px;
-          border-radius: 18px;
+          padding: 10px;
+          border-radius: 15px;
           border: 1px solid rgba(255,255,255,0.1);
           background: rgba(255,255,255,0.045);
           color: white;
@@ -997,59 +994,74 @@ export default function OfferRidePage() {
         }
 
         .nearbyIcon {
-          width: 36px;
-          height: 36px;
+          width: 30px;
+          height: 30px;
           border-radius: 50%;
           background: rgba(34,197,94,0.15);
           display: flex;
           align-items: center;
           justify-content: center;
+          font-size: 14px;
+        }
+
+        .nearbyText {
+          min-width: 0;
         }
 
         .nearbyPlace strong {
           display: block;
           color: white;
-          margin-bottom: 4px;
+          font-size: 14px;
+          margin-bottom: 3px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .nearbyPlace small {
+          display: block;
           color: #94a3b8;
-          line-height: 1.4;
+          font-size: 12px;
+          line-height: 1.3;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .nearbyPlace b {
           color: #22c55e;
           white-space: nowrap;
+          font-size: 13px;
         }
 
         .routeStats {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
-          margin: 8px 0 22px;
+          gap: 10px;
+          margin: 8px 0 20px;
         }
 
         .statBox {
-          border-radius: 18px;
+          border-radius: 16px;
           background: rgba(34,197,94,0.08);
           border: 1px solid rgba(34,197,94,0.18);
-          padding: 14px;
-          min-height: 80px;
+          padding: 12px;
+          min-height: 72px;
         }
 
         .statBox small {
           display: block;
           color: #94a3b8;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 900;
           text-transform: uppercase;
-          margin-bottom: 6px;
+          margin-bottom: 5px;
         }
 
         .statBox strong {
           display: block;
           color: #22c55e;
-          font-size: 17px;
+          font-size: 15px;
           overflow-wrap: anywhere;
         }
 
@@ -1119,11 +1131,14 @@ export default function OfferRidePage() {
 
           h2 { font-size: 40px; }
 
-          .routeStats,
           .locationInputRow,
           .priceRow,
           .destinationBox {
             grid-template-columns: 1fr;
+          }
+
+          .routeStats {
+            grid-template-columns: 1fr 1fr;
           }
 
           .gpsButton,
@@ -1132,12 +1147,12 @@ export default function OfferRidePage() {
             padding: 15px;
           }
 
-          .nearbyPlace {
-            grid-template-columns: 36px 1fr;
+          .nearbyList {
+            max-height: 300px;
           }
 
-          .nearbyPlace b {
-            grid-column: 2;
+          .nearbyPlace {
+            grid-template-columns: 30px 1fr auto;
           }
         }
       `}</style>
@@ -1152,4 +1167,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   );
-      }
+}
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="statBox">
+      <small>{label}</small>
+      <strong>{value}</strong>
+    </div>
+  );
+}
