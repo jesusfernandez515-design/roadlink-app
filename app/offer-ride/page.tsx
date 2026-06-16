@@ -427,7 +427,7 @@ export default function OfferRidePage() {
   function searchNearbyPlaces(searchText: string) {
     setNearbyQuery(searchText);
 
-    if (!mapsReady || !placesServiceRef.current) return;
+    if (!mapsReady || !placesServiceRef.current || !window.google?.maps?.places) return;
 
     const baseLocation = fromCoords || userLocation;
 
@@ -447,7 +447,7 @@ export default function OfferRidePage() {
 
     const request: any = {
       location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
-      radius: 30000,
+      rankBy: window.google.maps.places.RankBy.DISTANCE,
       keyword: searchText,
     };
 
@@ -481,7 +481,7 @@ export default function OfferRidePage() {
           };
         })
         .sort((a, b) => a.distanceMiles - b.distanceMiles)
-        .slice(0, 5);
+        .slice(0, 6);
 
       setNearbyPlaces(cleaned);
     });
@@ -594,8 +594,8 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with GPS pickup, Google Autocomplete and smart nearby
-          destination suggestions.
+          Publish your ride with GPS pickup, Google Autocomplete and nearby destinations
+          ranked by real distance.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -659,9 +659,10 @@ export default function OfferRidePage() {
         </Field>
 
         <div className="gpsHelp">
-          <span>Smart Search Mode</span>
-          Use the normal Google dropdown for exact addresses. For airport, hospital,
-          Walmart, gas station, police or mall, RoadLink also shows nearby options below.
+          <span>Smart Nearby Search</span>
+          Use normal Google suggestions for exact addresses. For airport, hospital,
+          Walmart, gas station, police or mall, RoadLink also shows nearby results
+          ordered by distance from your pickup.
         </div>
 
         {(nearbyLoading || nearbyPlaces.length > 0) && (
@@ -1177,4 +1178,4 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   );
-}
+        }
