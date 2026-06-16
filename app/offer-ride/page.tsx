@@ -73,6 +73,8 @@ export default function OfferRidePage() {
   const [locationLoading, setLocationLoading] = useState<"from" | "to" | "">("");
   const [loading, setLoading] = useState(false);
 
+  const destinationSelected = Boolean(toCoords);
+
   const suggestedPrice =
     routeInfo.distanceMiles > 0
       ? Math.max(10, Math.round(routeInfo.distanceMiles * 0.28))
@@ -473,6 +475,7 @@ export default function OfferRidePage() {
     setNearbyPlaces([]);
     setNearbyQuery("");
     resetRouteInfo();
+    setMessage("Destination selected successfully.");
   }
 
   function clearDestination() {
@@ -505,6 +508,16 @@ export default function OfferRidePage() {
       return;
     }
 
+    if (!fromCoords) {
+      setMessage("Please select a real pickup location or use GPS.");
+      return;
+    }
+
+    if (!toCoords) {
+      setMessage("Please select a real destination from Nearby Places.");
+      return;
+    }
+
     if (Number(price) <= 0) {
       setMessage("Price must be greater than 0.");
       return;
@@ -523,10 +536,10 @@ export default function OfferRidePage() {
         driverEmail: user.email || "",
         from: from.trim(),
         to: to.trim(),
-        fromLat: fromCoords?.lat || null,
-        fromLng: fromCoords?.lng || null,
-        toLat: toCoords?.lat || null,
-        toLng: toCoords?.lng || null,
+        fromLat: fromCoords.lat,
+        fromLng: fromCoords.lng,
+        toLat: toCoords.lat,
+        toLng: toCoords.lng,
         distanceText: routeInfo.distanceText,
         durationText: routeInfo.durationText,
         distanceMiles: routeInfo.distanceMiles,
@@ -627,6 +640,14 @@ export default function OfferRidePage() {
               </button>
             )}
           </div>
+
+          {to && !destinationSelected && (
+            <p className="fieldWarning">Select a destination from Nearby Places before publishing.</p>
+          )}
+
+          {destinationSelected && (
+            <p className="fieldSuccess">Destination selected.</p>
+          )}
         </Field>
 
         <div className="gpsHelp">
@@ -728,7 +749,7 @@ export default function OfferRidePage() {
         <div className="preview">
           <p className="eyebrow">Live Preview</p>
 
-          <strong>{from || "Starting point"} → {to || "Destination"}</strong>
+          <strong>{from || "Starting point"} → {destinationSelected ? to : "Select destination"}</strong>
 
           <p>{date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}</p>
 
@@ -751,15 +772,19 @@ export default function OfferRidePage() {
               : "Select destination from nearby results"}
           </p>
 
-          {from && to && (
+          {from && destinationSelected && (
             <a href={buildMapUrl()} target="_blank" rel="noopener noreferrer">
               Open route in Google Maps
             </a>
           )}
         </div>
 
-        <button className="publish" onClick={publishRide} disabled={loading}>
-          {loading ? "Publishing..." : "Publish Ride"}
+        <button
+          className="publish"
+          onClick={publishRide}
+          disabled={loading || !destinationSelected}
+        >
+          {loading ? "Publishing..." : destinationSelected ? "Publish Ride" : "Select Destination First"}
         </button>
 
         {message && <p className="message">{message}</p>}
@@ -940,6 +965,21 @@ export default function OfferRidePage() {
           cursor: not-allowed;
         }
 
+        .fieldWarning,
+        .fieldSuccess {
+          margin: 8px 0 0;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .fieldWarning {
+          color: #fbbf24;
+        }
+
+        .fieldSuccess {
+          color: #22c55e;
+        }
+
         .gpsHelp {
           margin: -4px 0 14px;
           padding: 12px 14px;
@@ -1107,7 +1147,7 @@ export default function OfferRidePage() {
         }
 
         .publish:disabled {
-          opacity: 0.6;
+          opacity: 0.5;
           cursor: not-allowed;
           box-shadow: none;
         }
