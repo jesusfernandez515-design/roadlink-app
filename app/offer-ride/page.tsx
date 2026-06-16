@@ -1,10 +1,10 @@
 "use client";
 
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth, db } from "../../lib/firebase";
 import { addDoc, collection } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 
 declare global {
   interface Window {
@@ -27,6 +27,7 @@ export default function OfferRidePage() {
   const mapInstanceRef = useRef<any>(null);
   const directionsRendererRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
+  const selectModeRef = useRef<"from" | "to">("from");
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -54,45 +55,60 @@ export default function OfferRidePage() {
     distanceMiles > 0 ? Math.max(10, Math.round(distanceMiles * 0.28)) : 0;
 
   useEffect(() => {
+    selectModeRef.current = selectMode;
+  }, [selectMode]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadMap() {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      try {
+        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-      if (!apiKey) {
-        setMessage("Google Maps API key is missing.");
-        return;
-      }
+        if (!apiKey) {
+          setMessage("Google Maps API key is missing.");
+          return;
+        }
 
-      if (window.google?.maps) {
-        if (mounted) initializeMap();
-        return;
-      }
+        if (typeof window === "undefined") return;
 
-      const existingScript = document.getElementById("roadlink-google-maps");
-
-      if (existingScript) {
-        existingScript.addEventListener("load", () => {
+        if (window.google?.maps) {
           if (mounted) initializeMap();
-        });
-        return;
+          return;
+        }
+
+        const existingScript = document.getElementById("roadlink-google-maps");
+
+        if (existingScript) {
+          existingScript.addEventListener("load", () => {
+            if (mounted) initializeMap();
+          });
+
+          existingScript.addEventListener("error", () => {
+            if (mounted) setMessage("Google Maps could not load.");
+          });
+
+          return;
+        }
+
+        const script = document.createElement("script");
+        script.id = "roadlink-google-maps";
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+        script.async = true;
+        script.defer = true;
+
+        script.onload = () => {
+          if (mounted) initializeMap();
+        };
+
+        script.onerror = () => {
+          if (mounted) setMessage("Google Maps could not load.");
+        };
+
+        document.head.appendChild(script);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Google Maps failed to initialize.");
       }
-
-      const script = document.createElement("script");
-      script.id = "roadlink-google-maps";
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-      script.async = true;
-      script.defer = true;
-
-      script.onload = () => {
-        if (mounted) initializeMap();
-      };
-
-      script.onerror = () => {
-        if (mounted) setMessage("Google Maps could not load.");
-      };
-
-      document.head.appendChild(script);
     }
 
     loadMap();
@@ -109,36 +125,40 @@ export default function OfferRidePage() {
   }, [fromCoords, toCoords, mapReady]);
 
   function initializeMap() {
-    if (!mapRef.current || !window.google?.maps || mapInstanceRef.current) return;
+    try {
+      if (!mapRef.current || !window.google?.maps || mapInstanceRef.current) return;
 
-    const center = { lat: 18.2208, lng: -66.5901 };
+      const center = { lat: 18.2208, lng: -66.5901 };
 
-    const map = new window.google.maps.Map(mapRef.current, {
-      center,
-      zoom: 8,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: true,
-      zoomControl: true,
-    });
+      const map = new window.google.maps.Map(mapRef.current, {
+        center,
+        zoom: 8,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        zoomControl: true,
+      });
 
-    mapInstanceRef.current = map;
-    directionsServiceRef.current = new window.google.maps.DirectionsService();
-    directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: false,
-      polylineOptions: {
-        strokeColor: "#22c55e",
-        strokeWeight: 6,
-        strokeOpacity: 0.9,
-      },
-    });
+      mapInstanceRef.current = map;
+      directionsServiceRef.current = new window.google.maps.DirectionsService();
+      directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+        map,
+        suppressMarkers: false,
+        polylineOptions: {
+          strokeColor: "#22c55e",
+          strokeWeight: 6,
+          strokeOpacity: 0.9,
+        },
+      });
 
-    setupAutocomplete();
-    setupMapClick(map);
+      setupAutocomplete();
+      setupMapClick(map);
 
-    setMapReady(true);
-    setMessage("");
+      setMapReady(true);
+      setMessage("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Map could not be initialized.");
+    }
   }
 
   function setupAutocomplete() {
@@ -194,7 +214,7 @@ export default function OfferRidePage() {
 
       const address = await reverseGeocode(coords);
 
-      if (selectMode === "from") {
+      if (selectModeRef.current === "from") {
         setFrom(address);
         setFromCoords(coords);
         setSelectMode("to");
@@ -243,7 +263,6 @@ export default function OfferRidePage() {
         directionsRendererRef.current.setDirections(result);
 
         const leg = result.routes?.[0]?.legs?.[0];
-
         if (!leg) return;
 
         const meters = Number(leg.distance?.value || 0);
@@ -264,6 +283,12 @@ export default function OfferRidePage() {
     if (suggestedPrice > 0) {
       setPrice(String(suggestedPrice));
     }
+  }
+
+  function buildMapUrl() {
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      from.trim()
+    )}&destination=${encodeURIComponent(to.trim())}`;
   }
 
   async function publishRide() {
@@ -321,6 +346,7 @@ export default function OfferRidePage() {
         suggestedPrice,
         vehicle: vehicle.trim(),
         notes: notes.trim(),
+        mapUrl: buildMapUrl(),
         status: "active",
         createdAt: new Date().toISOString(),
       });
@@ -499,7 +525,7 @@ export default function OfferRidePage() {
         {message && <p className="message">{message}</p>}
       </section>
 
-      <style>{`
+      <style jsx>{`
         * { box-sizing: border-box; }
 
         .page {
