@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,
@@ -14,6 +13,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 
 type Ride = {
   id: string;
@@ -28,6 +28,11 @@ type Ride = {
   status: string;
   driverEmail: string;
   driverId?: string;
+  distanceText?: string;
+  durationText?: string;
+  distanceMiles?: number;
+  durationMinutes?: number;
+  mapUrl?: string;
 };
 
 export default function FindRidePage() {
@@ -111,7 +116,7 @@ export default function FindRidePage() {
       return;
     }
 
-    if (ride.seats <= 0) {
+    if (Number(ride.seats || 0) <= 0) {
       setMessage("No seats available for this ride.");
       return;
     }
@@ -147,6 +152,11 @@ export default function FindRidePage() {
         date: ride.date,
         time: ride.time,
         price: ride.price,
+        distanceText: ride.distanceText || "",
+        durationText: ride.durationText || "",
+        distanceMiles: Number(ride.distanceMiles || 0),
+        durationMinutes: Number(ride.durationMinutes || 0),
+        mapUrl: ride.mapUrl || "",
         seatsBooked: 1,
         status: "reserved",
         createdAt: new Date().toISOString(),
@@ -208,42 +218,25 @@ export default function FindRidePage() {
             ← Back
           </button>
 
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/messages" className="miniButton">
-            Messages
-          </Link>
-
-          <Link href="/notifications" className="miniButton">
-            Notifications
-          </Link>
-
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/messages" className="miniButton">Messages</Link>
+          <Link href="/notifications" className="miniButton">Notifications</Link>
+          <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
-        <div className="logo">
-          Road<span>Link</span>
-        </div>
+        <div className="logo">Road<span>Link</span></div>
 
         <p className="eyebrow">Verified Ride Marketplace</p>
 
-        <h1>
-          Find a <span>Ride</span>
-        </h1>
+        <h1>Find a <span>Ride</span></h1>
 
         <p className="subtitle">
-          Discover available long-distance rides from verified RoadLink drivers.
-          Reserve your seat and notify the driver instantly.
+          Discover available long-distance rides with route distance, estimated travel time,
+          price and driver details.
         </p>
 
         <div className="mainActions">
-          <Link href="/offer-ride" className="primaryButton">
-            Offer a Ride
-          </Link>
+          <Link href="/offer-ride" className="primaryButton">Offer a Ride</Link>
 
           <button
             type="button"
@@ -269,14 +262,29 @@ export default function FindRidePage() {
               <div className="routeHeader">
                 <div>
                   <p className="label">ROUTE</p>
-                  <h2>
-                    {ride.from} <span>→</span> {ride.to}
-                  </h2>
+                  <h2>{ride.from} <span>→</span> {ride.to}</h2>
                 </div>
 
                 <div className="priceBox">
                   <span>PRICE</span>
                   <strong>${ride.price}</strong>
+                </div>
+              </div>
+
+              <div className="routeStats">
+                <div className="statBox">
+                  <small>Distance</small>
+                  <strong>{ride.distanceText || "Not available"}</strong>
+                </div>
+
+                <div className="statBox">
+                  <small>Duration</small>
+                  <strong>{ride.durationText || "Not available"}</strong>
+                </div>
+
+                <div className="statBox">
+                  <small>Miles</small>
+                  <strong>{ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"}</strong>
                 </div>
               </div>
 
@@ -292,6 +300,17 @@ export default function FindRidePage() {
                 <Info label="Driver" value={ride.driverEmail || "RoadLink Driver"} icon="👤" />
                 {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
               </div>
+
+              {ride.mapUrl && (
+                <a
+                  href={ride.mapUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mapButton"
+                >
+                  Open Route in Google Maps
+                </a>
+              )}
 
               {isOwnRide && <p className="warning">This is your own ride.</p>}
 
@@ -341,6 +360,7 @@ export default function FindRidePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
+          padding-bottom: 150px;
           font-family: Arial, sans-serif;
         }
 
@@ -382,16 +402,6 @@ export default function FindRidePage() {
           cursor: pointer;
         }
 
-        .miniButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
-        .miniButton:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
         .logo {
           font-size: 38px;
           font-weight: 900;
@@ -400,6 +410,7 @@ export default function FindRidePage() {
 
         .logo span,
         h1 span,
+        h2 span,
         .active,
         .priceBox strong,
         .eyebrow {
@@ -496,10 +507,7 @@ export default function FindRidePage() {
           font-size: 34px;
           line-height: 1.15;
           margin: 0;
-        }
-
-        h2 span {
-          color: #22c55e;
+          overflow-wrap: anywhere;
         }
 
         .priceBox {
@@ -522,6 +530,37 @@ export default function FindRidePage() {
         .priceBox strong {
           font-size: 34px;
           font-weight: 900;
+        }
+
+        .routeStats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin: 22px 0 8px;
+        }
+
+        .statBox {
+          border-radius: 18px;
+          background: rgba(34,197,94,0.08);
+          border: 1px solid rgba(34,197,94,0.18);
+          padding: 14px;
+          min-height: 78px;
+        }
+
+        .statBox small {
+          display: block;
+          color: #94a3b8;
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+
+        .statBox strong {
+          display: block;
+          color: #22c55e;
+          font-size: 17px;
+          overflow-wrap: anywhere;
         }
 
         .chips {
@@ -577,6 +616,19 @@ export default function FindRidePage() {
           overflow-wrap: anywhere;
         }
 
+        .mapButton {
+          display: block;
+          margin-top: 16px;
+          padding: 15px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          text-align: center;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
         .warning {
           color: #fbbf24;
           font-weight: 900;
@@ -604,11 +656,6 @@ export default function FindRidePage() {
           font-weight: 900;
         }
 
-        .outlineButton:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
-        }
-
         .reserve {
           width: 100%;
           padding: 18px;
@@ -632,6 +679,7 @@ export default function FindRidePage() {
         @media (max-width: 600px) {
           .page {
             padding: 16px;
+            padding-bottom: 150px;
           }
 
           .hero,
@@ -645,20 +693,18 @@ export default function FindRidePage() {
           }
 
           h2 {
-            font-size: 32px;
+            font-size: 30px;
           }
 
-          .routeHeader {
+          .routeHeader,
+          .mainActions,
+          .cardButtons,
+          .routeStats {
             grid-template-columns: 1fr;
           }
 
           .priceBox {
             text-align: left;
-          }
-
-          .mainActions,
-          .cardButtons {
-            grid-template-columns: 1fr;
           }
         }
       `}</style>
@@ -684,4 +730,4 @@ function Info({
       </div>
     </div>
   );
-  }
+}
