@@ -37,7 +37,9 @@ export default function OfferRidePage() {
   const router = useRouter();
 
   const fromInputRef = useRef<HTMLInputElement | null>(null);
+  const toInputRef = useRef<HTMLInputElement | null>(null);
   const fromAutoRef = useRef<any>(null);
+  const toAutoRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
@@ -120,6 +122,30 @@ export default function OfferRidePage() {
         });
       }
 
+      if (toInputRef.current && !toAutoRef.current) {
+        toAutoRef.current = new window.google.maps.places.Autocomplete(toInputRef.current, {
+          fields: ["formatted_address", "geometry", "name", "place_id"],
+        });
+
+        toAutoRef.current.addListener("place_changed", () => {
+          const place = toAutoRef.current.getPlace();
+          const label = place.formatted_address || place.name || "";
+
+          setTo(label);
+          resetRouteInfo();
+          setNearbyPlaces([]);
+
+          if (place.geometry?.location) {
+            setToCoords({
+              lat: place.geometry.location.lat(),
+              lng: place.geometry.location.lng(),
+            });
+          } else {
+            setToCoords(null);
+          }
+        });
+      }
+
       if (mounted) {
         setMapsReady(true);
         setMessage("");
@@ -182,13 +208,14 @@ export default function OfferRidePage() {
 
     const circle = new window.google.maps.Circle({
       center: coords,
-      radius: 50000,
+      radius: 35000,
     });
 
     const bounds = circle.getBounds();
 
     if (bounds) {
       fromAutoRef.current?.setOptions({ bounds, strictBounds: false });
+      toAutoRef.current?.setOptions({ bounds, strictBounds: false });
     }
   }
 
@@ -326,6 +353,27 @@ export default function OfferRidePage() {
     }
   }
 
+  function isSmartNearbyQuery(text: string) {
+    const value = text.toLowerCase();
+
+    return (
+      value.includes("airport") ||
+      value.includes("aeropuerto") ||
+      value.includes("sju") ||
+      value.includes("hospital") ||
+      value.includes("walmart") ||
+      value.includes("costco") ||
+      value.includes("mall") ||
+      value.includes("plaza") ||
+      value.includes("gasolinera") ||
+      value.includes("gas") ||
+      value.includes("station") ||
+      value.includes("policia") ||
+      value.includes("policía") ||
+      value.includes("cuartel")
+    );
+  }
+
   function getSearchType(text: string) {
     const value = text.toLowerCase();
 
@@ -385,11 +433,10 @@ export default function OfferRidePage() {
 
     if (!baseLocation) {
       setNearbyPlaces([]);
-      setMessage("Tap Use GPS in From first so RoadLink can find nearest places.");
       return;
     }
 
-    if (searchText.trim().length < 2) {
+    if (searchText.trim().length < 2 || !isSmartNearbyQuery(searchText)) {
       setNearbyPlaces([]);
       return;
     }
@@ -400,9 +447,8 @@ export default function OfferRidePage() {
 
     const request: any = {
       location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
-      radius: 50000,
+      radius: 30000,
       keyword: searchText,
-      rankBy: undefined,
     };
 
     if (searchType) {
@@ -435,7 +481,7 @@ export default function OfferRidePage() {
           };
         })
         .sort((a, b) => a.distanceMiles - b.distanceMiles)
-        .slice(0, 8);
+        .slice(0, 5);
 
       setNearbyPlaces(cleaned);
     });
@@ -548,8 +594,8 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with GPS pickup, real nearby destination search,
-          route distance and smart suggested pricing.
+          Publish your ride with GPS pickup, Google Autocomplete and smart nearby
+          destination suggestions.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -593,6 +639,7 @@ export default function OfferRidePage() {
         <Field label="To *">
           <div className="destinationBox">
             <input
+              ref={toInputRef}
               value={to}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -600,8 +647,7 @@ export default function OfferRidePage() {
                 resetRouteInfo();
                 searchNearbyPlaces(e.target.value);
               }}
-              placeholder="Type airport, aeropuerto, Walmart, hospital..."
-              autoComplete="off"
+              placeholder="Address, airport, Walmart, hospital..."
             />
 
             {to && (
@@ -613,17 +659,16 @@ export default function OfferRidePage() {
         </Field>
 
         <div className="gpsHelp">
-          <span>Nearby Search Mode</span>
-          The destination field no longer uses the Google white dropdown. Type a known place and select from RoadLink nearby results ordered by distance.
+          <span>Smart Search Mode</span>
+          Use the normal Google dropdown for exact addresses. For airport, hospital,
+          Walmart, gas station, police or mall, RoadLink also shows nearby options below.
         </div>
 
         {(nearbyLoading || nearbyPlaces.length > 0) && (
           <div className="nearbyPanel">
             <div className="nearbyHeader">
-              <div>
-                <p className="eyebrow">Nearby Places</p>
-                <h4>{nearbyLoading ? "Searching nearby..." : `Closest results for ${nearbyQuery}`}</h4>
-              </div>
+              <p className="eyebrow">Nearby Places</p>
+              <h4>{nearbyLoading ? "Searching nearby..." : `Closest results for ${nearbyQuery}`}</h4>
             </div>
 
             {nearbyPlaces.map((place) => (
@@ -740,7 +785,7 @@ export default function OfferRidePage() {
             Destination GPS:{" "}
             {toCoords
               ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}`
-              : "Select a nearby place"}
+              : "Select destination"}
           </p>
 
           {from && to && (
@@ -758,9 +803,7 @@ export default function OfferRidePage() {
       </section>
 
       <style>{`
-        .hiddenPlaces {
-          display: none;
-        }
+        .hiddenPlaces { display: none; }
 
         .page {
           min-height: 100vh;
@@ -808,30 +851,11 @@ export default function OfferRidePage() {
           cursor: pointer;
         }
 
-        h1 {
-          font-size: 36px;
-          margin: 0 0 24px;
-        }
-
-        h2 {
-          font-size: 46px;
-          margin: 0 0 14px;
-          line-height: 1;
-        }
-
-        h3 {
-          font-size: 28px;
-          margin: 0;
-        }
-
-        h4 {
-          margin: 0;
-          font-size: 18px;
-        }
-
-        span {
-          color: #22c55e;
-        }
+        h1 { font-size: 36px; margin: 0 0 24px; }
+        h2 { font-size: 46px; margin: 0 0 14px; line-height: 1; }
+        h3 { font-size: 28px; margin: 0; }
+        h4 { margin: 0; font-size: 18px; }
+        span { color: #22c55e; }
 
         p {
           color: #a1a1aa;
@@ -885,9 +909,7 @@ export default function OfferRidePage() {
           font-size: 26px;
         }
 
-        .field {
-          margin-bottom: 18px;
-        }
+        .field { margin-bottom: 18px; }
 
         label {
           display: block;
@@ -920,9 +942,7 @@ export default function OfferRidePage() {
           resize: vertical;
         }
 
-        option {
-          background: #020617;
-        }
+        option { background: #020617; }
 
         .locationInputRow,
         .priceRow,
@@ -983,9 +1003,7 @@ export default function OfferRidePage() {
           border: 1px solid rgba(34,197,94,0.18);
         }
 
-        .nearbyHeader {
-          margin-bottom: 12px;
-        }
+        .nearbyHeader { margin-bottom: 12px; }
 
         .nearbyPlace {
           width: 100%;
@@ -1124,9 +1142,7 @@ export default function OfferRidePage() {
             border-radius: 26px;
           }
 
-          h2 {
-            font-size: 40px;
-          }
+          h2 { font-size: 40px; }
 
           .routeStats,
           .locationInputRow,
