@@ -37,9 +37,7 @@ export default function OfferRidePage() {
   const router = useRouter();
 
   const fromInputRef = useRef<HTMLInputElement | null>(null);
-  const toInputRef = useRef<HTMLInputElement | null>(null);
   const fromAutoRef = useRef<any>(null);
-  const toAutoRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
@@ -115,33 +113,9 @@ export default function OfferRidePage() {
 
             setFromCoords(coords);
             setUserLocation(coords);
-            biasAutocompleteToLocation(coords);
+            biasFromAutocomplete(coords);
           } else {
             setFromCoords(null);
-          }
-        });
-      }
-
-      if (toInputRef.current && !toAutoRef.current) {
-        toAutoRef.current = new window.google.maps.places.Autocomplete(toInputRef.current, {
-          fields: ["formatted_address", "geometry", "name", "place_id"],
-        });
-
-        toAutoRef.current.addListener("place_changed", () => {
-          const place = toAutoRef.current.getPlace();
-          const label = place.formatted_address || place.name || "";
-
-          setTo(label);
-          resetRouteInfo();
-          setNearbyPlaces([]);
-
-          if (place.geometry?.location) {
-            setToCoords({
-              lat: place.geometry.location.lat(),
-              lng: place.geometry.location.lng(),
-            });
-          } else {
-            setToCoords(null);
           }
         });
       }
@@ -203,19 +177,18 @@ export default function OfferRidePage() {
     }
   }, [fromCoords, toCoords, mapsReady]);
 
-  function biasAutocompleteToLocation(coords: LatLng) {
+  function biasFromAutocomplete(coords: LatLng) {
     if (!window.google?.maps) return;
 
     const circle = new window.google.maps.Circle({
       center: coords,
-      radius: 35000,
+      radius: 30000,
     });
 
     const bounds = circle.getBounds();
 
     if (bounds) {
       fromAutoRef.current?.setOptions({ bounds, strictBounds: false });
-      toAutoRef.current?.setOptions({ bounds, strictBounds: false });
     }
   }
 
@@ -330,7 +303,7 @@ export default function OfferRidePage() {
 
       resetRouteInfo();
       setUserLocation(coords);
-      biasAutocompleteToLocation(coords);
+      biasFromAutocomplete(coords);
 
       if (target === "from") {
         setFrom(address);
@@ -353,25 +326,25 @@ export default function OfferRidePage() {
     }
   }
 
-  function isSmartNearbyQuery(text: string) {
-    const value = text.toLowerCase();
+  function normalizeQuery(text: string) {
+    const value = text.toLowerCase().trim();
 
-    return (
-      value.includes("airport") ||
-      value.includes("aeropuerto") ||
-      value.includes("sju") ||
-      value.includes("hospital") ||
-      value.includes("walmart") ||
-      value.includes("costco") ||
-      value.includes("mall") ||
-      value.includes("plaza") ||
-      value.includes("gasolinera") ||
-      value.includes("gas") ||
-      value.includes("station") ||
-      value.includes("policia") ||
-      value.includes("policía") ||
-      value.includes("cuartel")
-    );
+    if (value.includes("aeropuerto")) return "airport";
+    if (value.includes("airport")) return "airport";
+    if (value.includes("sju")) return "airport";
+    if (value.includes("hospital")) return "hospital";
+    if (value.includes("walmart")) return "walmart";
+    if (value.includes("costco")) return "costco";
+    if (value.includes("gasolinera")) return "gas station";
+    if (value.includes("gas station")) return "gas station";
+    if (value.includes("gas")) return "gas station";
+    if (value.includes("mall")) return "shopping mall";
+    if (value.includes("plaza")) return "shopping mall";
+    if (value.includes("policía")) return "police";
+    if (value.includes("policia")) return "police";
+    if (value.includes("cuartel")) return "police";
+
+    return value;
   }
 
   function getSearchType(text: string) {
@@ -433,10 +406,13 @@ export default function OfferRidePage() {
 
     if (!baseLocation) {
       setNearbyPlaces([]);
+      setMessage("Tap Use GPS in From first so RoadLink can find closest places.");
       return;
     }
 
-    if (searchText.trim().length < 2 || !isSmartNearbyQuery(searchText)) {
+    const cleanQuery = normalizeQuery(searchText);
+
+    if (cleanQuery.length < 2) {
       setNearbyPlaces([]);
       return;
     }
@@ -448,7 +424,7 @@ export default function OfferRidePage() {
     const request: any = {
       location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
       rankBy: window.google.maps.places.RankBy.DISTANCE,
-      keyword: searchText,
+      keyword: cleanQuery,
     };
 
     if (searchType) {
@@ -481,7 +457,7 @@ export default function OfferRidePage() {
           };
         })
         .sort((a, b) => a.distanceMiles - b.distanceMiles)
-        .slice(0, 6);
+        .slice(0, 8);
 
       setNearbyPlaces(cleaned);
     });
@@ -594,8 +570,7 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with GPS pickup, Google Autocomplete and nearby destinations
-          ranked by real distance.
+          Publish your ride with GPS pickup and destinations ranked by closest distance.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -639,7 +614,6 @@ export default function OfferRidePage() {
         <Field label="To *">
           <div className="destinationBox">
             <input
-              ref={toInputRef}
               value={to}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -647,7 +621,8 @@ export default function OfferRidePage() {
                 resetRouteInfo();
                 searchNearbyPlaces(e.target.value);
               }}
-              placeholder="Address, airport, Walmart, hospital..."
+              placeholder="Airport, hospital, Walmart, gas station..."
+              autoComplete="off"
             />
 
             {to && (
@@ -659,17 +634,16 @@ export default function OfferRidePage() {
         </Field>
 
         <div className="gpsHelp">
-          <span>Smart Nearby Search</span>
-          Use normal Google suggestions for exact addresses. For airport, hospital,
-          Walmart, gas station, police or mall, RoadLink also shows nearby results
-          ordered by distance from your pickup.
+          <span>Important</span>
+          The destination field now uses RoadLink nearby search only. Use GPS in From first,
+          then type airport, hospital, Walmart or gas station.
         </div>
 
         {(nearbyLoading || nearbyPlaces.length > 0) && (
           <div className="nearbyPanel">
             <div className="nearbyHeader">
               <p className="eyebrow">Nearby Places</p>
-              <h4>{nearbyLoading ? "Searching nearby..." : `Closest results for ${nearbyQuery}`}</h4>
+              <h4>{nearbyLoading ? "Searching closest places..." : `Closest results for ${nearbyQuery}`}</h4>
             </div>
 
             {nearbyPlaces.map((place) => (
@@ -786,7 +760,7 @@ export default function OfferRidePage() {
             Destination GPS:{" "}
             {toCoords
               ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}`
-              : "Select destination"}
+              : "Select destination from nearby results"}
           </p>
 
           {from && to && (
@@ -813,7 +787,7 @@ export default function OfferRidePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
-          padding-bottom: 170px;
+          padding-bottom: 180px;
           font-family: Arial, sans-serif;
         }
 
@@ -1135,7 +1109,7 @@ export default function OfferRidePage() {
         @media (max-width: 720px) {
           .page {
             padding: 16px;
-            padding-bottom: 180px;
+            padding-bottom: 190px;
           }
 
           .card {
@@ -1178,4 +1152,4 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   );
-        }
+      }
