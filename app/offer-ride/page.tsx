@@ -17,11 +17,19 @@ type LatLng = {
   lng: number;
 };
 
+type RouteInfo = {
+  distanceText: string;
+  durationText: string;
+  distanceMiles: number;
+  durationMinutes: number;
+};
+
 export default function OfferRidePage() {
   const router = useRouter();
 
   const fromInputRef = useRef<HTMLInputElement | null>(null);
   const toInputRef = useRef<HTMLInputElement | null>(null);
+  const directionsServiceRef = useRef<any>(null);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -34,15 +42,31 @@ export default function OfferRidePage() {
   const [price, setPrice] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [notes, setNotes] = useState("");
+
+  const [routeInfo, setRouteInfo] = useState<RouteInfo>({
+    distanceText: "",
+    durationText: "",
+    distanceMiles: 0,
+    durationMinutes: 0,
+  });
+
   const [message, setMessage] = useState("");
   const [mapsReady, setMapsReady] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const suggestedPrice =
+    routeInfo.distanceMiles > 0
+      ? Math.max(10, Math.round(routeInfo.distanceMiles * 0.28))
+      : 0;
 
   useEffect(() => {
     let mounted = true;
 
     function setupAutocomplete() {
       if (!window.google?.maps?.places) return;
+
+      directionsServiceRef.current = new window.google.maps.DirectionsService();
 
       if (fromInputRef.current) {
         const fromAuto = new window.google.maps.places.Autocomplete(fromInputRef.current, {
@@ -51,15 +75,23 @@ export default function OfferRidePage() {
 
         fromAuto.addListener("place_changed", () => {
           const place = fromAuto.getPlace();
-
           const label = place.formatted_address || place.name || "";
+
           setFrom(label);
+          setRouteInfo({
+            distanceText: "",
+            durationText: "",
+            distanceMiles: 0,
+            durationMinutes: 0,
+          });
 
           if (place.geometry?.location) {
             setFromCoords({
               lat: place.geometry.location.lat(),
               lng: place.geometry.location.lng(),
             });
+          } else {
+            setFromCoords(null);
           }
         });
       }
@@ -71,15 +103,23 @@ export default function OfferRidePage() {
 
         toAuto.addListener("place_changed", () => {
           const place = toAuto.getPlace();
-
           const label = place.formatted_address || place.name || "";
+
           setTo(label);
+          setRouteInfo({
+            distanceText: "",
+            durationText: "",
+            distanceMiles: 0,
+            durationMinutes: 0,
+          });
 
           if (place.geometry?.location) {
             setToCoords({
               lat: place.geometry.location.lat(),
               lng: place.geometry.location.lng(),
             });
+          } else {
+            setToCoords(null);
           }
         });
       }
@@ -137,10 +177,74 @@ export default function OfferRidePage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (fromCoords && toCoords && mapsReady) {
+      calculateRoute(fromCoords, toCoords);
+    }
+  }, [fromCoords, toCoords, mapsReady]);
+
   function buildMapUrl() {
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
       from.trim()
     )}&destination=${encodeURIComponent(to.trim())}`;
+  }
+
+  function resetRouteInfo() {
+    setRouteInfo({
+      distanceText: "",
+      durationText: "",
+      distanceMiles: 0,
+      durationMinutes: 0,
+    });
+  }
+
+  function calculateRoute(origin: LatLng, destination: LatLng) {
+    if (!window.google?.maps || !directionsServiceRef.current) return;
+
+    setRouteLoading(true);
+
+    directionsServiceRef.current.route(
+      {
+        origin,
+        destination,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (result: any, status: string) => {
+        setRouteLoading(false);
+
+        if (status !== "OK" || !result) {
+          setMessage("Route distance could not be calculated.");
+          return;
+        }
+
+        const leg = result.routes?.[0]?.legs?.[0];
+
+        if (!leg) {
+          setMessage("Route information was not found.");
+          return;
+        }
+
+        const meters = Number(leg.distance?.value || 0);
+        const seconds = Number(leg.duration?.value || 0);
+        const miles = meters / 1609.344;
+        const minutes = seconds / 60;
+
+        setRouteInfo({
+          distanceText: leg.distance?.text || "",
+          durationText: leg.duration?.text || "",
+          distanceMiles: Number(miles.toFixed(1)),
+          durationMinutes: Math.round(minutes),
+        });
+
+        setMessage("");
+      }
+    );
+  }
+
+  function useSuggestedPrice() {
+    if (suggestedPrice > 0) {
+      setPrice(String(suggestedPrice));
+    }
   }
 
   async function publishRide() {
@@ -181,11 +285,16 @@ export default function OfferRidePage() {
         fromLng: fromCoords?.lng || null,
         toLat: toCoords?.lat || null,
         toLng: toCoords?.lng || null,
+        distanceText: routeInfo.distanceText,
+        durationText: routeInfo.durationText,
+        distanceMiles: routeInfo.distanceMiles,
+        durationMinutes: routeInfo.durationMinutes,
         date,
         time,
         seats: Number(seats),
         originalSeats: Number(seats),
         price: Number(price),
+        suggestedPrice,
         vehicle: vehicle.trim(),
         notes: notes.trim(),
         mapUrl: buildMapUrl(),
@@ -203,7 +312,7 @@ export default function OfferRidePage() {
 
   return (
     <main className="page">
-      <section className="card">
+      <section className="card heroCard">
         <div className="nav">
           <button type="button" onClick={() => router.back()}>← Back</button>
           <Link href="/">Home</Link>
@@ -215,7 +324,8 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with Google Places autocomplete and automatic Google Maps route link.
+          Publish your ride with Google Places autocomplete, GPS coordinates,
+          real distance and estimated travel time.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -231,6 +341,7 @@ export default function OfferRidePage() {
             onChange={(e) => {
               setFrom(e.target.value);
               setFromCoords(null);
+              resetRouteInfo();
             }}
             placeholder="Miami, FL"
           />
@@ -243,10 +354,33 @@ export default function OfferRidePage() {
             onChange={(e) => {
               setTo(e.target.value);
               setToCoords(null);
+              resetRouteInfo();
             }}
             placeholder="Orlando, FL"
           />
         </Field>
+
+        <div className="routeStats">
+          <div className="statBox">
+            <small>Distance</small>
+            <strong>{routeLoading ? "Calculating..." : routeInfo.distanceText || "Select route"}</strong>
+          </div>
+
+          <div className="statBox">
+            <small>Duration</small>
+            <strong>{routeLoading ? "Calculating..." : routeInfo.durationText || "Select route"}</strong>
+          </div>
+
+          <div className="statBox">
+            <small>Miles</small>
+            <strong>{routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"}</strong>
+          </div>
+
+          <div className="statBox">
+            <small>Suggested</small>
+            <strong>{suggestedPrice ? `$${suggestedPrice}` : "$0"}</strong>
+          </div>
+        </div>
 
         <Field label="Date *">
           <input value={date} onChange={(e) => setDate(e.target.value)} type="date" />
@@ -268,13 +402,19 @@ export default function OfferRidePage() {
         </Field>
 
         <Field label="Price per Seat *">
-          <input
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            type="number"
-            min="1"
-            placeholder="45"
-          />
+          <div className="priceRow">
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              type="number"
+              min="1"
+              placeholder="45"
+            />
+
+            <button type="button" onClick={useSuggestedPrice}>
+              Use ${suggestedPrice || 0}
+            </button>
+          </div>
         </Field>
 
         <Field label="Vehicle *">
@@ -295,14 +435,28 @@ export default function OfferRidePage() {
 
         <div className="preview">
           <strong>{from || "Starting point"} → {to || "Destination"}</strong>
-          <p>{date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}</p>
 
-          <p className="coords">
-            Start GPS: {fromCoords ? `${fromCoords.lat.toFixed(5)}, ${fromCoords.lng.toFixed(5)}` : "Not selected from Google yet"}
+          <p>
+            {date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}
+          </p>
+
+          <p>
+            🛣️ {routeInfo.distanceText || "Distance pending"} · ⏱️{" "}
+            {routeInfo.durationText || "Duration pending"}
           </p>
 
           <p className="coords">
-            Destination GPS: {toCoords ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}` : "Not selected from Google yet"}
+            Start GPS:{" "}
+            {fromCoords
+              ? `${fromCoords.lat.toFixed(5)}, ${fromCoords.lng.toFixed(5)}`
+              : "Not selected from Google yet"}
+          </p>
+
+          <p className="coords">
+            Destination GPS:{" "}
+            {toCoords
+              ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}`
+              : "Not selected from Google yet"}
           </p>
 
           {from && to && (
@@ -325,7 +479,7 @@ export default function OfferRidePage() {
           background: #020617;
           color: white;
           padding: 24px;
-          padding-bottom: 140px;
+          padding-bottom: 150px;
           font-family: Arial, sans-serif;
         }
 
@@ -337,6 +491,12 @@ export default function OfferRidePage() {
           background: rgba(15, 23, 42, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 22px 70px rgba(0,0,0,0.35);
+        }
+
+        .heroCard {
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.14), transparent 36%),
+            rgba(15, 23, 42, 0.92);
         }
 
         .nav {
@@ -435,6 +595,53 @@ export default function OfferRidePage() {
           background: #020617;
         }
 
+        .routeStats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin: 8px 0 22px;
+        }
+
+        .statBox {
+          border-radius: 18px;
+          background: rgba(34,197,94,0.08);
+          border: 1px solid rgba(34,197,94,0.18);
+          padding: 14px;
+          min-height: 80px;
+        }
+
+        .statBox small {
+          display: block;
+          color: #94a3b8;
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+
+        .statBox strong {
+          display: block;
+          color: #22c55e;
+          font-size: 17px;
+          overflow-wrap: anywhere;
+        }
+
+        .priceRow {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
+        }
+
+        .priceRow button {
+          border-radius: 16px;
+          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(34,197,94,0.12);
+          color: #22c55e;
+          padding: 0 16px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
         .preview {
           margin: 20px 0;
           padding: 20px;
@@ -484,6 +691,31 @@ export default function OfferRidePage() {
           text-align: center;
           color: #22c55e;
           font-weight: 900;
+        }
+
+        @media (max-width: 720px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 160px;
+          }
+
+          .card {
+            padding: 24px;
+            border-radius: 26px;
+          }
+
+          h2 {
+            font-size: 40px;
+          }
+
+          .routeStats,
+          .priceRow {
+            grid-template-columns: 1fr;
+          }
+
+          .priceRow button {
+            padding: 15px;
+          }
         }
       `}</style>
     </main>
