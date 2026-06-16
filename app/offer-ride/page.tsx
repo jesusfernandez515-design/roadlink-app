@@ -37,9 +37,7 @@ export default function OfferRidePage() {
   const router = useRouter();
 
   const fromInputRef = useRef<HTMLInputElement | null>(null);
-  const toInputRef = useRef<HTMLInputElement | null>(null);
   const fromAutoRef = useRef<any>(null);
-  const toAutoRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
@@ -83,7 +81,7 @@ export default function OfferRidePage() {
   useEffect(() => {
     let mounted = true;
 
-    function setupAutocomplete() {
+    function setupGoogleServices() {
       if (!window.google?.maps?.places) return;
 
       directionsServiceRef.current = new window.google.maps.DirectionsService();
@@ -122,30 +120,6 @@ export default function OfferRidePage() {
         });
       }
 
-      if (toInputRef.current && !toAutoRef.current) {
-        toAutoRef.current = new window.google.maps.places.Autocomplete(toInputRef.current, {
-          fields: ["formatted_address", "geometry", "name", "place_id"],
-        });
-
-        toAutoRef.current.addListener("place_changed", () => {
-          const place = toAutoRef.current.getPlace();
-          const label = place.formatted_address || place.name || "";
-
-          setTo(label);
-          resetRouteInfo();
-          setNearbyPlaces([]);
-
-          if (place.geometry?.location) {
-            setToCoords({
-              lat: place.geometry.location.lat(),
-              lng: place.geometry.location.lng(),
-            });
-          } else {
-            setToCoords(null);
-          }
-        });
-      }
-
       if (mounted) {
         setMapsReady(true);
         setMessage("");
@@ -163,14 +137,14 @@ export default function OfferRidePage() {
       if (typeof window === "undefined") return;
 
       if (window.google?.maps?.places) {
-        setupAutocomplete();
+        setupGoogleServices();
         return;
       }
 
       const existingScript = document.getElementById("roadlink-google-maps");
 
       if (existingScript) {
-        existingScript.addEventListener("load", setupAutocomplete);
+        existingScript.addEventListener("load", setupGoogleServices);
         existingScript.addEventListener("error", () => {
           if (mounted) setMessage("Google Maps could not load.");
         });
@@ -182,7 +156,7 @@ export default function OfferRidePage() {
       script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
       script.async = true;
       script.defer = true;
-      script.onload = setupAutocomplete;
+      script.onload = setupGoogleServices;
       script.onerror = () => {
         if (mounted) setMessage("Google Maps could not load.");
       };
@@ -215,7 +189,6 @@ export default function OfferRidePage() {
 
     if (bounds) {
       fromAutoRef.current?.setOptions({ bounds, strictBounds: false });
-      toAutoRef.current?.setOptions({ bounds, strictBounds: false });
     }
   }
 
@@ -338,6 +311,7 @@ export default function OfferRidePage() {
       } else {
         setTo(address);
         setToCoords(coords);
+        setNearbyPlaces([]);
       }
 
       setMessage(
@@ -371,7 +345,12 @@ export default function OfferRidePage() {
       return "police";
     }
 
-    if (value.includes("walmart") || value.includes("costco") || value.includes("mall") || value.includes("plaza")) {
+    if (
+      value.includes("walmart") ||
+      value.includes("costco") ||
+      value.includes("mall") ||
+      value.includes("plaza")
+    ) {
       return "shopping_mall";
     }
 
@@ -397,7 +376,7 @@ export default function OfferRidePage() {
     return Number((earthRadiusMiles * c).toFixed(1));
   }
 
-  async function searchNearbyPlaces(searchText: string) {
+  function searchNearbyPlaces(searchText: string) {
     setNearbyQuery(searchText);
 
     if (!mapsReady || !placesServiceRef.current) return;
@@ -406,7 +385,7 @@ export default function OfferRidePage() {
 
     if (!baseLocation) {
       setNearbyPlaces([]);
-      setMessage("Tap Use GPS first so RoadLink can find the nearest places.");
+      setMessage("Tap Use GPS in From first so RoadLink can find nearest places.");
       return;
     }
 
@@ -423,6 +402,7 @@ export default function OfferRidePage() {
       location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
       radius: 50000,
       keyword: searchText,
+      rankBy: undefined,
     };
 
     if (searchType) {
@@ -455,7 +435,7 @@ export default function OfferRidePage() {
           };
         })
         .sort((a, b) => a.distanceMiles - b.distanceMiles)
-        .slice(0, 5);
+        .slice(0, 8);
 
       setNearbyPlaces(cleaned);
     });
@@ -470,6 +450,14 @@ export default function OfferRidePage() {
       lng: place.lng,
     });
 
+    setNearbyPlaces([]);
+    setNearbyQuery("");
+    resetRouteInfo();
+  }
+
+  function clearDestination() {
+    setTo("");
+    setToCoords(null);
     setNearbyPlaces([]);
     setNearbyQuery("");
     resetRouteInfo();
@@ -560,8 +548,8 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with GPS pickup, nearby destination search, real distance
-          and smart suggested pricing.
+          Publish your ride with GPS pickup, real nearby destination search,
+          route distance and smart suggested pricing.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -603,9 +591,8 @@ export default function OfferRidePage() {
         </Field>
 
         <Field label="To *">
-          <div className="locationInputRow">
+          <div className="destinationBox">
             <input
-              ref={toInputRef}
               value={to}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -613,23 +600,21 @@ export default function OfferRidePage() {
                 resetRouteInfo();
                 searchNearbyPlaces(e.target.value);
               }}
-              placeholder="Airport, Walmart, hospital, gas station..."
+              placeholder="Type airport, aeropuerto, Walmart, hospital..."
+              autoComplete="off"
             />
 
-            <button
-              type="button"
-              className="gpsButton secondaryGps"
-              onClick={() => useCurrentLocation("to")}
-              disabled={locationLoading !== "" || !mapsReady}
-            >
-              {locationLoading === "to" ? "Locating..." : "Use GPS"}
-            </button>
+            {to && (
+              <button type="button" className="clearButton" onClick={clearDestination}>
+                Clear
+              </button>
+            )}
           </div>
         </Field>
 
         <div className="gpsHelp">
-          <span>Nearby Search</span>
-          Type airport, Walmart, hospital, gas station, police or mall. RoadLink will sort nearby results by distance from your pickup GPS.
+          <span>Nearby Search Mode</span>
+          The destination field no longer uses the Google white dropdown. Type a known place and select from RoadLink nearby results ordered by distance.
         </div>
 
         {(nearbyLoading || nearbyPlaces.length > 0) && (
@@ -755,7 +740,7 @@ export default function OfferRidePage() {
             Destination GPS:{" "}
             {toCoords
               ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}`
-              : "Not selected yet"}
+              : "Select a nearby place"}
           </p>
 
           {from && to && (
@@ -940,14 +925,16 @@ export default function OfferRidePage() {
         }
 
         .locationInputRow,
-        .priceRow {
+        .priceRow,
+        .destinationBox {
           display: grid;
           grid-template-columns: 1fr auto;
           gap: 10px;
         }
 
         .gpsButton,
-        .priceRow button {
+        .priceRow button,
+        .clearButton {
           border-radius: 16px;
           border: 1px solid rgba(34,197,94,0.35);
           background: rgba(34,197,94,0.12);
@@ -958,10 +945,10 @@ export default function OfferRidePage() {
           white-space: nowrap;
         }
 
-        .secondaryGps {
-          border-color: rgba(59,130,246,0.35);
-          background: rgba(59,130,246,0.12);
-          color: #60a5fa;
+        .clearButton {
+          border-color: rgba(248,113,113,0.35);
+          background: rgba(248,113,113,0.12);
+          color: #f87171;
         }
 
         .gpsButton:disabled,
@@ -1143,12 +1130,14 @@ export default function OfferRidePage() {
 
           .routeStats,
           .locationInputRow,
-          .priceRow {
+          .priceRow,
+          .destinationBox {
             grid-template-columns: 1fr;
           }
 
           .gpsButton,
-          .priceRow button {
+          .priceRow button,
+          .clearButton {
             padding: 15px;
           }
 
