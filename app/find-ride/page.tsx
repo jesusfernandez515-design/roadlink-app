@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,
@@ -13,7 +14,6 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { auth, db } from "../../lib/firebase";
 
 type Ride = {
   id: string;
@@ -33,6 +33,7 @@ type Ride = {
   distanceMiles?: number;
   durationMinutes?: number;
   mapUrl?: string;
+  suggestedPrice?: number;
 };
 
 export default function FindRidePage() {
@@ -45,25 +46,6 @@ export default function FindRidePage() {
   const [message, setMessage] = useState("Checking account...");
   const [loadingRideId, setLoadingRideId] = useState("");
   const [loading, setLoading] = useState(false);
-
-  function shortPlace(address: string) {
-    if (!address) return "Unknown";
-
-    const parts = address
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    if (!parts.length) return address;
-
-    const first = parts[0];
-
-    if (/^\d/.test(first) && parts[1]) {
-      return parts[1];
-    }
-
-    return first;
-  }
 
   async function loadRides() {
     try {
@@ -121,6 +103,16 @@ export default function FindRidePage() {
     await loadUserBookings(currentUserId);
   }
 
+  function routeMapUrl(ride: Ride) {
+    if (ride.mapUrl) return ride.mapUrl;
+
+    if (!ride.from || !ride.to) return "";
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      ride.from
+    )}&destination=${encodeURIComponent(ride.to)}&travelmode=driving`;
+  }
+
   async function reserveSeat(ride: Ride) {
     setMessage("");
 
@@ -135,7 +127,7 @@ export default function FindRidePage() {
       return;
     }
 
-    if (Number(ride.seats || 0) <= 0) {
+    if (ride.seats <= 0) {
       setMessage("No seats available for this ride.");
       return;
     }
@@ -171,12 +163,12 @@ export default function FindRidePage() {
         date: ride.date,
         time: ride.time,
         price: ride.price,
+        seatsBooked: 1,
         distanceText: ride.distanceText || "",
         durationText: ride.durationText || "",
         distanceMiles: Number(ride.distanceMiles || 0),
         durationMinutes: Number(ride.durationMinutes || 0),
-        mapUrl: ride.mapUrl || "",
-        seatsBooked: 1,
+        mapUrl: routeMapUrl(ride),
         status: "reserved",
         createdAt: new Date().toISOString(),
       });
@@ -186,7 +178,7 @@ export default function FindRidePage() {
           userId: ride.driverId,
           type: "booking",
           title: "New Ride Booking",
-          message: `${userEmail} reserved a seat from ${shortPlace(ride.from)} to ${shortPlace(ride.to)}.`,
+          message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
           read: false,
           createdAt: new Date().toISOString(),
         });
@@ -250,12 +242,14 @@ export default function FindRidePage() {
         <h1>Find a <span>Ride</span></h1>
 
         <p className="subtitle">
-          Discover available long-distance rides with route distance, estimated travel time,
-          price and driver details.
+          Discover available long-distance rides, preview routes, check trip details,
+          and reserve your seat instantly.
         </p>
 
         <div className="mainActions">
-          <Link href="/offer-ride" className="primaryButton">Offer a Ride</Link>
+          <Link href="/offer-ride" className="primaryButton">
+            Offer a Ride
+          </Link>
 
           <button
             type="button"
@@ -275,44 +269,21 @@ export default function FindRidePage() {
           const alreadyReserved = reservedRideIds.includes(ride.id);
           const isOwnRide = Boolean(userId && ride.driverId === userId);
           const noSeats = Number(ride.seats || 0) <= 0;
-          const shortFrom = shortPlace(ride.from);
-          const shortTo = shortPlace(ride.to);
+          const mapLink = routeMapUrl(ride);
 
           return (
             <div key={ride.id} className="rideCard">
               <div className="routeHeader">
                 <div>
                   <p className="label">ROUTE</p>
-
                   <h2>
-                    {shortFrom} <span>→</span> {shortTo}
+                    {ride.from} <span>→</span> {ride.to}
                   </h2>
-
-                  <p className="fullRoute">
-                    {ride.from} → {ride.to}
-                  </p>
                 </div>
 
                 <div className="priceBox">
                   <span>PRICE</span>
                   <strong>${ride.price}</strong>
-                </div>
-              </div>
-
-              <div className="routeStats">
-                <div className="statBox">
-                  <small>Distance</small>
-                  <strong>{ride.distanceText || "Not available"}</strong>
-                </div>
-
-                <div className="statBox">
-                  <small>Duration</small>
-                  <strong>{ride.durationText || "Not available"}</strong>
-                </div>
-
-                <div className="statBox">
-                  <small>Miles</small>
-                  <strong>{ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"}</strong>
                 </div>
               </div>
 
@@ -323,20 +294,28 @@ export default function FindRidePage() {
                 <div className="chip active">● {ride.status}</div>
               </div>
 
+              <div className="routeStats">
+                <Stat label="Distance" value={ride.distanceText || "Not available"} />
+                <Stat label="Duration" value={ride.durationText || "Not available"} />
+                <Stat
+                  label="Miles"
+                  value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "Not available"}
+                />
+                <Stat
+                  label="Suggested"
+                  value={ride.suggestedPrice ? `$${ride.suggestedPrice}` : "Not available"}
+                />
+              </div>
+
               <div className="infoGrid">
                 <Info label="Vehicle" value={ride.vehicle || "Not specified"} icon="🚘" />
                 <Info label="Driver" value={ride.driverEmail || "RoadLink Driver"} icon="👤" />
                 {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
               </div>
 
-              {ride.mapUrl && (
-                <a
-                  href={ride.mapUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mapButton"
-                >
-                  Open Route in Google Maps
+              {mapLink && (
+                <a href={mapLink} target="_blank" rel="noreferrer" className="mapButton">
+                  🗺️ Open Route in Google Maps
                 </a>
               )}
 
@@ -376,9 +355,7 @@ export default function FindRidePage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -388,13 +365,13 @@ export default function FindRidePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
-          padding-bottom: 150px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
         .hero,
         .results {
-          max-width: 860px;
+          max-width: 900px;
           margin-left: auto;
           margin-right: auto;
         }
@@ -438,10 +415,10 @@ export default function FindRidePage() {
 
         .logo span,
         h1 span,
-        h2 span,
         .active,
         .priceBox strong,
-        .eyebrow {
+        .eyebrow,
+        .statBox strong {
           color: #22c55e;
         }
 
@@ -538,12 +515,8 @@ export default function FindRidePage() {
           overflow-wrap: anywhere;
         }
 
-        .fullRoute {
-          margin: 10px 0 0;
-          color: #64748b;
-          font-size: 14px;
-          line-height: 1.5;
-          overflow-wrap: anywhere;
+        h2 span {
+          color: #22c55e;
         }
 
         .priceBox {
@@ -568,37 +541,6 @@ export default function FindRidePage() {
           font-weight: 900;
         }
 
-        .routeStats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin: 22px 0 8px;
-        }
-
-        .statBox {
-          border-radius: 18px;
-          background: rgba(34,197,94,0.08);
-          border: 1px solid rgba(34,197,94,0.18);
-          padding: 14px;
-          min-height: 78px;
-        }
-
-        .statBox small {
-          display: block;
-          color: #94a3b8;
-          font-size: 12px;
-          font-weight: 900;
-          text-transform: uppercase;
-          margin-bottom: 6px;
-        }
-
-        .statBox strong {
-          display: block;
-          color: #22c55e;
-          font-size: 17px;
-          overflow-wrap: anywhere;
-        }
-
         .chips {
           display: flex;
           flex-wrap: wrap;
@@ -613,6 +555,34 @@ export default function FindRidePage() {
           border: 1px solid rgba(255,255,255,0.12);
           color: #e5e7eb;
           font-weight: 800;
+        }
+
+        .routeStats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+
+        .statBox {
+          padding: 13px;
+          border-radius: 16px;
+          background: rgba(34,197,94,0.08);
+          border: 1px solid rgba(34,197,94,0.18);
+        }
+
+        .statBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 11px;
+          font-weight: 900;
+          margin-bottom: 6px;
+          text-transform: uppercase;
+        }
+
+        .statBox strong {
+          display: block;
+          overflow-wrap: anywhere;
         }
 
         .infoGrid {
@@ -653,14 +623,15 @@ export default function FindRidePage() {
         }
 
         .mapButton {
-          display: block;
-          margin-top: 16px;
+          display: flex;
+          justify-content: center;
+          width: 100%;
           padding: 15px;
+          margin-top: 16px;
           border-radius: 999px;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          color: #22c55e;
-          text-align: center;
+          background: rgba(59,130,246,0.15);
+          border: 1px solid rgba(59,130,246,0.35);
+          color: #93c5fd;
           text-decoration: none;
           font-weight: 900;
         }
@@ -715,7 +686,7 @@ export default function FindRidePage() {
         @media (max-width: 600px) {
           .page {
             padding: 16px;
-            padding-bottom: 150px;
+            padding-bottom: 140px;
           }
 
           .hero,
@@ -729,7 +700,7 @@ export default function FindRidePage() {
           }
 
           h2 {
-            font-size: 30px;
+            font-size: 32px;
           }
 
           .routeHeader,
@@ -764,6 +735,15 @@ function Info({
         <strong>{label}</strong>
         <span>{value}</span>
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="statBox">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
