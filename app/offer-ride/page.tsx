@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -38,6 +38,38 @@ type Ride = {
 };
 
 export default function RideDetailsPage() {
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <RideDetailsContent />
+    </Suspense>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <main className="page">
+      <p className="message">Loading ride details...</p>
+
+      <style>{`
+        .page {
+          min-height: 100vh;
+          background: #020617;
+          color: white;
+          padding: 24px;
+          font-family: Arial, sans-serif;
+        }
+
+        .message {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 900;
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function RideDetailsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rideId = searchParams.get("rideId") || "";
@@ -207,9 +239,7 @@ export default function RideDetailsPage() {
 
         <p className="eyebrow">Ride Details</p>
 
-        <h1>
-          Trip <span>Overview</span>
-        </h1>
+        <h1>Trip <span>Overview</span></h1>
 
         <p className="subtitle">
           Review the full route, driver, vehicle and travel information before reserving.
@@ -289,9 +319,7 @@ export default function RideDetailsPage() {
       )}
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -310,10 +338,6 @@ export default function RideDetailsPage() {
           max-width: 860px;
           margin-left: auto;
           margin-right: auto;
-        }
-
-        .hero,
-        .detailsCard {
           background: rgba(8,13,25,0.9);
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 32px;
@@ -322,9 +346,7 @@ export default function RideDetailsPage() {
           backdrop-filter: blur(16px);
         }
 
-        .hero {
-          margin-bottom: 28px;
-        }
+        .hero { margin-bottom: 28px; }
 
         .topActions {
           display: flex;
@@ -483,10 +505,7 @@ export default function RideDetailsPage() {
           font-weight: 800;
         }
 
-        .infoGrid {
-          display: grid;
-          gap: 10px;
-        }
+        .infoGrid { display: grid; gap: 10px; }
 
         .infoRow {
           display: grid;
@@ -595,13 +614,8 @@ export default function RideDetailsPage() {
             border-radius: 28px;
           }
 
-          h1 {
-            font-size: 48px;
-          }
-
-          h2 {
-            font-size: 30px;
-          }
+          h1 { font-size: 48px; }
+          h2 { font-size: 30px; }
 
           .routeHeader,
           .routeStats,
