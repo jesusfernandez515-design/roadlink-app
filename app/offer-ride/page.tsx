@@ -24,6 +24,15 @@ type RouteInfo = {
   durationMinutes: number;
 };
 
+type NearbyPlace = {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  distanceMiles: number;
+  placeId?: string;
+};
+
 export default function OfferRidePage() {
   const router = useRouter();
 
@@ -33,6 +42,8 @@ export default function OfferRidePage() {
   const toAutoRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
+  const placesServiceRef = useRef<any>(null);
+  const hiddenPlacesDivRef = useRef<HTMLDivElement | null>(null);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -54,6 +65,10 @@ export default function OfferRidePage() {
     durationMinutes: 0,
   });
 
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyQuery, setNearbyQuery] = useState("");
+
   const [message, setMessage] = useState("");
   const [mapsReady, setMapsReady] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -74,9 +89,15 @@ export default function OfferRidePage() {
       directionsServiceRef.current = new window.google.maps.DirectionsService();
       geocoderRef.current = new window.google.maps.Geocoder();
 
+      if (hiddenPlacesDivRef.current) {
+        placesServiceRef.current = new window.google.maps.places.PlacesService(
+          hiddenPlacesDivRef.current
+        );
+      }
+
       if (fromInputRef.current && !fromAutoRef.current) {
         fromAutoRef.current = new window.google.maps.places.Autocomplete(fromInputRef.current, {
-          fields: ["formatted_address", "geometry", "name"],
+          fields: ["formatted_address", "geometry", "name", "place_id"],
         });
 
         fromAutoRef.current.addListener("place_changed", () => {
@@ -103,7 +124,7 @@ export default function OfferRidePage() {
 
       if (toInputRef.current && !toAutoRef.current) {
         toAutoRef.current = new window.google.maps.places.Autocomplete(toInputRef.current, {
-          fields: ["formatted_address", "geometry", "name"],
+          fields: ["formatted_address", "geometry", "name", "place_id"],
         });
 
         toAutoRef.current.addListener("place_changed", () => {
@@ -112,6 +133,7 @@ export default function OfferRidePage() {
 
           setTo(label);
           resetRouteInfo();
+          setNearbyPlaces([]);
 
           if (place.geometry?.location) {
             setToCoords({
@@ -192,18 +214,8 @@ export default function OfferRidePage() {
     const bounds = circle.getBounds();
 
     if (bounds) {
-      fromAutoRef.current?.setBounds(bounds);
-      toAutoRef.current?.setBounds(bounds);
-
-      fromAutoRef.current?.setOptions({
-        bounds,
-        strictBounds: false,
-      });
-
-      toAutoRef.current?.setOptions({
-        bounds,
-        strictBounds: false,
-      });
+      fromAutoRef.current?.setOptions({ bounds, strictBounds: false });
+      toAutoRef.current?.setOptions({ bounds, strictBounds: false });
     }
   }
 
@@ -271,9 +283,7 @@ export default function OfferRidePage() {
         return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
       }
 
-      const response = await geocoderRef.current.geocode({
-        location: coords,
-      });
+      const response = await geocoderRef.current.geocode({ location: coords });
 
       return (
         response.results?.[0]?.formatted_address ||
@@ -332,14 +342,137 @@ export default function OfferRidePage() {
 
       setMessage(
         target === "from"
-          ? "Current location set as pickup point. Nearby searches are now prioritized."
-          : "Current location set as destination. Nearby searches are now prioritized."
+          ? "Current location set as pickup point."
+          : "Current location set as destination."
       );
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not get current location.");
     } finally {
       setLocationLoading("");
     }
+  }
+
+  function getSearchType(text: string) {
+    const value = text.toLowerCase();
+
+    if (value.includes("airport") || value.includes("aeropuerto") || value.includes("sju")) {
+      return "airport";
+    }
+
+    if (value.includes("hospital")) {
+      return "hospital";
+    }
+
+    if (value.includes("gasolinera") || value.includes("gas") || value.includes("station")) {
+      return "gas_station";
+    }
+
+    if (value.includes("policia") || value.includes("policía") || value.includes("cuartel")) {
+      return "police";
+    }
+
+    if (value.includes("walmart") || value.includes("costco") || value.includes("mall") || value.includes("plaza")) {
+      return "shopping_mall";
+    }
+
+    return "";
+  }
+
+  function calculateStraightDistanceMiles(origin: LatLng, destination: LatLng) {
+    const earthRadiusMiles = 3958.8;
+    const lat1 = (origin.lat * Math.PI) / 180;
+    const lat2 = (destination.lat * Math.PI) / 180;
+    const deltaLat = ((destination.lat - origin.lat) * Math.PI) / 180;
+    const deltaLng = ((destination.lng - origin.lng) * Math.PI) / 180;
+
+    const a =
+      Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+      Math.cos(lat1) *
+        Math.cos(lat2) *
+        Math.sin(deltaLng / 2) *
+        Math.sin(deltaLng / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return Number((earthRadiusMiles * c).toFixed(1));
+  }
+
+  async function searchNearbyPlaces(searchText: string) {
+    setNearbyQuery(searchText);
+
+    if (!mapsReady || !placesServiceRef.current) return;
+
+    const baseLocation = fromCoords || userLocation;
+
+    if (!baseLocation) {
+      setNearbyPlaces([]);
+      setMessage("Tap Use GPS first so RoadLink can find the nearest places.");
+      return;
+    }
+
+    if (searchText.trim().length < 2) {
+      setNearbyPlaces([]);
+      return;
+    }
+
+    setNearbyLoading(true);
+
+    const searchType = getSearchType(searchText);
+
+    const request: any = {
+      location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
+      radius: 50000,
+      keyword: searchText,
+    };
+
+    if (searchType) {
+      request.type = searchType;
+    }
+
+    placesServiceRef.current.nearbySearch(request, (results: any[], status: string) => {
+      setNearbyLoading(false);
+
+      if (status !== window.google.maps.places.PlacesServiceStatus.OK || !results?.length) {
+        setNearbyPlaces([]);
+        return;
+      }
+
+      const cleaned = results
+        .filter((place) => place.geometry?.location)
+        .map((place) => {
+          const coords = {
+            lat: place.geometry.location.lat(),
+            lng: place.geometry.location.lng(),
+          };
+
+          return {
+            name: place.name || "Unknown place",
+            address: place.vicinity || place.formatted_address || "",
+            lat: coords.lat,
+            lng: coords.lng,
+            distanceMiles: calculateStraightDistanceMiles(baseLocation, coords),
+            placeId: place.place_id || "",
+          };
+        })
+        .sort((a, b) => a.distanceMiles - b.distanceMiles)
+        .slice(0, 5);
+
+      setNearbyPlaces(cleaned);
+    });
+  }
+
+  function selectNearbyPlace(place: NearbyPlace) {
+    const label = place.address ? `${place.name}, ${place.address}` : place.name;
+
+    setTo(label);
+    setToCoords({
+      lat: place.lat,
+      lng: place.lng,
+    });
+
+    setNearbyPlaces([]);
+    setNearbyQuery("");
+    resetRouteInfo();
   }
 
   function useSuggestedPrice() {
@@ -413,6 +546,8 @@ export default function OfferRidePage() {
 
   return (
     <main className="page">
+      <div ref={hiddenPlacesDivRef} className="hiddenPlaces" />
+
       <section className="card heroCard">
         <div className="nav">
           <button type="button" onClick={() => router.back()}>← Back</button>
@@ -425,8 +560,8 @@ export default function OfferRidePage() {
         <h2>Offer a <span>Ride</span></h2>
 
         <p>
-          Publish your ride with Google Places, GPS pickup, nearby search priority,
-          real distance and smart suggested pricing.
+          Publish your ride with GPS pickup, nearby destination search, real distance
+          and smart suggested pricing.
         </p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
@@ -476,8 +611,9 @@ export default function OfferRidePage() {
                 setTo(e.target.value);
                 setToCoords(null);
                 resetRouteInfo();
+                searchNearbyPlaces(e.target.value);
               }}
-              placeholder="Search destination near your pickup"
+              placeholder="Airport, Walmart, hospital, gas station..."
             />
 
             <button
@@ -492,11 +628,36 @@ export default function OfferRidePage() {
         </Field>
 
         <div className="gpsHelp">
-          <span>Nearby Search Active</span>
-          {userLocation
-            ? "Google will prioritize airports, stations and places near your GPS or pickup point."
-            : "Tap Use GPS first to make searches like airport, Walmart or mall show nearby results."}
+          <span>Nearby Search</span>
+          Type airport, Walmart, hospital, gas station, police or mall. RoadLink will sort nearby results by distance from your pickup GPS.
         </div>
+
+        {(nearbyLoading || nearbyPlaces.length > 0) && (
+          <div className="nearbyPanel">
+            <div className="nearbyHeader">
+              <div>
+                <p className="eyebrow">Nearby Places</p>
+                <h4>{nearbyLoading ? "Searching nearby..." : `Closest results for ${nearbyQuery}`}</h4>
+              </div>
+            </div>
+
+            {nearbyPlaces.map((place) => (
+              <button
+                key={`${place.name}-${place.lat}-${place.lng}`}
+                type="button"
+                className="nearbyPlace"
+                onClick={() => selectNearbyPlace(place)}
+              >
+                <span className="nearbyIcon">📍</span>
+                <span>
+                  <strong>{place.name}</strong>
+                  <small>{place.address || "Address not available"}</small>
+                </span>
+                <b>{place.distanceMiles} mi</b>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="routeStats">
           <div className="statBox">
@@ -612,6 +773,10 @@ export default function OfferRidePage() {
       </section>
 
       <style>{`
+        .hiddenPlaces {
+          display: none;
+        }
+
         .page {
           min-height: 100vh;
           background:
@@ -619,7 +784,7 @@ export default function OfferRidePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
-          padding-bottom: 160px;
+          padding-bottom: 170px;
           font-family: Arial, sans-serif;
         }
 
@@ -672,6 +837,11 @@ export default function OfferRidePage() {
         h3 {
           font-size: 28px;
           margin: 0;
+        }
+
+        h4 {
+          margin: 0;
+          font-size: 18px;
         }
 
         span {
@@ -818,6 +988,60 @@ export default function OfferRidePage() {
           margin-bottom: 4px;
         }
 
+        .nearbyPanel {
+          margin: 18px 0 22px;
+          padding: 16px;
+          border-radius: 22px;
+          background: rgba(34,197,94,0.06);
+          border: 1px solid rgba(34,197,94,0.18);
+        }
+
+        .nearbyHeader {
+          margin-bottom: 12px;
+        }
+
+        .nearbyPlace {
+          width: 100%;
+          display: grid;
+          grid-template-columns: 40px 1fr auto;
+          gap: 12px;
+          align-items: center;
+          padding: 14px;
+          margin-top: 10px;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.045);
+          color: white;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .nearbyIcon {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.15);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .nearbyPlace strong {
+          display: block;
+          color: white;
+          margin-bottom: 4px;
+        }
+
+        .nearbyPlace small {
+          color: #94a3b8;
+          line-height: 1.4;
+        }
+
+        .nearbyPlace b {
+          color: #22c55e;
+          white-space: nowrap;
+        }
+
         .routeStats {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -905,7 +1129,7 @@ export default function OfferRidePage() {
         @media (max-width: 720px) {
           .page {
             padding: 16px;
-            padding-bottom: 170px;
+            padding-bottom: 180px;
           }
 
           .card {
@@ -926,6 +1150,14 @@ export default function OfferRidePage() {
           .gpsButton,
           .priceRow button {
             padding: 15px;
+          }
+
+          .nearbyPlace {
+            grid-template-columns: 36px 1fr;
+          }
+
+          .nearbyPlace b {
+            grid-column: 2;
           }
         }
       `}</style>
