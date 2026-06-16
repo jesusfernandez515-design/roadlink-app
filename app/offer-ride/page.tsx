@@ -9,7 +9,6 @@ import { addDoc, collection } from "firebase/firestore";
 declare global {
   interface Window {
     google?: any;
-    initRoadLinkMap?: () => void;
   }
 }
 
@@ -24,26 +23,28 @@ export default function OfferRidePage() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const fromInputRef = useRef<HTMLInputElement | null>(null);
   const toInputRef = useRef<HTMLInputElement | null>(null);
+
   const mapInstanceRef = useRef<any>(null);
   const directionsRendererRef = useRef<any>(null);
   const directionsServiceRef = useRef<any>(null);
-  const fromMarkerRef = useRef<any>(null);
-  const toMarkerRef = useRef<any>(null);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [fromCoords, setFromCoords] = useState<LatLng | null>(null);
   const [toCoords, setToCoords] = useState<LatLng | null>(null);
+
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [seats, setSeats] = useState("1");
   const [price, setPrice] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [notes, setNotes] = useState("");
+
   const [distanceText, setDistanceText] = useState("");
   const [durationText, setDurationText] = useState("");
   const [distanceMiles, setDistanceMiles] = useState(0);
   const [durationMinutes, setDurationMinutes] = useState(0);
+
   const [selectMode, setSelectMode] = useState<"from" | "to">("from");
   const [mapReady, setMapReady] = useState(false);
   const [message, setMessage] = useState("Loading Google Maps...");
@@ -53,31 +54,52 @@ export default function OfferRidePage() {
     distanceMiles > 0 ? Math.max(10, Math.round(distanceMiles * 0.28)) : 0;
 
   useEffect(() => {
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    let mounted = true;
 
-    if (!apiKey) {
-      setMessage("Google Maps API key is missing.");
-      return;
+    async function loadMap() {
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+      if (!apiKey) {
+        setMessage("Google Maps API key is missing.");
+        return;
+      }
+
+      if (window.google?.maps) {
+        if (mounted) initializeMap();
+        return;
+      }
+
+      const existingScript = document.getElementById("roadlink-google-maps");
+
+      if (existingScript) {
+        existingScript.addEventListener("load", () => {
+          if (mounted) initializeMap();
+        });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = "roadlink-google-maps";
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+
+      script.onload = () => {
+        if (mounted) initializeMap();
+      };
+
+      script.onerror = () => {
+        if (mounted) setMessage("Google Maps could not load.");
+      };
+
+      document.head.appendChild(script);
     }
 
-    if (window.google?.maps) {
-      initializeMap();
-      return;
-    }
+    loadMap();
 
-    window.initRoadLinkMap = initializeMap;
-
-    const existingScript = document.getElementById("roadlink-google-maps");
-    if (existingScript) return;
-
-    const script = document.createElement("script");
-    script.id = "roadlink-google-maps";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initRoadLinkMap`;
-    script.async = true;
-    script.defer = true;
-    script.onerror = () => setMessage("Google Maps could not load.");
-
-    document.head.appendChild(script);
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -87,21 +109,22 @@ export default function OfferRidePage() {
   }, [fromCoords, toCoords, mapReady]);
 
   function initializeMap() {
-    if (!mapRef.current || !window.google?.maps) return;
+    if (!mapRef.current || !window.google?.maps || mapInstanceRef.current) return;
 
-    const defaultCenter = { lat: 18.2208, lng: -66.5901 };
+    const center = { lat: 18.2208, lng: -66.5901 };
 
     const map = new window.google.maps.Map(mapRef.current, {
-      center: defaultCenter,
+      center,
       zoom: 8,
-      disableDefaultUI: false,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: true,
       zoomControl: true,
     });
 
-    const directionsRenderer = new window.google.maps.DirectionsRenderer({
+    mapInstanceRef.current = map;
+    directionsServiceRef.current = new window.google.maps.DirectionsService();
+    directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
       map,
       suppressMarkers: false,
       polylineOptions: {
@@ -110,10 +133,6 @@ export default function OfferRidePage() {
         strokeOpacity: 0.9,
       },
     });
-
-    mapInstanceRef.current = map;
-    directionsRendererRef.current = directionsRenderer;
-    directionsServiceRef.current = new window.google.maps.DirectionsService();
 
     setupAutocomplete();
     setupMapClick(map);
@@ -126,15 +145,12 @@ export default function OfferRidePage() {
     if (!window.google?.maps?.places) return;
 
     if (fromInputRef.current) {
-      const fromAutocomplete = new window.google.maps.places.Autocomplete(
-        fromInputRef.current,
-        {
-          fields: ["formatted_address", "geometry", "name"],
-        }
-      );
+      const fromAuto = new window.google.maps.places.Autocomplete(fromInputRef.current, {
+        fields: ["formatted_address", "geometry", "name"],
+      });
 
-      fromAutocomplete.addListener("place_changed", () => {
-        const place = fromAutocomplete.getPlace();
+      fromAuto.addListener("place_changed", () => {
+        const place = fromAuto.getPlace();
         if (!place.geometry?.location) return;
 
         const coords = {
@@ -144,20 +160,16 @@ export default function OfferRidePage() {
 
         setFrom(place.formatted_address || place.name || "");
         setFromCoords(coords);
-        placeMarker("from", coords);
       });
     }
 
     if (toInputRef.current) {
-      const toAutocomplete = new window.google.maps.places.Autocomplete(
-        toInputRef.current,
-        {
-          fields: ["formatted_address", "geometry", "name"],
-        }
-      );
+      const toAuto = new window.google.maps.places.Autocomplete(toInputRef.current, {
+        fields: ["formatted_address", "geometry", "name"],
+      });
 
-      toAutocomplete.addListener("place_changed", () => {
-        const place = toAutocomplete.getPlace();
+      toAuto.addListener("place_changed", () => {
+        const place = toAuto.getPlace();
         if (!place.geometry?.location) return;
 
         const coords = {
@@ -167,7 +179,6 @@ export default function OfferRidePage() {
 
         setTo(place.formatted_address || place.name || "");
         setToCoords(coords);
-        placeMarker("to", coords);
       });
     }
   }
@@ -186,26 +197,25 @@ export default function OfferRidePage() {
       if (selectMode === "from") {
         setFrom(address);
         setFromCoords(coords);
-        placeMarker("from", coords);
         setSelectMode("to");
       } else {
         setTo(address);
         setToCoords(coords);
-        placeMarker("to", coords);
       }
     });
   }
 
   async function reverseGeocode(coords: LatLng) {
     try {
-      const geocoder = new window.google.maps.Geocoder();
+      if (!window.google?.maps) {
+        return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+      }
 
-      const result = await geocoder.geocode({
-        location: coords,
-      });
+      const geocoder = new window.google.maps.Geocoder();
+      const response = await geocoder.geocode({ location: coords });
 
       return (
-        result.results?.[0]?.formatted_address ||
+        response.results?.[0]?.formatted_address ||
         `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
       );
     } catch {
@@ -213,33 +223,10 @@ export default function OfferRidePage() {
     }
   }
 
-  function placeMarker(type: "from" | "to", coords: LatLng) {
-    if (!mapInstanceRef.current || !window.google?.maps) return;
-
-    const marker =
-      type === "from" ? fromMarkerRef.current : toMarkerRef.current;
-
-    if (marker) marker.setMap(null);
-
-    const newMarker = new window.google.maps.Marker({
-      position: coords,
-      map: mapInstanceRef.current,
-      label: type === "from" ? "A" : "B",
-      title: type === "from" ? "Starting point" : "Destination",
-    });
-
-    if (type === "from") {
-      fromMarkerRef.current = newMarker;
-    } else {
-      toMarkerRef.current = newMarker;
-    }
-
-    mapInstanceRef.current.panTo(coords);
-    mapInstanceRef.current.setZoom(12);
-  }
-
   function calculateRoute(origin: LatLng, destination: LatLng) {
-    if (!directionsServiceRef.current || !directionsRendererRef.current) return;
+    if (!window.google?.maps || !directionsServiceRef.current || !directionsRendererRef.current) {
+      return;
+    }
 
     directionsServiceRef.current.route(
       {
@@ -261,7 +248,6 @@ export default function OfferRidePage() {
 
         const meters = Number(leg.distance?.value || 0);
         const seconds = Number(leg.duration?.value || 0);
-
         const miles = meters / 1609.344;
         const minutes = seconds / 60;
 
@@ -341,22 +327,6 @@ export default function OfferRidePage() {
 
       setMessage("Ride published successfully.");
 
-      setFrom("");
-      setTo("");
-      setFromCoords(null);
-      setToCoords(null);
-      setDate("");
-      setTime("");
-      setSeats("1");
-      setPrice("");
-      setVehicle("");
-      setNotes("");
-      setDistanceText("");
-      setDurationText("");
-      setDistanceMiles(0);
-      setDurationMinutes(0);
-      directionsRendererRef.current?.setDirections({ routes: [] });
-
       setTimeout(() => {
         router.push("/find-ride");
       }, 800);
@@ -385,8 +355,7 @@ export default function OfferRidePage() {
         <h1>Offer a <span>Ride</span></h1>
 
         <p className="subtitle">
-          Publish your route with Google Maps, real distance, estimated time,
-          GPS coordinates and a premium route preview.
+          Publish your route with Google Maps, real distance, estimated time and GPS coordinates.
         </p>
       </section>
 
@@ -426,10 +395,7 @@ export default function OfferRidePage() {
           <InfoBox label="Distance" value={distanceText || "Select route"} />
           <InfoBox label="Duration" value={durationText || "Select route"} />
           <InfoBox label="Miles" value={distanceMiles ? `${distanceMiles} mi` : "0 mi"} />
-          <InfoBox
-            label="Suggested Price"
-            value={suggestedPrice ? `$${suggestedPrice}` : "$0"}
-          />
+          <InfoBox label="Suggested Price" value={suggestedPrice ? `$${suggestedPrice}` : "$0"} />
         </div>
 
         <div className="routeGrid">
@@ -683,17 +649,13 @@ export default function OfferRidePage() {
           margin-bottom: 16px;
         }
 
-        .mapBox > div {
-          color: black;
-        }
-
         .mapLoading {
           position: absolute;
           inset: 0;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: white !important;
+          color: white;
           background: rgba(2,6,23,0.9);
           font-weight: 900;
           z-index: 5;
@@ -799,7 +761,6 @@ export default function OfferRidePage() {
         }
 
         .priceInputWrap button {
-          border: none;
           border-radius: 16px;
           padding: 0 16px;
           background: rgba(34,197,94,0.14);
