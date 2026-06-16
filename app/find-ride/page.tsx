@@ -1,89 +1,563 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  query,
-  updateDoc,
-  where,
-} from "firebase/firestore";
+import { addDoc, collection } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 
-type Ride = {
-  id: string;
-  from: string;
-  to: string;
-  date: string;
-  time: string;
-  seats: number;
-  price: number;
-  vehicle: string;
-  notes?: string;
-  status: string;
-  driverEmail: string;
-  driverId?: string;
-  distanceText?: string;
-  durationText?: string;
-  distanceMiles?: number;
-  durationMinutes?: number;
-  mapUrl?: string;
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
+type LatLng = {
+  lat: number;
+  lng: number;
 };
 
-export default function FindRidePage() {
+type RouteInfo = {
+  distanceText: string;
+  durationText: string;
+  distanceMiles: number;
+  durationMinutes: number;
+};
+
+type NearbyPlace = {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  distanceMiles: number;
+  placeId?: string;
+};
+
+export default function OfferRidePage() {
   const router = useRouter();
 
-  const [userId, setUserId] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [rides, setRides] = useState<Ride[]>([]);
-  const [reservedRideIds, setReservedRideIds] = useState<string[]>([]);
-  const [message, setMessage] = useState("Checking account...");
-  const [loadingRideId, setLoadingRideId] = useState("");
+  const fromInputRef = useRef<HTMLInputElement | null>(null);
+  const fromAutoRef = useRef<any>(null);
+  const directionsServiceRef = useRef<any>(null);
+  const geocoderRef = useRef<any>(null);
+  const placesServiceRef = useRef<any>(null);
+  const hiddenPlacesDivRef = useRef<HTMLDivElement | null>(null);
+
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [fromCoords, setFromCoords] = useState<LatLng | null>(null);
+  const [toCoords, setToCoords] = useState<LatLng | null>(null);
+  const [userLocation, setUserLocation] = useState<LatLng | null>(null);
+
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [seats, setSeats] = useState("1");
+  const [price, setPrice] = useState("");
+  const [vehicle, setVehicle] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const [routeInfo, setRouteInfo] = useState<RouteInfo>({
+    distanceText: "",
+    durationText: "",
+    distanceMiles: 0,
+    durationMinutes: 0,
+  });
+
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyQuery, setNearbyQuery] = useState("");
+
+  const [message, setMessage] = useState("");
+  const [mapsReady, setMapsReady] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState<"from" | "to" | "">("");
   const [loading, setLoading] = useState(false);
 
-  function shortPlace(address: string) {
-    if (!address) return "Unknown";
+  const destinationSelected = Boolean(toCoords);
 
-    const parts = address
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean);
+  const suggestedPrice =
+    routeInfo.distanceMiles > 0
+      ? Math.max(10, Math.round(routeInfo.distanceMiles * 0.28))
+      : 0;
 
-    if (!parts.length) return address;
+  useEffect(() => {
+    let mounted = true;
 
-    const first = parts[0];
+    function setupGoogleServices() {
+      if (!window.google?.maps?.places) return;
 
-    if (/^\d/.test(first) && parts[1]) {
-      return parts[1];
+      directionsServiceRef.current = new window.google.maps.DirectionsService();
+      geocoderRef.current = new window.google.maps.Geocoder();
+
+      if (hiddenPlacesDivRef.current) {
+        placesServiceRef.current = new window.google.maps.places.PlacesService(
+          hiddenPlacesDivRef.current
+        );
+      }
+
+      if (fromInputRef.current && !fromAutoRef.current) {
+        fromAutoRef.current = new window.google.maps.places.Autocomplete(fromInputRef.current, {
+          fields: ["formatted_address", "geometry", "name", "place_id"],
+        });
+
+        fromAutoRef.current.addListener("place_changed", () => {
+          const place = fromAutoRef.current.getPlace();
+          const label = place.formatted_address || place.name || "";
+
+          setFrom(label);
+          resetRouteInfo();
+
+          if (place.geometry?.location) {
+            const coords = {
+              lat: place.geometry.location.lat(),
+              lng: place.geometry.location.lng(),
+            };
+
+            setFromCoords(coords);
+            setUserLocation(coords);
+            biasFromAutocomplete(coords);
+          } else {
+            setFromCoords(null);
+          }
+        });
+      }
+
+      if (mounted) {
+        setMapsReady(true);
+        setMessage("");
+      }
     }
 
-    return first;
+    function loadGoogleMaps() {
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+      if (!apiKey) {
+        setMessage("Google Maps API key is missing.");
+        return;
+      }
+
+      if (typeof window === "undefined") return;
+
+      if (window.google?.maps?.places) {
+        setupGoogleServices();
+        return;
+      }
+
+      const existingScript = document.getElementById("roadlink-google-maps");
+
+      if (existingScript) {
+        existingScript.addEventListener("load", setupGoogleServices);
+        existingScript.addEventListener("error", () => {
+          if (mounted) setMessage("Google Maps could not load.");
+        });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = "roadlink-google-maps";
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+      script.onload = setupGoogleServices;
+      script.onerror = () => {
+        if (mounted) setMessage("Google Maps could not load.");
+      };
+
+      document.head.appendChild(script);
+    }
+
+    loadGoogleMaps();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (fromCoords && toCoords && mapsReady) {
+      calculateRoute(fromCoords, toCoords);
+    }
+  }, [fromCoords, toCoords, mapsReady]);
+
+  function biasFromAutocomplete(coords: LatLng) {
+    if (!window.google?.maps) return;
+
+    const circle = new window.google.maps.Circle({
+      center: coords,
+      radius: 30000,
+    });
+
+    const bounds = circle.getBounds();
+
+    if (bounds) {
+      fromAutoRef.current?.setOptions({ bounds, strictBounds: false });
+    }
   }
 
-  async function loadRides() {
+  function buildMapUrl() {
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      from.trim()
+    )}&destination=${encodeURIComponent(to.trim())}`;
+  }
+
+  function resetRouteInfo() {
+    setRouteInfo({
+      distanceText: "",
+      durationText: "",
+      distanceMiles: 0,
+      durationMinutes: 0,
+    });
+  }
+
+  function calculateRoute(origin: LatLng, destination: LatLng) {
+    if (!window.google?.maps || !directionsServiceRef.current) return;
+
+    setRouteLoading(true);
+
+    directionsServiceRef.current.route(
+      {
+        origin,
+        destination,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      },
+      (result: any, status: string) => {
+        setRouteLoading(false);
+
+        if (status !== "OK" || !result) {
+          setMessage("Route distance could not be calculated.");
+          return;
+        }
+
+        const leg = result.routes?.[0]?.legs?.[0];
+
+        if (!leg) {
+          setMessage("Route information was not found.");
+          return;
+        }
+
+        const meters = Number(leg.distance?.value || 0);
+        const seconds = Number(leg.duration?.value || 0);
+        const miles = meters / 1609.344;
+        const minutes = seconds / 60;
+
+        setRouteInfo({
+          distanceText: leg.distance?.text || "",
+          durationText: leg.duration?.text || "",
+          distanceMiles: Number(miles.toFixed(1)),
+          durationMinutes: Math.round(minutes),
+        });
+
+        setMessage("");
+      }
+    );
+  }
+
+  async function reverseGeocode(coords: LatLng) {
+    try {
+      if (!window.google?.maps || !geocoderRef.current) {
+        return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+      }
+
+      const response = await geocoderRef.current.geocode({ location: coords });
+
+      return (
+        response.results?.[0]?.formatted_address ||
+        `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
+      );
+    } catch {
+      return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+    }
+  }
+
+  function getCurrentPosition() {
+    return new Promise<LatLng>((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("GPS is not available on this device."));
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        () => {
+          reject(new Error("Location permission was denied or unavailable."));
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        }
+      );
+    });
+  }
+
+  async function useCurrentLocation(target: "from" | "to") {
+    setMessage("");
+    setLocationLoading(target);
+
+    try {
+      const coords = await getCurrentPosition();
+      const address = await reverseGeocode(coords);
+
+      resetRouteInfo();
+      setUserLocation(coords);
+      biasFromAutocomplete(coords);
+
+      if (target === "from") {
+        setFrom(address);
+        setFromCoords(coords);
+      } else {
+        setTo(address);
+        setToCoords(coords);
+        setNearbyPlaces([]);
+      }
+
+      setMessage(
+        target === "from"
+          ? "Current location set as pickup point."
+          : "Current location set as destination."
+      );
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not get current location.");
+    } finally {
+      setLocationLoading("");
+    }
+  }
+
+  function normalizeQuery(text: string) {
+    const value = text.toLowerCase().trim();
+
+    if (value.includes("aeropuerto")) return "airport";
+    if (value.includes("airport")) return "airport";
+    if (value.includes("sju")) return "airport";
+    if (value.includes("hospital")) return "hospital";
+    if (value.includes("walmart")) return "walmart";
+    if (value.includes("costco")) return "costco";
+    if (value.includes("gasolinera")) return "gas station";
+    if (value.includes("gas station")) return "gas station";
+    if (value.includes("gas")) return "gas station";
+    if (value.includes("mall")) return "shopping mall";
+    if (value.includes("plaza")) return "shopping mall";
+    if (value.includes("policía")) return "police";
+    if (value.includes("policia")) return "police";
+    if (value.includes("cuartel")) return "police";
+
+    return value;
+  }
+
+  function getSearchType(text: string) {
+    const value = text.toLowerCase();
+
+    if (value.includes("airport") || value.includes("aeropuerto") || value.includes("sju")) {
+      return "airport";
+    }
+
+    if (value.includes("hospital")) return "hospital";
+
+    if (value.includes("gasolinera") || value.includes("gas") || value.includes("station")) {
+      return "gas_station";
+    }
+
+    if (value.includes("policia") || value.includes("policía") || value.includes("cuartel")) {
+      return "police";
+    }
+
+    if (
+      value.includes("walmart") ||
+      value.includes("costco") ||
+      value.includes("mall") ||
+      value.includes("plaza")
+    ) {
+      return "shopping_mall";
+    }
+
+    return "";
+  }
+
+  function calculateStraightDistanceMiles(origin: LatLng, destination: LatLng) {
+    const earthRadiusMiles = 3958.8;
+    const lat1 = (origin.lat * Math.PI) / 180;
+    const lat2 = (destination.lat * Math.PI) / 180;
+    const deltaLat = ((destination.lat - origin.lat) * Math.PI) / 180;
+    const deltaLng = ((destination.lng - origin.lng) * Math.PI) / 180;
+
+    const a =
+      Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+      Math.cos(lat1) *
+        Math.cos(lat2) *
+        Math.sin(deltaLng / 2) *
+        Math.sin(deltaLng / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return Number((earthRadiusMiles * c).toFixed(1));
+  }
+
+  function searchNearbyPlaces(searchText: string) {
+    setNearbyQuery(searchText);
+
+    if (!mapsReady || !placesServiceRef.current || !window.google?.maps?.places) return;
+
+    const baseLocation = fromCoords || userLocation;
+
+    if (!baseLocation) {
+      setNearbyPlaces([]);
+      setMessage("Tap Use GPS in From first so RoadLink can find closest places.");
+      return;
+    }
+
+    const cleanQuery = normalizeQuery(searchText);
+
+    if (cleanQuery.length < 2) {
+      setNearbyPlaces([]);
+      return;
+    }
+
+    setNearbyLoading(true);
+
+    const searchType = getSearchType(searchText);
+
+    const request: any = {
+      location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
+      rankBy: window.google.maps.places.RankBy.DISTANCE,
+      keyword: cleanQuery,
+    };
+
+    if (searchType) {
+      request.type = searchType;
+    }
+
+    placesServiceRef.current.nearbySearch(request, (results: any[], status: string) => {
+      setNearbyLoading(false);
+
+      if (status !== window.google.maps.places.PlacesServiceStatus.OK || !results?.length) {
+        setNearbyPlaces([]);
+        return;
+      }
+
+      const cleaned = results
+        .filter((place) => place.geometry?.location)
+        .map((place) => {
+          const coords = {
+            lat: place.geometry.location.lat(),
+            lng: place.geometry.location.lng(),
+          };
+
+          return {
+            name: place.name || "Unknown place",
+            address: place.vicinity || place.formatted_address || "",
+            lat: coords.lat,
+            lng: coords.lng,
+            distanceMiles: calculateStraightDistanceMiles(baseLocation, coords),
+            placeId: place.place_id || "",
+          };
+        })
+        .sort((a, b) => a.distanceMiles - b.distanceMiles)
+        .slice(0, 6);
+
+      setNearbyPlaces(cleaned);
+    });
+  }
+
+  function selectNearbyPlace(place: NearbyPlace) {
+    const label = place.address ? `${place.name}, ${place.address}` : place.name;
+
+    setTo(label);
+    setToCoords({
+      lat: place.lat,
+      lng: place.lng,
+    });
+
+    setNearbyPlaces([]);
+    setNearbyQuery("");
+    resetRouteInfo();
+    setMessage("Destination selected successfully.");
+  }
+
+  function clearDestination() {
+    setTo("");
+    setToCoords(null);
+    setNearbyPlaces([]);
+    setNearbyQuery("");
+    resetRouteInfo();
+  }
+
+  function useSuggestedPrice() {
+    if (suggestedPrice > 0) {
+      setPrice(String(suggestedPrice));
+    }
+  }
+
+  async function publishRide() {
+    setMessage("");
+
+    const user = auth.currentUser;
+
+    if (!user) {
+      setMessage("Please sign in before publishing a ride.");
+      router.push("/login");
+      return;
+    }
+
+    if (!from || !to || !date || !time || !seats || !price || !vehicle) {
+      setMessage("Please complete all required fields.");
+      return;
+    }
+
+    if (!fromCoords) {
+      setMessage("Please select a real pickup location or use GPS.");
+      return;
+    }
+
+    if (!toCoords) {
+      setMessage("Please select a real destination from Nearby Places.");
+      return;
+    }
+
+    if (Number(price) <= 0) {
+      setMessage("Price must be greater than 0.");
+      return;
+    }
+
+    if (Number(seats) <= 0) {
+      setMessage("Seats must be greater than 0.");
+      return;
+    }
+
     try {
       setLoading(true);
-      setMessage("Loading rides...");
 
-      const ridesQuery = query(
-        collection(db, "rides"),
-        where("status", "==", "active")
-      );
+      await addDoc(collection(db, "rides"), {
+        driverId: user.uid,
+        driverEmail: user.email || "",
+        from: from.trim(),
+        to: to.trim(),
+        fromLat: fromCoords.lat,
+        fromLng: fromCoords.lng,
+        toLat: toCoords.lat,
+        toLng: toCoords.lng,
+        distanceText: routeInfo.distanceText,
+        durationText: routeInfo.durationText,
+        distanceMiles: routeInfo.distanceMiles,
+        durationMinutes: routeInfo.durationMinutes,
+        date,
+        time,
+        seats: Number(seats),
+        originalSeats: Number(seats),
+        price: Number(price),
+        suggestedPrice,
+        vehicle: vehicle.trim(),
+        notes: notes.trim(),
+        mapUrl: buildMapUrl(),
+        status: "active",
+        createdAt: new Date().toISOString(),
+      });
 
-      const snapshot = await getDocs(ridesQuery);
-
-      const ridesData = snapshot.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      })) as Ride[];
-
-      setRides(ridesData);
-      setMessage(ridesData.length ? "" : "No rides available yet.");
+      router.push("/find-ride");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
@@ -91,656 +565,634 @@ export default function FindRidePage() {
     }
   }
 
-  async function loadUserBookings(currentUserId: string) {
-    try {
-      if (!currentUserId) {
-        setReservedRideIds([]);
-        return;
-      }
-
-      const bookingsQuery = query(
-        collection(db, "bookings"),
-        where("passengerId", "==", currentUserId),
-        where("status", "==", "reserved")
-      );
-
-      const snapshot = await getDocs(bookingsQuery);
-
-      const ids = snapshot.docs
-        .map((document) => document.data().rideId)
-        .filter(Boolean) as string[];
-
-      setReservedRideIds(ids);
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    }
-  }
-
-  async function refreshPageData(currentUserId: string) {
-    await loadRides();
-    await loadUserBookings(currentUserId);
-  }
-
-  async function reserveSeat(ride: Ride) {
-    setMessage("");
-
-    if (!userId) {
-      setMessage("Please sign in before reserving a seat.");
-      router.push("/login");
-      return;
-    }
-
-    if (ride.driverId === userId) {
-      setMessage("You cannot reserve your own ride.");
-      return;
-    }
-
-    if (Number(ride.seats || 0) <= 0) {
-      setMessage("No seats available for this ride.");
-      return;
-    }
-
-    try {
-      setLoadingRideId(ride.id);
-
-      const duplicateQuery = query(
-        collection(db, "bookings"),
-        where("rideId", "==", ride.id),
-        where("passengerId", "==", userId),
-        where("status", "==", "reserved")
-      );
-
-      const duplicateSnapshot = await getDocs(duplicateQuery);
-
-      if (!duplicateSnapshot.empty) {
-        setMessage("You already reserved this ride.");
-        setReservedRideIds((previous) =>
-          previous.includes(ride.id) ? previous : [...previous, ride.id]
-        );
-        return;
-      }
-
-      await addDoc(collection(db, "bookings"), {
-        rideId: ride.id,
-        passengerId: userId,
-        passengerEmail: userEmail,
-        driverId: ride.driverId || "",
-        driverEmail: ride.driverEmail || "",
-        from: ride.from,
-        to: ride.to,
-        date: ride.date,
-        time: ride.time,
-        price: ride.price,
-        distanceText: ride.distanceText || "",
-        durationText: ride.durationText || "",
-        distanceMiles: Number(ride.distanceMiles || 0),
-        durationMinutes: Number(ride.durationMinutes || 0),
-        mapUrl: ride.mapUrl || "",
-        seatsBooked: 1,
-        status: "reserved",
-        createdAt: new Date().toISOString(),
-      });
-
-      if (ride.driverId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: ride.driverId,
-          type: "booking",
-          title: "New Ride Booking",
-          message: `${userEmail} reserved a seat from ${shortPlace(ride.from)} to ${shortPlace(ride.to)}.`,
-          read: false,
-          createdAt: new Date().toISOString(),
-        });
-      }
-
-      const newSeats = Number(ride.seats || 0) - 1;
-
-      await updateDoc(doc(db, "rides", ride.id), {
-        seats: newSeats,
-        status: newSeats <= 0 ? "full" : "active",
-      });
-
-      setReservedRideIds((previous) =>
-        previous.includes(ride.id) ? previous : [...previous, ride.id]
-      );
-
-      setMessage("Seat reserved successfully. The driver has been notified.");
-      await refreshPageData(userId);
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    } finally {
-      setLoadingRideId("");
-    }
-  }
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setMessage("Please sign in to view available rides.");
-        router.push("/login");
-        return;
-      }
-
-      setUserId(user.uid);
-      setUserEmail(user.email || "");
-
-      await refreshPageData(user.uid);
-    });
-
-    return () => unsubscribe();
-  }, [router]);
-
   return (
     <main className="page">
-      <section className="hero">
-        <div className="topActions">
-          <button type="button" className="miniButton" onClick={() => router.back()}>
-            ← Back
-          </button>
+      <div ref={hiddenPlacesDivRef} className="hiddenPlaces" />
 
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/messages" className="miniButton">Messages</Link>
-          <Link href="/notifications" className="miniButton">Notifications</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
+      <section className="card heroCard">
+        <div className="nav">
+          <button type="button" onClick={() => router.back()}>← Back</button>
+          <Link href="/">Home</Link>
+          <Link href="/dashboard">Dashboard</Link>
+          <Link href="/profile">Profile</Link>
         </div>
 
-        <div className="logo">Road<span>Link</span></div>
+        <h1>Road<span>Link</span></h1>
+        <h2>Offer a <span>Ride</span></h2>
 
-        <p className="eyebrow">Verified Ride Marketplace</p>
+        <p>Publish your ride with GPS pickup and nearby destinations ranked by distance.</p>
 
-        <h1>Find a <span>Ride</span></h1>
-
-        <p className="subtitle">
-          Discover available long-distance rides with route distance, estimated travel time,
-          price and driver details.
-        </p>
-
-        <div className="mainActions">
-          <Link href="/offer-ride" className="primaryButton">Offer a Ride</Link>
-
-          <button
-            type="button"
-            className="secondaryTopButton"
-            onClick={() => refreshPageData(userId)}
-            disabled={loading || !userId}
-          >
-            {loading ? "Refreshing..." : "Refresh Rides"}
-          </button>
+        <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
+          {mapsReady ? "Google Maps ready" : "Loading Google Maps..."}
         </div>
       </section>
 
-      <section className="results">
-        {message && <p className="message">{message}</p>}
+      <section className="card">
+        <div className="routeSectionHeader">
+          <div>
+            <p className="eyebrow">Pickup & Destination</p>
+            <h3>Build your route</h3>
+          </div>
+          <div className="gpsBadge">📍</div>
+        </div>
 
-        {rides.map((ride) => {
-          const alreadyReserved = reservedRideIds.includes(ride.id);
-          const isOwnRide = Boolean(userId && ride.driverId === userId);
-          const noSeats = Number(ride.seats || 0) <= 0;
-          const shortFrom = shortPlace(ride.from);
-          const shortTo = shortPlace(ride.to);
+        <Field label="From *">
+          <div className="locationInputRow">
+            <input
+              ref={fromInputRef}
+              value={from}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setFromCoords(null);
+                resetRouteInfo();
+              }}
+              placeholder="Search pickup location or use GPS"
+            />
 
-          return (
-            <div key={ride.id} className="rideCard">
-              <div className="routeHeader">
-                <div>
-                  <p className="label">ROUTE</p>
+            <button
+              type="button"
+              className="gpsButton"
+              onClick={() => useCurrentLocation("from")}
+              disabled={locationLoading !== "" || !mapsReady}
+            >
+              {locationLoading === "from" ? "Locating..." : "Use GPS"}
+            </button>
+          </div>
+        </Field>
 
-                  <h2>
-                    {shortFrom} <span>→</span> {shortTo}
-                  </h2>
+        <Field label="To *">
+          <div className="destinationBox">
+            <input
+              value={to}
+              onChange={(e) => {
+                setTo(e.target.value);
+                setToCoords(null);
+                resetRouteInfo();
+                searchNearbyPlaces(e.target.value);
+              }}
+              placeholder="Airport, hospital, Walmart, gas station..."
+              autoComplete="off"
+            />
 
-                  <p className="fullRoute">
-                    {ride.from} → {ride.to}
-                  </p>
-                </div>
-
-                <div className="priceBox">
-                  <span>PRICE</span>
-                  <strong>${ride.price}</strong>
-                </div>
-              </div>
-
-              <div className="routeStats">
-                <div className="statBox">
-                  <small>Distance</small>
-                  <strong>{ride.distanceText || "Not available"}</strong>
-                </div>
-
-                <div className="statBox">
-                  <small>Duration</small>
-                  <strong>{ride.durationText || "Not available"}</strong>
-                </div>
-
-                <div className="statBox">
-                  <small>Miles</small>
-                  <strong>{ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"}</strong>
-                </div>
-              </div>
-
-              <div className="chips">
-                <div className="chip">📅 {ride.date}</div>
-                <div className="chip">🕒 {ride.time}</div>
-                <div className="chip">💺 {ride.seats} seats</div>
-                <div className="chip active">● {ride.status}</div>
-              </div>
-
-              <div className="infoGrid">
-                <Info label="Vehicle" value={ride.vehicle || "Not specified"} icon="🚘" />
-                <Info label="Driver" value={ride.driverEmail || "RoadLink Driver"} icon="👤" />
-                {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
-              </div>
-
-              {ride.mapUrl && (
-                <a
-                  href={ride.mapUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mapButton"
-                >
-                  Open Route in Google Maps
-                </a>
-              )}
-
-              {isOwnRide && <p className="warning">This is your own ride.</p>}
-
-              <div className="cardButtons">
-                <Link
-                  href={`/driver-profile?driverId=${ride.driverId || ""}`}
-                  className="outlineButton"
-                >
-                  View Driver Profile
-                </Link>
-
-                <Link href={`/ride-details?rideId=${ride.id}`} className="outlineButton">
-                  View Details
-                </Link>
-              </div>
-
-              <button
-                className="reserve"
-                onClick={() => reserveSeat(ride)}
-                disabled={loadingRideId === ride.id || alreadyReserved || isOwnRide || noSeats}
-              >
-                {loadingRideId === ride.id
-                  ? "Reserving..."
-                  : alreadyReserved
-                  ? "Already Reserved"
-                  : isOwnRide
-                  ? "Your Own Ride"
-                  : noSeats
-                  ? "No Seats Available"
-                  : "Reserve Seat"}
+            {to && (
+              <button type="button" className="clearButton" onClick={clearDestination}>
+                Clear
               </button>
+            )}
+          </div>
+
+          {to && !destinationSelected && (
+            <p className="fieldWarning">Select a destination from Nearby Places before publishing.</p>
+          )}
+
+          {destinationSelected && (
+            <p className="fieldSuccess">Destination selected.</p>
+          )}
+        </Field>
+
+        <div className="gpsHelp">
+          <span>Nearby Search</span>
+          Use GPS in From first, then type airport, hospital, Walmart or gas station.
+        </div>
+
+        {(nearbyLoading || nearbyPlaces.length > 0) && (
+          <div className="nearbyPanel">
+            <div className="nearbyHeader">
+              <p className="eyebrow">Nearby Places</p>
+              <h4>{nearbyLoading ? "Searching..." : `Closest for ${nearbyQuery}`}</h4>
             </div>
-          );
-        })}
+
+            <div className="nearbyList">
+              {nearbyPlaces.map((place) => (
+                <button
+                  key={`${place.name}-${place.lat}-${place.lng}`}
+                  type="button"
+                  className="nearbyPlace"
+                  onClick={() => selectNearbyPlace(place)}
+                >
+                  <span className="nearbyIcon">📍</span>
+                  <span className="nearbyText">
+                    <strong>{place.name}</strong>
+                    <small>{place.address || "Address not available"}</small>
+                  </span>
+                  <b>{place.distanceMiles} mi</b>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="routeStats">
+          <StatBox
+            label="Distance"
+            value={routeLoading ? "Calculating..." : routeInfo.distanceText || "Select route"}
+          />
+          <StatBox
+            label="Duration"
+            value={routeLoading ? "Calculating..." : routeInfo.durationText || "Select route"}
+          />
+          <StatBox label="Miles" value={routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"} />
+          <StatBox label="Suggested" value={suggestedPrice ? `$${suggestedPrice}` : "$0"} />
+        </div>
+
+        <Field label="Date *">
+          <input value={date} onChange={(e) => setDate(e.target.value)} type="date" />
+        </Field>
+
+        <Field label="Departure Time *">
+          <input value={time} onChange={(e) => setTime(e.target.value)} type="time" />
+        </Field>
+
+        <Field label="Available Seats *">
+          <select value={seats} onChange={(e) => setSeats(e.target.value)}>
+            <option value="1">1 seat</option>
+            <option value="2">2 seats</option>
+            <option value="3">3 seats</option>
+            <option value="4">4 seats</option>
+            <option value="5">5 seats</option>
+            <option value="6">6 seats</option>
+          </select>
+        </Field>
+
+        <Field label="Price per Seat *">
+          <div className="priceRow">
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              type="number"
+              min="1"
+              placeholder="45"
+            />
+
+            <button type="button" onClick={useSuggestedPrice}>
+              Use ${suggestedPrice || 0}
+            </button>
+          </div>
+        </Field>
+
+        <Field label="Vehicle *">
+          <input
+            value={vehicle}
+            onChange={(e) => setVehicle(e.target.value)}
+            placeholder="Toyota Camry..."
+          />
+        </Field>
+
+        <Field label="Trip Notes">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Pickup details, luggage, rules, meeting point..."
+          />
+        </Field>
+
+        <div className="preview">
+          <p className="eyebrow">Live Preview</p>
+
+          <strong>{from || "Starting point"} → {destinationSelected ? to : "Select destination"}</strong>
+
+          <p>{date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}</p>
+
+          <p>
+            🛣️ {routeInfo.distanceText || "Distance pending"} · ⏱️{" "}
+            {routeInfo.durationText || "Duration pending"}
+          </p>
+
+          <p className="coords">
+            Start GPS:{" "}
+            {fromCoords
+              ? `${fromCoords.lat.toFixed(5)}, ${fromCoords.lng.toFixed(5)}`
+              : "Not selected yet"}
+          </p>
+
+          <p className="coords">
+            Destination GPS:{" "}
+            {toCoords
+              ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}`
+              : "Select destination from nearby results"}
+          </p>
+
+          {from && destinationSelected && (
+            <a href={buildMapUrl()} target="_blank" rel="noopener noreferrer">
+              Open route in Google Maps
+            </a>
+          )}
+        </div>
+
+        <button
+          className="publish"
+          onClick={publishRide}
+          disabled={loading || !destinationSelected}
+        >
+          {loading ? "Publishing..." : destinationSelected ? "Publish Ride" : "Select Destination First"}
+        </button>
+
+        {message && <p className="message">{message}</p>}
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        .hiddenPlaces { display: none; }
 
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.16), transparent 34%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
-          padding-bottom: 150px;
+          padding-bottom: 180px;
           font-family: Arial, sans-serif;
         }
 
-        .hero,
-        .results {
-          max-width: 860px;
-          margin-left: auto;
-          margin-right: auto;
-        }
-
-        .hero {
-          background: rgba(8, 13, 25, 0.9);
+        .card {
+          max-width: 850px;
+          margin: 0 auto 24px;
+          padding: 28px;
+          border-radius: 28px;
+          background: rgba(15, 23, 42, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 32px;
-          padding: 30px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
-          backdrop-filter: blur(16px);
-          margin-bottom: 28px;
+          box-shadow: 0 22px 70px rgba(0,0,0,0.35);
         }
 
-        .topActions {
+        .heroCard {
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.14), transparent 36%),
+            rgba(15, 23, 42, 0.92);
+        }
+
+        .nav {
           display: flex;
-          gap: 12px;
           flex-wrap: wrap;
-          margin-bottom: 30px;
+          gap: 12px;
+          margin-bottom: 24px;
         }
 
-        .miniButton {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 11px 18px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.05);
+        .nav a,
+        .nav button {
           border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.06);
           color: white;
-          text-decoration: none;
+          border-radius: 999px;
+          padding: 10px 16px;
           font-weight: 900;
+          text-decoration: none;
           cursor: pointer;
         }
 
-        .logo {
-          font-size: 38px;
-          font-weight: 900;
-          margin-bottom: 28px;
+        h1 { font-size: 36px; margin: 0 0 24px; }
+        h2 { font-size: 46px; margin: 0 0 14px; line-height: 1; }
+        h3 { font-size: 28px; margin: 0; }
+        h4 { margin: 0; font-size: 16px; }
+        span { color: #22c55e; }
+
+        p {
+          color: #a1a1aa;
+          line-height: 1.5;
         }
 
-        .logo span,
-        h1 span,
-        h2 span,
-        .active,
-        .priceBox strong,
         .eyebrow {
           color: #22c55e;
-        }
-
-        .eyebrow {
-          font-size: 13px;
+          margin: 0 0 8px;
+          font-size: 12px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
-          margin: 0 0 10px;
         }
 
-        h1 {
-          font-size: 60px;
-          line-height: 1;
-          margin: 0 0 16px;
-          letter-spacing: -1px;
-        }
-
-        .subtitle {
-          color: #a1a1aa;
-          font-size: 20px;
-          line-height: 1.5;
-          margin: 0;
-        }
-
-        .mainActions {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-          margin-top: 30px;
-        }
-
-        .primaryButton,
-        .secondaryTopButton {
-          width: 100%;
-          padding: 18px;
+        .mapsStatus {
+          display: inline-block;
+          margin-top: 14px;
+          padding: 10px 14px;
           border-radius: 999px;
-          text-align: center;
-          text-decoration: none;
-          font-size: 17px;
+          background: rgba(234, 179, 8, 0.12);
+          border: 1px solid rgba(234, 179, 8, 0.35);
+          color: #facc15;
           font-weight: 900;
+          font-size: 13px;
+        }
+
+        .mapsStatus.ready {
+          background: rgba(34, 197, 94, 0.12);
+          border-color: rgba(34, 197, 94, 0.35);
+          color: #22c55e;
+        }
+
+        .routeSectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: center;
+          margin-bottom: 22px;
+        }
+
+        .gpsBadge {
+          width: 58px;
+          height: 58px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 26px;
+        }
+
+        .field { margin-bottom: 18px; }
+
+        label {
+          display: block;
+          margin-bottom: 8px;
+          font-weight: 900;
+        }
+
+        input,
+        select,
+        textarea {
+          width: 100%;
+          padding: 16px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.05);
+          color: white;
+          font-size: 16px;
+          outline: none;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+          border-color: rgba(34,197,94,0.75);
+          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
+        }
+
+        textarea {
+          min-height: 110px;
+          resize: vertical;
+        }
+
+        option { background: #020617; }
+
+        .locationInputRow,
+        .priceRow,
+        .destinationBox {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
+        }
+
+        .gpsButton,
+        .priceRow button,
+        .clearButton {
+          border-radius: 16px;
+          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(34,197,94,0.12);
+          color: #22c55e;
+          padding: 0 16px;
+          font-weight: 900;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .clearButton {
+          border-color: rgba(248,113,113,0.35);
+          background: rgba(248,113,113,0.12);
+          color: #f87171;
+        }
+
+        .gpsButton:disabled,
+        .priceRow button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .fieldWarning,
+        .fieldSuccess {
+          margin: 8px 0 0;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .fieldWarning {
+          color: #fbbf24;
+        }
+
+        .fieldSuccess {
+          color: #22c55e;
+        }
+
+        .gpsHelp {
+          margin: -4px 0 14px;
+          padding: 12px 14px;
+          border-radius: 16px;
+          background: rgba(59,130,246,0.08);
+          border: 1px solid rgba(59,130,246,0.18);
+          color: #93c5fd;
+          font-size: 13px;
+          line-height: 1.4;
+        }
+
+        .gpsHelp span {
+          display: block;
+          color: #60a5fa;
+          font-weight: 900;
+          margin-bottom: 3px;
+        }
+
+        .nearbyPanel {
+          margin: 14px 0 18px;
+          padding: 14px;
+          border-radius: 20px;
+          background: rgba(34,197,94,0.06);
+          border: 1px solid rgba(34,197,94,0.18);
+        }
+
+        .nearbyHeader {
+          margin-bottom: 10px;
+        }
+
+        .nearbyList {
+          display: grid;
+          gap: 8px;
+          max-height: 360px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .nearbyPlace {
+          width: 100%;
+          display: grid;
+          grid-template-columns: 32px 1fr auto;
+          gap: 10px;
+          align-items: center;
+          padding: 10px;
+          border-radius: 15px;
+          border: 1px solid rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.045);
+          color: white;
+          text-align: left;
           cursor: pointer;
         }
 
-        .primaryButton {
+        .nearbyIcon {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.15);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+        }
+
+        .nearbyText {
+          min-width: 0;
+        }
+
+        .nearbyPlace strong {
+          display: block;
+          color: white;
+          font-size: 14px;
+          margin-bottom: 3px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .nearbyPlace small {
+          display: block;
+          color: #94a3b8;
+          font-size: 12px;
+          line-height: 1.3;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .nearbyPlace b {
+          color: #22c55e;
+          white-space: nowrap;
+          font-size: 13px;
+        }
+
+        .routeStats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+          margin: 8px 0 20px;
+        }
+
+        .statBox {
+          border-radius: 16px;
+          background: rgba(34,197,94,0.08);
+          border: 1px solid rgba(34,197,94,0.18);
+          padding: 12px;
+          min-height: 72px;
+        }
+
+        .statBox small {
+          display: block;
+          color: #94a3b8;
+          font-size: 11px;
+          font-weight: 900;
+          text-transform: uppercase;
+          margin-bottom: 5px;
+        }
+
+        .statBox strong {
+          display: block;
+          color: #22c55e;
+          font-size: 15px;
+          overflow-wrap: anywhere;
+        }
+
+        .preview {
+          margin: 20px 0;
+          padding: 20px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .preview strong {
+          display: block;
+          font-size: 20px;
+          margin-bottom: 8px;
+          overflow-wrap: anywhere;
+        }
+
+        .coords {
+          margin: 6px 0;
+          font-size: 13px;
+          color: #94a3b8;
+        }
+
+        .preview a {
+          display: inline-block;
+          margin-top: 12px;
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .publish {
+          width: 100%;
+          border: 0;
+          border-radius: 999px;
+          padding: 18px;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
-          border: none;
+          font-size: 18px;
+          font-weight: 900;
+          cursor: pointer;
           box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
-        .secondaryTopButton {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
+        .publish:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          box-shadow: none;
         }
 
         .message {
           text-align: center;
           color: #22c55e;
           font-weight: 900;
-          margin: 26px 0;
-          line-height: 1.5;
         }
 
-        .rideCard {
-          background: rgba(8, 13, 25, 0.9);
-          border: 1px solid rgba(255,255,255,0.12);
-          border-radius: 30px;
-          padding: 28px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
-          backdrop-filter: blur(16px);
-          margin-bottom: 24px;
-        }
-
-        .routeHeader {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 18px;
-          align-items: start;
-        }
-
-        .label {
-          color: #22c55e;
-          font-size: 13px;
-          font-weight: 900;
-          margin: 0 0 8px;
-        }
-
-        h2 {
-          font-size: 34px;
-          line-height: 1.15;
-          margin: 0;
-          overflow-wrap: anywhere;
-        }
-
-        .fullRoute {
-          margin: 10px 0 0;
-          color: #64748b;
-          font-size: 14px;
-          line-height: 1.5;
-          overflow-wrap: anywhere;
-        }
-
-        .priceBox {
-          min-width: 120px;
-          padding: 16px;
-          border-radius: 20px;
-          background: rgba(34,197,94,0.1);
-          border: 1px solid rgba(34,197,94,0.35);
-          text-align: center;
-        }
-
-        .priceBox span {
-          display: block;
-          color: #a1a1aa;
-          font-size: 12px;
-          font-weight: 900;
-          margin-bottom: 6px;
-        }
-
-        .priceBox strong {
-          font-size: 34px;
-          font-weight: 900;
-        }
-
-        .routeStats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin: 22px 0 8px;
-        }
-
-        .statBox {
-          border-radius: 18px;
-          background: rgba(34,197,94,0.08);
-          border: 1px solid rgba(34,197,94,0.18);
-          padding: 14px;
-          min-height: 78px;
-        }
-
-        .statBox small {
-          display: block;
-          color: #94a3b8;
-          font-size: 12px;
-          font-weight: 900;
-          text-transform: uppercase;
-          margin-bottom: 6px;
-        }
-
-        .statBox strong {
-          display: block;
-          color: #22c55e;
-          font-size: 17px;
-          overflow-wrap: anywhere;
-        }
-
-        .chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin: 24px 0;
-        }
-
-        .chip {
-          padding: 10px 14px;
-          border-radius: 14px;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: #e5e7eb;
-          font-weight: 800;
-        }
-
-        .infoGrid {
-          display: grid;
-          gap: 10px;
-        }
-
-        .infoRow {
-          display: grid;
-          grid-template-columns: 42px 1fr;
-          gap: 12px;
-          align-items: center;
-          padding: 14px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.035);
-          border: 1px solid rgba(255,255,255,0.08);
-        }
-
-        .infoIcon {
-          width: 38px;
-          height: 38px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.15);
-        }
-
-        .infoText strong {
-          display: block;
-          color: #e5e7eb;
-          margin-bottom: 4px;
-        }
-
-        .infoText span {
-          color: #a1a1aa;
-          overflow-wrap: anywhere;
-        }
-
-        .mapButton {
-          display: block;
-          margin-top: 16px;
-          padding: 15px;
-          border-radius: 999px;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          color: #22c55e;
-          text-align: center;
-          text-decoration: none;
-          font-weight: 900;
-        }
-
-        .warning {
-          color: #fbbf24;
-          font-weight: 900;
-          margin: 18px 0 0;
-        }
-
-        .cardButtons {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-top: 24px;
-        }
-
-        .outlineButton {
-          display: block;
-          width: 100%;
-          padding: 15px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          text-align: center;
-          text-decoration: none;
-          font-size: 15px;
-          font-weight: 900;
-        }
-
-        .reserve {
-          width: 100%;
-          padding: 18px;
-          margin-top: 16px;
-          border: none;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          font-weight: 900;
-          font-size: 18px;
-          cursor: pointer;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
-        }
-
-        .reserve:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
-          box-shadow: none;
-        }
-
-        @media (max-width: 600px) {
+        @media (max-width: 720px) {
           .page {
             padding: 16px;
-            padding-bottom: 150px;
+            padding-bottom: 190px;
           }
 
-          .hero,
-          .rideCard {
+          .card {
             padding: 24px;
-            border-radius: 28px;
+            border-radius: 26px;
           }
 
-          h1 {
-            font-size: 50px;
-          }
+          h2 { font-size: 40px; }
 
-          h2 {
-            font-size: 30px;
-          }
-
-          .routeHeader,
-          .mainActions,
-          .cardButtons,
-          .routeStats {
+          .locationInputRow,
+          .priceRow,
+          .destinationBox {
             grid-template-columns: 1fr;
           }
 
-          .priceBox {
-            text-align: left;
+          .routeStats {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .gpsButton,
+          .priceRow button,
+          .clearButton {
+            padding: 15px;
+          }
+
+          .nearbyList {
+            max-height: 300px;
+          }
+
+          .nearbyPlace {
+            grid-template-columns: 30px 1fr auto;
           }
         }
       `}</style>
@@ -748,22 +1200,20 @@ export default function FindRidePage() {
   );
 }
 
-function Info({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="infoRow">
-      <div className="infoIcon">{icon}</div>
-      <div className="infoText">
-        <strong>{label}</strong>
-        <span>{value}</span>
-      </div>
+    <div className="field">
+      <label>{label}</label>
+      {children}
     </div>
   );
 }
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="statBox">
+      <small>{label}</small>
+      <strong>{value}</strong>
+    </div>
+  );
+  }
