@@ -1,7 +1,10 @@
+// app/admin/launch/page.tsx
+
 "use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
@@ -80,42 +83,123 @@ export default function AdminLaunchPage() {
   const [message, setMessage] = useState("Loading launch center...");
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(query(collection(db, "users")), (snapshot) => {
-      setUsers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as UserItem[]);
-      setMessage("");
-    });
+    const unsubUsers = onSnapshot(
+      query(collection(db, "users")),
+      (snapshot) => {
+        setUsers(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as UserItem[]
+        );
+        setMessage("");
+      },
+      (error) => setMessage(error.message)
+    );
 
-    const unsubRides = onSnapshot(query(collection(db, "rides")), (snapshot) => {
-      setRides(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as RideItem[]);
-    });
+    const unsubRides = onSnapshot(
+      query(collection(db, "rides")),
+      (snapshot) => {
+        setRides(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as RideItem[]
+        );
+      },
+      () => setRides([])
+    );
 
-    const unsubBookings = onSnapshot(query(collection(db, "bookings")), (snapshot) => {
-      setBookings(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as BookingItem[]);
-    });
+    const unsubBookings = onSnapshot(
+      query(collection(db, "bookings")),
+      (snapshot) => {
+        setBookings(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as BookingItem[]
+        );
+      },
+      () => setBookings([])
+    );
 
-    const unsubMessages = onSnapshot(query(collection(db, "messages")), (snapshot) => {
-      setMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as MessageItem[]);
-    });
+    const unsubMessages = onSnapshot(
+      query(collection(db, "messages")),
+      (snapshot) => {
+        setMessages(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as MessageItem[]
+        );
+      },
+      () => setMessages([])
+    );
 
-    const unsubVerifications = onSnapshot(query(collection(db, "driverVerifications")), (snapshot) => {
-      setVerifications(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as VerificationItem[]);
-    });
+    const unsubVerifications = onSnapshot(
+      query(collection(db, "driverVerifications")),
+      (snapshot) => {
+        setVerifications(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as VerificationItem[]
+        );
+      },
+      () => setVerifications([])
+    );
 
-    const unsubPayouts = onSnapshot(query(collection(db, "payoutRequests")), (snapshot) => {
-      setPayouts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as PayoutItem[]);
-    });
+    const unsubPayouts = onSnapshot(
+      query(collection(db, "payoutRequests")),
+      (snapshot) => {
+        setPayouts(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as PayoutItem[]
+        );
+      },
+      () => setPayouts([])
+    );
 
-    const unsubReports = onSnapshot(query(collection(db, "reports")), (snapshot) => {
-      setReports(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ReportItem[]);
-    });
+    const unsubReports = onSnapshot(
+      query(collection(db, "reports")),
+      (snapshot) => {
+        setReports(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as ReportItem[]
+        );
+      },
+      () => setReports([])
+    );
 
-    const unsubEmergencies = onSnapshot(query(collection(db, "emergencyAlerts")), (snapshot) => {
-      setEmergencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as EmergencyItem[]);
-    });
+    const unsubEmergencies = onSnapshot(
+      query(collection(db, "emergencyAlerts")),
+      (snapshot) => {
+        setEmergencies(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as EmergencyItem[]
+        );
+      },
+      () => setEmergencies([])
+    );
 
-    const unsubActivities = onSnapshot(query(collection(db, "activityFeed")), (snapshot) => {
-      setActivities(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ActivityItem[]);
-    });
+    const unsubActivities = onSnapshot(
+      query(collection(db, "activityFeed")),
+      (snapshot) => {
+        setActivities(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as ActivityItem[]
+        );
+      },
+      () => setActivities([])
+    );
 
     return () => {
       unsubUsers();
@@ -139,38 +223,89 @@ export default function AdminLaunchPage() {
   }
 
   const launch = useMemo(() => {
-    const verifiedDrivers = users.filter((item) => item.driverVerified || item.verified).length;
+    const verifiedDrivers = users.filter(
+      (item) => item.driverVerified || item.verified
+    ).length;
+
     const suspendedUsers = users.filter((item) => item.suspended).length;
 
-    const activeRides = rides.filter((item) => item.status === "active" || item.status === "open").length;
-    const completedRides = rides.filter((item) => item.status === "completed").length;
+    const activeRides = rides.filter(
+      (item) => item.status === "active" || item.status === "open"
+    ).length;
 
-    const completedBookings = bookings.filter((item) => item.status === "completed");
-    const activeBookings = bookings.filter(
-      (item) => item.status === "pending" || item.status === "reserved" || item.status === "confirmed"
+    const completedRides = rides.filter(
+      (item) => item.status === "completed"
+    ).length;
+
+    const completedBookings = bookings.filter(
+      (item) => item.status === "completed"
     );
-    const cancelledBookings = bookings.filter((item) => item.status === "cancelled" || item.status === "rejected");
 
-    const grossRevenue = completedBookings.reduce((total, item) => total + bookingValue(item), 0);
+    const activeBookings = bookings.filter(
+      (item) =>
+        item.status === "pending" ||
+        item.status === "reserved" ||
+        item.status === "confirmed"
+    );
+
+    const cancelledBookings = bookings.filter(
+      (item) => item.status === "cancelled" || item.status === "rejected"
+    );
+
+    const grossRevenue = completedBookings.reduce(
+      (total, item) => total + bookingValue(item),
+      0
+    );
+
     const roadLinkRevenue = grossRevenue * 0.12;
 
-    const pendingPayouts = payouts.filter((item) => item.status === "pending" || item.status === "approved");
+    const pendingPayouts = payouts.filter(
+      (item) => item.status === "pending" || item.status === "approved"
+    );
+
     const paidPayouts = payouts.filter((item) => item.status === "paid");
 
-    const pendingPayoutAmount = pendingPayouts.reduce((total, item) => total + Number(item.amount || 0), 0);
-    const paidOutAmount = paidPayouts.reduce((total, item) => total + Number(item.amount || 0), 0);
+    const pendingPayoutAmount = pendingPayouts.reduce(
+      (total, item) => total + Number(item.amount || 0),
+      0
+    );
 
-    const pendingVerifications = verifications.filter((item) => item.status === "pending").length;
-    const approvedVerifications = verifications.filter((item) => item.status === "approved").length;
+    const paidOutAmount = paidPayouts.reduce(
+      (total, item) => total + Number(item.amount || 0),
+      0
+    );
 
-    const openReports = reports.filter((item) => !item.status || item.status === "open").length;
-    const urgentReports = reports.filter((item) => item.priority === "urgent").length;
+    const pendingVerifications = verifications.filter(
+      (item) => item.status === "pending"
+    ).length;
 
-    const activeSOS = emergencies.filter((item) => item.status === "active").length;
-    const criticalSOS = emergencies.filter((item) => item.priority === "critical").length;
+    const approvedVerifications = verifications.filter(
+      (item) => item.status === "approved"
+    ).length;
 
-    const completionRate = bookings.length > 0 ? Math.round((completedBookings.length / bookings.length) * 100) : 0;
-    const driverRatio = users.length > 0 ? Math.round((verifiedDrivers / users.length) * 100) : 0;
+    const openReports = reports.filter(
+      (item) => !item.status || item.status === "open"
+    ).length;
+
+    const urgentReports = reports.filter(
+      (item) => item.priority === "urgent"
+    ).length;
+
+    const activeSOS = emergencies.filter(
+      (item) => item.status === "active"
+    ).length;
+
+    const criticalSOS = emergencies.filter(
+      (item) => item.priority === "critical"
+    ).length;
+
+    const completionRate =
+      bookings.length > 0
+        ? Math.round((completedBookings.length / bookings.length) * 100)
+        : 0;
+
+    const driverRatio =
+      users.length > 0 ? Math.round((verifiedDrivers / users.length) * 100) : 0;
 
     const checklist = [
       { label: "Authentication", ready: users.length > 0 },
@@ -178,7 +313,10 @@ export default function AdminLaunchPage() {
       { label: "Rides System", ready: rides.length > 0 },
       { label: "Bookings System", ready: bookings.length > 0 },
       { label: "Messaging", ready: messages.length > 0 },
-      { label: "Driver Verification", ready: verifications.length > 0 || verifiedDrivers > 0 },
+      {
+        label: "Driver Verification",
+        ready: verifications.length > 0 || verifiedDrivers > 0,
+      },
       { label: "Payouts", ready: payouts.length > 0 },
       { label: "Reports", ready: true },
       { label: "SOS Center", ready: emergencies.length > 0 },
@@ -189,12 +327,15 @@ export default function AdminLaunchPage() {
     ];
 
     const readyItems = checklist.filter((item) => item.ready).length;
+
     let readinessScore = Math.round((readyItems / checklist.length) * 100);
 
     if (activeSOS > 0) readinessScore -= 10;
     if (urgentReports > 0) readinessScore -= 8;
     if (suspendedUsers > 0) readinessScore -= 5;
-    if (pendingPayoutAmount > roadLinkRevenue && grossRevenue > 0) readinessScore -= 5;
+    if (pendingPayoutAmount > roadLinkRevenue && grossRevenue > 0) {
+      readinessScore -= 5;
+    }
 
     readinessScore = Math.max(Math.min(readinessScore, 100), 0);
 
@@ -233,7 +374,17 @@ export default function AdminLaunchPage() {
       missing,
       readinessScore,
     };
-  }, [users, rides, bookings, messages, verifications, payouts, reports, emergencies, activities]);
+  }, [
+    users,
+    rides,
+    bookings,
+    messages,
+    verifications,
+    payouts,
+    reports,
+    emergencies,
+    activities,
+  ]);
 
   const statusText =
     launch.readinessScore >= 90
@@ -246,23 +397,40 @@ export default function AdminLaunchPage() {
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin</Link>
-          <Link href="/admin/analytics" className="miniButton">Analytics</Link>
-          <Link href="/admin/revenue" className="miniButton">Revenue</Link>
-          <Link href="/admin/live" className="miniButton">Live</Link>
-          <Link href="/admin/emergency" className="miniButton dangerLink">SOS</Link>
+          <Link href="/admin" className="miniButton">
+            Admin
+          </Link>
+          <Link href="/admin/analytics" className="miniButton">
+            Analytics
+          </Link>
+          <Link href="/admin/revenue" className="miniButton">
+            Revenue
+          </Link>
+          <Link href="/admin/live" className="miniButton">
+            Live
+          </Link>
+          <Link href="/admin/emergency" className="miniButton dangerLink">
+            SOS
+          </Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Executive</p>
-            <h1>Launch <span>Center</span></h1>
+            <h1>
+              Launch <span>Center</span>
+            </h1>
             <p className="subtitle">
-              Review launch readiness, platform health, revenue, safety, growth and investor metrics.
+              Review launch readiness, platform health, revenue, safety, growth
+              and investor metrics.
             </p>
           </div>
 
-          <div className={launch.readinessScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
+          <div
+            className={
+              launch.readinessScore < 80 ? "scoreOrb warningScore" : "scoreOrb"
+            }
+          >
             <strong>{launch.readinessScore}%</strong>
             <span>{statusText}</span>
           </div>
@@ -284,13 +452,39 @@ export default function AdminLaunchPage() {
 
         <section className="stats">
           <Metric icon="👥" label="Users" value={String(users.length)} />
-          <Metric icon="🛡️" label="Verified Drivers" value={String(launch.verifiedDrivers)} />
-          <Metric icon="🚘" label="Active Rides" value={String(launch.activeRides)} />
+          <Metric
+            icon="🛡️"
+            label="Verified Drivers"
+            value={String(launch.verifiedDrivers)}
+          />
+          <Metric
+            icon="🚘"
+            label="Active Rides"
+            value={String(launch.activeRides)}
+          />
           <Metric icon="🎟️" label="Bookings" value={String(bookings.length)} />
-          <Metric icon="💰" label="Gross Revenue" value={money(launch.grossRevenue)} />
-          <Metric icon="🏦" label="RoadLink Revenue" value={money(launch.roadLinkRevenue)} />
-          <Metric icon="🚨" label="Active SOS" value={String(launch.activeSOS)} danger={launch.activeSOS > 0} />
-          <Metric icon="⚠️" label="Open Reports" value={String(launch.openReports)} danger={launch.openReports > 0} />
+          <Metric
+            icon="💰"
+            label="Gross Revenue"
+            value={money(launch.grossRevenue)}
+          />
+          <Metric
+            icon="🏦"
+            label="RoadLink Revenue"
+            value={money(launch.roadLinkRevenue)}
+          />
+          <Metric
+            icon="🚨"
+            label="Active SOS"
+            value={String(launch.activeSOS)}
+            danger={launch.activeSOS > 0}
+          />
+          <Metric
+            icon="⚠️"
+            label="Open Reports"
+            value={String(launch.openReports)}
+            danger={launch.openReports > 0}
+          />
         </section>
 
         <section className="gridTwo">
@@ -312,7 +506,10 @@ export default function AdminLaunchPage() {
             <Info label="Total Users" value={String(users.length)} />
             <Info label="Verified Driver Ratio" value={`${launch.driverRatio}%`} />
             <Info label="Completed Trips" value={String(launch.completedRides)} />
-            <Info label="Completed Bookings" value={String(launch.completedBookings.length)} />
+            <Info
+              label="Completed Bookings"
+              value={String(launch.completedBookings.length)}
+            />
             <Info label="Messages" value={String(messages.length)} />
             <Info label="Activity Events" value={String(activities.length)} />
           </Panel>
@@ -320,14 +517,22 @@ export default function AdminLaunchPage() {
           <Panel title="Revenue Snapshot" eyebrow="Investor View" icon="💵">
             <Info label="Lifetime Trip Value" value={money(launch.grossRevenue)} />
             <Info label="RoadLink Fees" value={money(launch.roadLinkRevenue)} />
-            <Info label="Pending Payouts" value={money(launch.pendingPayoutAmount)} />
+            <Info
+              label="Pending Payouts"
+              value={money(launch.pendingPayoutAmount)}
+            />
             <Info label="Paid Out" value={money(launch.paidOutAmount)} />
             <Info label="Completion Rate" value={`${launch.completionRate}%`} />
           </Panel>
         </section>
 
         <section className="gridTwo">
-          <Panel title="Safety Snapshot" eyebrow="Trust" icon="🚨" danger={launch.activeSOS > 0 || launch.openReports > 0}>
+          <Panel
+            title="Safety Snapshot"
+            eyebrow="Trust"
+            icon="🚨"
+            danger={launch.activeSOS > 0 || launch.openReports > 0}
+          >
             <Info label="Active SOS" value={String(launch.activeSOS)} />
             <Info label="Critical SOS" value={String(launch.criticalSOS)} />
             <Info label="Open Reports" value={String(launch.openReports)} />
@@ -761,7 +966,7 @@ function Panel({
   title: string;
   eyebrow: string;
   icon: string;
-  children: React.ReactNode;
+  children: ReactNode;
   danger?: boolean;
 }) {
   return (
