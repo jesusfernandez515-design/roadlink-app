@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -67,7 +67,35 @@ type Message = {
 };
 
 export default function ChatPage() {
-  return <ChatContent />;
+  return (
+    <Suspense fallback={<LoadingChat />}>
+      <ChatContent />
+    </Suspense>
+  );
+}
+
+function LoadingChat() {
+  return (
+    <main className="page">
+      <p className="status">Loading chat...</p>
+
+      <style>{`
+        .page {
+          min-height: 100vh;
+          background: #020617;
+          color: white;
+          padding: 24px;
+          font-family: Arial, sans-serif;
+        }
+
+        .status {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 900;
+        }
+      `}</style>
+    </main>
+  );
 }
 
 function ChatContent() {
@@ -167,7 +195,8 @@ function ChatContent() {
         setPassengerId(finalPassengerId);
         setChatId(finalChatId);
 
-        const receiverId = user.uid === finalDriverId ? finalPassengerId : finalDriverId;
+        const receiverId =
+          user.uid === finalDriverId ? finalPassengerId : finalDriverId;
 
         if (receiverId) {
           const userSnap = await getDoc(doc(db, "users", receiverId));
@@ -323,7 +352,9 @@ function ChatContent() {
         return;
       }
 
-      const receiverId = userId === finalDriverId ? finalPassengerId : finalDriverId;
+      const receiverId =
+        userId === finalDriverId ? finalPassengerId : finalDriverId;
+
       const now = new Date().toISOString();
 
       await addDoc(collection(db, "messages"), {
