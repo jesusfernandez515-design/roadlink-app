@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  addDoc,
   collection,
   doc,
   onSnapshot,
@@ -12,44 +13,50 @@ import {
 } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type VerificationStatus = "not_submitted" | "pending" | "approved" | "rejected";
+type VerificationStatus = "pending" | "approved" | "rejected";
 
 type DriverVerification = {
   id: string;
   userId?: string;
-  email?: string;
+  userEmail?: string;
+  name?: string;
+  phone?: string;
+  licenseNumber?: string;
+  licenseState?: string;
+  licenseExpiration?: string;
+  licenseImageUrl?: string;
+  selfieUrl?: string;
+  insuranceImageUrl?: string;
+  vehicleRegistrationUrl?: string;
   status?: VerificationStatus;
-  governmentIdURL?: string;
-  driverLicenseURL?: string;
-  insuranceURL?: string;
-  vehiclePhotoURL?: string;
+  rejectionReason?: string;
   submittedAt?: string;
+  createdAt?: string;
   updatedAt?: string;
   reviewedAt?: string;
-  rejectionReason?: string;
 };
 
 export default function AdminVerificationsPage() {
   const [verifications, setVerifications] = useState<DriverVerification[]>([]);
   const [selected, setSelected] = useState<DriverVerification | null>(null);
-  const [message, setMessage] = useState("Loading verification requests...");
+  const [filter, setFilter] = useState<"all" | VerificationStatus>("all");
+  const [search, setSearch] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [message, setMessage] = useState("Loading verifications...");
   const [loadingId, setLoadingId] = useState("");
-  const [rejectReason, setRejectReason] = useState("");
 
   useEffect(() => {
-    const verificationsQuery = query(collection(db, "driverVerifications"));
-
     const unsubscribe = onSnapshot(
-      verificationsQuery,
+      query(collection(db, "driverVerifications")),
       (snapshot) => {
-        const data = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
         })) as DriverVerification[];
 
         data.sort((a, b) =>
-          String(b.submittedAt || b.updatedAt || "").localeCompare(
-            String(a.submittedAt || a.updatedAt || "")
+          String(b.submittedAt || b.createdAt || b.updatedAt || "").localeCompare(
+            String(a.submittedAt || a.createdAt || a.updatedAt || "")
           )
         );
 
@@ -62,110 +69,156 @@ export default function AdminVerificationsPage() {
 
         setMessage("");
       },
-      (error) => {
-        setMessage(error.message);
-      }
+      (error) => setMessage(error.message)
     );
 
     return () => unsubscribe();
   }, []);
 
-  const pendingCount = useMemo(
-    () => verifications.filter((item) => item.status === "pending").length,
-    [verifications]
-  );
+  useEffect(() => {
+    setRejectionReason(selected?.rejectionReason || "");
+  }, [selected]);
 
-  const approvedCount = useMemo(
-    () => verifications.filter((item) => item.status === "approved").length,
-    [verifications]
-  );
+  const filteredVerifications = useMemo(() => {
+    const text = search.toLowerCase().trim();
 
-  const rejectedCount = useMemo(
-    () => verifications.filter((item) => item.status === "rejected").length,
-    [verifications]
-  );
+    return verifications.filter((item) => {
+      const status = item.status || "pending";
 
-  async function approveDriver(item: DriverVerification) {
-    const verificationDocId = item.id;
-    const userId = item.userId || item.id;
+      const matchesFilter = filter === "all" || status === filter;
 
-    if (!verificationDocId || !userId) {
-      setMessage("Missing verification ID or user ID.");
+      const matchesSearch =
+        !text ||
+        item.userEmail?.toLowerCase().includes(text) ||
+        item.name?.toLowerCase().includes(text) ||
+        item.phone?.toLowerCase().includes(text) ||
+        item.licenseNumber?.toLowerCase().includes(text) ||
+        item.licenseState?.toLowerCase().includes(text) ||
+        item.userId?.toLowerCase().includes(text) ||
+        item.id.toLowerCase().includes(text);
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [verifications, filter, search]);
+
+  const pendingCount = verifications.filter((item) => !item.status || item.status === "pending").length;
+  const approvedCount = verifications.filter((item) => item.status === "approved").length;
+  const rejectedCount = verifications.filter((item) => item.status === "rejected").length;
+
+  function dateText(value?: string) {
+    if (!value) return "Not available";
+
+    try {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "Not available";
+      return date.toLocaleString();
+    } catch {
+      return "Not available";
+    }
+  }
+
+  function verificationScore(item: DriverVerification) {
+    let score = 0;
+
+    if (item.licenseNumber) score += 20;
+    if (item.licenseState) score += 10;
+    if (item.licenseExpiration) score += 10;
+    if (item.licenseImageUrl) score += 25;
+    if (item.selfieUrl) score += 20;
+    if (item.insuranceImageUrl) score += 10;
+    if (item.vehicleRegistrationUrl) score += 5;
+
+    return Math.min(score, 100);
+  }
+
+  async function approveVerification(item: DriverVerification) {
+    if (!item.userId) {
+      setMessage("This verification does not have a user ID.");
       return;
     }
 
     try {
       setLoadingId(item.id);
-      setMessage("Approving driver...");
+      setMessage("");
 
       const now = new Date().toISOString();
 
-      await updateDoc(doc(db, "driverVerifications", verificationDocId), {
+      await updateDoc(doc(db, "driverVerifications", item.id), {
         status: "approved",
+        rejectionReason: "",
         reviewedAt: now,
         updatedAt: now,
-        rejectionReason: "",
       });
 
       await setDoc(
-        doc(db, "users", userId),
+        doc(db, "users", item.userId),
         {
           verified: true,
           driverVerified: true,
           licenseVerified: true,
           verificationStatus: "approved",
+          suspended: false,
           updatedAt: now,
         },
         { merge: true }
       );
 
-      setSelected((current) =>
-        current?.id === item.id
-          ? {
-              ...current,
-              status: "approved",
-              reviewedAt: now,
-              updatedAt: now,
-              rejectionReason: "",
-            }
-          : current
-      );
+      await addDoc(collection(db, "notifications"), {
+        userId: item.userId,
+        type: "verification",
+        title: "Driver Verification Approved",
+        message: "Your RoadLink driver verification has been approved.",
+        read: false,
+        createdAt: now,
+        actionUrl: "/profile",
+      });
+
+      await addDoc(collection(db, "auditLogs"), {
+        userId: item.userId,
+        userEmail: item.userEmail || "",
+        action: "Admin approved driver verification",
+        targetId: item.id,
+        targetType: "driverVerification",
+        details: "Driver was approved and marked as verified.",
+        severity: "success",
+        createdAt: now,
+      });
 
       setMessage("Driver approved successfully.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "Could not approve driver.");
     } finally {
       setLoadingId("");
     }
   }
 
-  async function rejectDriver(item: DriverVerification) {
-    const verificationDocId = item.id;
-    const userId = item.userId || item.id;
+  async function rejectVerification(item: DriverVerification) {
+    if (!item.userId) {
+      setMessage("This verification does not have a user ID.");
+      return;
+    }
 
-    if (!verificationDocId || !userId) {
-      setMessage("Missing verification ID or user ID.");
+    if (!rejectionReason.trim()) {
+      setMessage("Please write a rejection reason first.");
       return;
     }
 
     try {
       setLoadingId(item.id);
-      setMessage("Rejecting driver...");
+      setMessage("");
 
       const now = new Date().toISOString();
-      const finalReason = rejectReason.trim() || "Documents need review.";
 
-      await updateDoc(doc(db, "driverVerifications", verificationDocId), {
+      await updateDoc(doc(db, "driverVerifications", item.id), {
         status: "rejected",
+        rejectionReason: rejectionReason.trim(),
         reviewedAt: now,
         updatedAt: now,
-        rejectionReason: finalReason,
       });
 
       await setDoc(
-        doc(db, "users", userId),
+        doc(db, "users", item.userId),
         {
-          verified: false,
           driverVerified: false,
           licenseVerified: false,
           verificationStatus: "rejected",
@@ -174,72 +227,121 @@ export default function AdminVerificationsPage() {
         { merge: true }
       );
 
-      setSelected((current) =>
-        current?.id === item.id
-          ? {
-              ...current,
-              status: "rejected",
-              reviewedAt: now,
-              updatedAt: now,
-              rejectionReason: finalReason,
-            }
-          : current
-      );
+      await addDoc(collection(db, "notifications"), {
+        userId: item.userId,
+        type: "verification",
+        title: "Driver Verification Rejected",
+        message: rejectionReason.trim(),
+        read: false,
+        createdAt: now,
+        actionUrl: "/profile",
+      });
 
-      setRejectReason("");
-      setMessage("Driver rejected successfully.");
+      await addDoc(collection(db, "auditLogs"), {
+        userId: item.userId,
+        userEmail: item.userEmail || "",
+        action: "Admin rejected driver verification",
+        targetId: item.id,
+        targetType: "driverVerification",
+        details: rejectionReason.trim(),
+        severity: "warning",
+        createdAt: now,
+      });
+
+      setMessage("Driver verification rejected.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "Could not reject verification.");
     } finally {
       setLoadingId("");
     }
   }
 
-  function statusText(status?: VerificationStatus) {
-    if (status === "approved") return "Approved";
-    if (status === "pending") return "Pending";
-    if (status === "rejected") return "Rejected";
-    return "Not Submitted";
-  }
+  async function suspendDriver(item: DriverVerification) {
+    if (!item.userId) {
+      setMessage("This verification does not have a user ID.");
+      return;
+    }
 
-  function dateText(value?: string) {
-    if (!value) return "Not available";
+    const confirmSuspend = window.confirm("Are you sure you want to suspend this driver?");
+
+    if (!confirmSuspend) return;
 
     try {
-      return new Date(value).toLocaleString();
-    } catch {
-      return "Not available";
+      setLoadingId(item.id);
+      setMessage("");
+
+      const now = new Date().toISOString();
+
+      await setDoc(
+        doc(db, "users", item.userId),
+        {
+          suspended: true,
+          driverVerified: false,
+          verificationStatus: "suspended",
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      await updateDoc(doc(db, "driverVerifications", item.id), {
+        status: "rejected",
+        rejectionReason: "Driver suspended by admin.",
+        reviewedAt: now,
+        updatedAt: now,
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: item.userId,
+        type: "account",
+        title: "Account Suspended",
+        message: "Your RoadLink driver account was suspended after an admin review.",
+        read: false,
+        createdAt: now,
+        actionUrl: "/profile",
+      });
+
+      await addDoc(collection(db, "auditLogs"), {
+        userId: item.userId,
+        userEmail: item.userEmail || "",
+        action: "Admin suspended driver",
+        targetId: item.id,
+        targetType: "driverVerification",
+        details: "Driver account suspended from verification center.",
+        severity: "danger",
+        createdAt: now,
+      });
+
+      setMessage("Driver suspended successfully.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not suspend driver.");
+    } finally {
+      setLoadingId("");
     }
+  }
+
+  function statusLabel(status?: VerificationStatus) {
+    if (status === "approved") return "Approved";
+    if (status === "rejected") return "Rejected";
+    return "Pending";
   }
 
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
-
-          <Link href="/driver-verification" className="miniButton">
-            Driver Verification
-          </Link>
+          <Link href="/admin" className="miniButton">Admin Home</Link>
+          <Link href="/admin/users" className="miniButton">Users</Link>
+          <Link href="/admin/rides" className="miniButton">Rides</Link>
+          <Link href="/admin/fraud" className="miniButton">Fraud</Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Admin</p>
-
-            <h1>
-              Verification <span>Dashboard</span>
-            </h1>
-
+            <h1>Driver <span>Verification</span></h1>
             <p className="subtitle">
-              Review driver documents, approve verified drivers, and reject
-              incomplete applications.
+              Review driver licenses, identity documents, selfies, insurance, and approve safe drivers.
             </p>
           </div>
 
@@ -249,44 +351,61 @@ export default function AdminVerificationsPage() {
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
+          <Metric icon="📋" label="Total" value={String(verifications.length)} />
           <Metric icon="⏳" label="Pending" value={String(pendingCount)} />
           <Metric icon="✅" label="Approved" value={String(approvedCount)} />
-          <Metric icon="⛔" label="Rejected" value={String(rejectedCount)} />
-          <Metric icon="📋" label="Total" value={String(verifications.length)} />
+          <Metric icon="❌" label="Rejected" value={String(rejectedCount)} />
+        </section>
+
+        <section className="filtersCard">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by email, name, license, state, user ID..."
+          />
+
+          <select
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as "all" | VerificationStatus)}
+          >
+            <option value="all">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
         </section>
 
         <section className="adminGrid">
-          <div className="requestsCard">
-            <p className="eyebrow">Requests</p>
-            <h2>Driver Applications</h2>
+          <div className="listCard">
+            <p className="eyebrow">Applications</p>
+            <h2>Driver Requests</h2>
 
-            {verifications.length === 0 ? (
+            {filteredVerifications.length === 0 ? (
               <div className="empty">
-                <h3>No verification requests yet</h3>
-                <p>When drivers submit documents, they will appear here.</p>
+                <h3>No verification requests</h3>
+                <p>Driver verification requests will appear here.</p>
               </div>
             ) : (
-              <div className="requestList">
-                {verifications.map((item) => {
-                  const active = selected?.id === item.id;
+              <div className="verificationList">
+                {filteredVerifications.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setSelected(item)}
+                    className={selected?.id === item.id ? "verificationRow activeRow" : "verificationRow"}
+                  >
+                    <div className="rowIcon">🪪</div>
 
-                  return (
-                    <button
-                      key={item.id}
-                      className={active ? "request activeRequest" : "request"}
-                      onClick={() => setSelected(item)}
-                    >
-                      <div>
-                        <strong>{item.email || "RoadLink Driver"}</strong>
-                        <span>{dateText(item.submittedAt || item.updatedAt)}</span>
-                      </div>
+                    <div className="rowInfo">
+                      <strong>{item.name || item.userEmail || "RoadLink Driver"}</strong>
+                      <span>{item.userEmail || "No email"}</span>
+                      <small>{item.licenseState || "State"} • Score {verificationScore(item)}%</small>
+                    </div>
 
-                      <em className={`status ${item.status || "not_submitted"}`}>
-                        {statusText(item.status)}
-                      </em>
-                    </button>
-                  );
-                })}
+                    <em className={`status ${item.status || "pending"}`}>
+                      {statusLabel(item.status)}
+                    </em>
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -297,46 +416,55 @@ export default function AdminVerificationsPage() {
                 <div className="sectionHeader">
                   <div>
                     <p className="eyebrow">Selected Driver</p>
-                    <h2>{selected.email || "RoadLink Driver"}</h2>
+                    <h2>{selected.name || selected.userEmail || "Driver Application"}</h2>
+                    <p className="email">{selected.userEmail || "No email"}</p>
                   </div>
 
-                  <span className={`statusPill ${selected.status || "not_submitted"}`}>
-                    {statusText(selected.status)}
+                  <span className={`statusPill ${selected.status || "pending"}`}>
+                    {statusLabel(selected.status)}
                   </span>
                 </div>
 
+                <div className="scoreBox">
+                  <span>Verification Score</span>
+                  <strong>{verificationScore(selected)}%</strong>
+                </div>
+
                 <div className="infoGrid">
-                  <Info label="User ID" value={selected.userId || selected.id} />
-                  <Info label="Submitted" value={dateText(selected.submittedAt)} />
-                  <Info label="Updated" value={dateText(selected.updatedAt)} />
+                  <Info label="Verification ID" value={selected.id} />
+                  <Info label="User ID" value={selected.userId || "Not available"} />
+                  <Info label="Name" value={selected.name || "Not available"} />
+                  <Info label="Email" value={selected.userEmail || "Not available"} />
+                  <Info label="Phone" value={selected.phone || "Not available"} />
+                  <Info label="License Number" value={selected.licenseNumber || "Not available"} />
+                  <Info label="License State" value={selected.licenseState || "Not available"} />
+                  <Info label="Expiration Date" value={selected.licenseExpiration || "Not available"} />
+                  <Info label="Submitted" value={dateText(selected.submittedAt || selected.createdAt)} />
                   <Info label="Reviewed" value={dateText(selected.reviewedAt)} />
                 </div>
 
-                <div className="documents">
-                  <DocumentLink title="Government ID" url={selected.governmentIdURL} icon="🪪" />
-                  <DocumentLink title="Driver License" url={selected.driverLicenseURL} icon="🚘" />
-                  <DocumentLink title="Insurance" url={selected.insuranceURL} icon="📄" />
-                  <DocumentLink title="Vehicle Photo" url={selected.vehiclePhotoURL} icon="📸" />
-                </div>
+                <section className="documentsCard">
+                  <p className="eyebrow">Documents</p>
 
-                {selected.rejectionReason && (
-                  <div className="reasonBox">
-                    <strong>Rejection Reason</strong>
-                    <p>{selected.rejectionReason}</p>
+                  <div className="documentGrid">
+                    <DocumentLink title="Driver License" url={selected.licenseImageUrl} />
+                    <DocumentLink title="Selfie / Identity" url={selected.selfieUrl} />
+                    <DocumentLink title="Insurance" url={selected.insuranceImageUrl} />
+                    <DocumentLink title="Vehicle Registration" url={selected.vehicleRegistrationUrl} />
                   </div>
-                )}
+                </section>
 
-                <label className="rejectLabel">Rejection Reason</label>
+                <label>Rejection Reason</label>
                 <textarea
-                  value={rejectReason}
-                  onChange={(event) => setRejectReason(event.target.value)}
-                  placeholder="Example: Insurance document is missing or unclear."
+                  value={rejectionReason}
+                  onChange={(event) => setRejectionReason(event.target.value)}
+                  placeholder="Write reason if rejecting this verification..."
                 />
 
                 <div className="actionRow">
                   <button
                     className="approveButton"
-                    onClick={() => approveDriver(selected)}
+                    onClick={() => approveVerification(selected)}
                     disabled={loadingId === selected.id}
                   >
                     {loadingId === selected.id ? "Working..." : "Approve Driver"}
@@ -344,17 +472,25 @@ export default function AdminVerificationsPage() {
 
                   <button
                     className="rejectButton"
-                    onClick={() => rejectDriver(selected)}
+                    onClick={() => rejectVerification(selected)}
                     disabled={loadingId === selected.id}
                   >
-                    {loadingId === selected.id ? "Working..." : "Reject Driver"}
+                    Reject
+                  </button>
+
+                  <button
+                    className="suspendButton"
+                    onClick={() => suspendDriver(selected)}
+                    disabled={loadingId === selected.id}
+                  >
+                    Suspend Driver
                   </button>
                 </div>
               </>
             ) : (
               <div className="empty">
-                <h3>Select a driver</h3>
-                <p>Choose a verification request to review documents.</p>
+                <h3>Select a verification</h3>
+                <p>Choose a driver verification request to review.</p>
               </div>
             )}
           </div>
@@ -362,18 +498,17 @@ export default function AdminVerificationsPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 34%),
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
             radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
@@ -390,9 +525,6 @@ export default function AdminVerificationsPage() {
         }
 
         .miniButton {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
           padding: 11px 18px;
           border-radius: 999px;
           background: rgba(255,255,255,0.04);
@@ -404,7 +536,8 @@ export default function AdminVerificationsPage() {
 
         .hero,
         .metric,
-        .requestsCard,
+        .filtersCard,
+        .listCard,
         .detailsCard {
           background: rgba(8, 13, 25, 0.92);
           border: 1px solid rgba(255,255,255,0.12);
@@ -435,25 +568,25 @@ export default function AdminVerificationsPage() {
           font-size: 58px;
           line-height: 1;
           margin: 0 0 16px;
-          letter-spacing: -1px;
         }
 
         h1 span,
-        h2 {
+        h2,
+        .metricValue,
+        .scoreBox strong {
           color: #22c55e;
         }
 
         h2 {
           font-size: 32px;
-          margin: 0 0 20px;
+          margin: 0 0 12px;
         }
 
-        .subtitle {
-          max-width: 700px;
+        .subtitle,
+        .email,
+        .empty p {
           color: #a1a1aa;
-          font-size: 18px;
           line-height: 1.5;
-          margin: 0;
         }
 
         .heroIcon {
@@ -478,38 +611,64 @@ export default function AdminVerificationsPage() {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 14px;
-          margin-bottom: 24px;
+          margin-bottom: 18px;
         }
 
         .metric {
           border-radius: 24px;
-          padding: 22px;
+          padding: 18px;
         }
 
         .metricIcon {
-          width: 46px;
-          height: 46px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
           background: rgba(34,197,94,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
-          margin-bottom: 14px;
+          font-size: 22px;
+          margin-bottom: 12px;
         }
 
         .metricLabel {
           display: block;
           color: #a1a1aa;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 900;
           margin-bottom: 8px;
         }
 
         .metricValue {
-          color: #22c55e;
-          font-size: 30px;
+          font-size: 24px;
           font-weight: 900;
+        }
+
+        .filtersCard {
+          display: grid;
+          grid-template-columns: 1fr 220px;
+          gap: 12px;
+          border-radius: 24px;
+          padding: 18px;
+          margin-bottom: 24px;
+        }
+
+        input,
+        select,
+        textarea {
+          width: 100%;
+          padding: 15px;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.05);
+          color: white;
+          font-size: 16px;
+          outline: none;
+          font-family: Arial, sans-serif;
+        }
+
+        select option {
+          color: black;
         }
 
         .adminGrid {
@@ -518,24 +677,24 @@ export default function AdminVerificationsPage() {
           gap: 24px;
         }
 
-        .requestsCard,
+        .listCard,
         .detailsCard {
           border-radius: 30px;
           padding: 28px;
         }
 
-        .requestList {
+        .verificationList {
           display: grid;
           gap: 12px;
         }
 
-        .request {
+        .verificationRow {
           width: 100%;
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
+          display: grid;
+          grid-template-columns: 52px 1fr auto;
+          gap: 12px;
           align-items: center;
-          padding: 16px;
+          padding: 14px;
           border-radius: 18px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
@@ -544,20 +703,40 @@ export default function AdminVerificationsPage() {
           text-align: left;
         }
 
-        .activeRequest {
+        .activeRow {
           border-color: rgba(34,197,94,0.45);
           background: rgba(34,197,94,0.1);
         }
 
-        .request strong {
-          display: block;
-          margin-bottom: 6px;
-          overflow-wrap: anywhere;
+        .rowIcon {
+          width: 52px;
+          height: 52px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          border: 1px solid rgba(34,197,94,0.25);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 24px;
         }
 
-        .request span {
+        .rowInfo {
+          min-width: 0;
+        }
+
+        .rowInfo strong,
+        .rowInfo span,
+        .rowInfo small {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .rowInfo span,
+        .rowInfo small {
           color: #a1a1aa;
-          font-size: 12px;
+          margin-top: 4px;
         }
 
         .status,
@@ -591,19 +770,32 @@ export default function AdminVerificationsPage() {
           border: 1px solid rgba(239,68,68,0.35);
         }
 
-        .status.not_submitted,
-        .statusPill.not_submitted {
-          color: #a1a1aa;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
         .sectionHeader {
           display: flex;
           justify-content: space-between;
           gap: 16px;
           align-items: flex-start;
           margin-bottom: 20px;
+        }
+
+        .scoreBox {
+          padding: 22px;
+          border-radius: 22px;
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.35);
+          margin-bottom: 20px;
+        }
+
+        .scoreBox span {
+          display: block;
+          color: #a1a1aa;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .scoreBox strong {
+          font-size: 48px;
+          font-weight: 900;
         }
 
         .infoGrid {
@@ -613,7 +805,8 @@ export default function AdminVerificationsPage() {
           margin-bottom: 20px;
         }
 
-        .infoBox {
+        .infoBox,
+        .documentsCard {
           padding: 14px;
           border-radius: 16px;
           background: rgba(255,255,255,0.04);
@@ -632,84 +825,59 @@ export default function AdminVerificationsPage() {
           overflow-wrap: anywhere;
         }
 
-        .documents {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
+        .documentsCard {
           margin-bottom: 20px;
         }
 
-        .documentLink {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
+        .documentGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
           gap: 12px;
-          padding: 16px;
-          border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: white;
+        }
+
+        .docLink,
+        .docMissing {
+          padding: 14px;
+          border-radius: 16px;
           text-decoration: none;
           font-weight: 900;
+          text-align: center;
         }
 
-        .documentLink span {
-          font-size: 24px;
-        }
-
-        .documentLink em {
+        .docLink {
           color: #22c55e;
-          font-style: normal;
-          font-size: 13px;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .missingDoc {
-          opacity: 0.45;
+        .docMissing {
+          color: #a1a1aa;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .reasonBox {
-          padding: 16px;
-          border-radius: 18px;
-          background: rgba(239,68,68,0.1);
-          border: 1px solid rgba(239,68,68,0.25);
-          margin-bottom: 16px;
-        }
-
-        .reasonBox p {
-          color: #fca5a5;
-          margin-bottom: 0;
-        }
-
-        .rejectLabel {
+        label {
           display: block;
-          color: #e5e7eb;
           font-weight: 900;
           margin-bottom: 8px;
         }
 
         textarea {
-          width: 100%;
-          min-height: 110px;
-          padding: 16px;
-          border-radius: 18px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
-          color: white;
-          font-size: 15px;
-          outline: none;
+          min-height: 120px;
           resize: vertical;
           margin-bottom: 16px;
         }
 
         .actionRow {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: repeat(3, 1fr);
           gap: 12px;
         }
 
         .approveButton,
-        .rejectButton {
-          padding: 17px;
+        .rejectButton,
+        .suspendButton {
+          padding: 16px;
           border-radius: 999px;
           border: none;
           color: white;
@@ -722,7 +890,11 @@ export default function AdminVerificationsPage() {
         }
 
         .rejectButton {
-          background: linear-gradient(135deg, #ef4444, #b91c1c);
+          background: linear-gradient(135deg, #f97316, #c2410c);
+        }
+
+        .suspendButton {
+          background: linear-gradient(135deg, #ef4444, #991b1b);
         }
 
         button:disabled {
@@ -742,15 +914,10 @@ export default function AdminVerificationsPage() {
           font-size: 24px;
         }
 
-        .empty p {
-          color: #a1a1aa;
-          line-height: 1.5;
-          margin: 0;
-        }
-
         @media (max-width: 900px) {
           .page {
             padding: 16px;
+            padding-bottom: 140px;
           }
 
           .hero {
@@ -764,16 +931,35 @@ export default function AdminVerificationsPage() {
           }
 
           .stats,
+          .filtersCard,
           .adminGrid,
           .infoGrid,
-          .documents,
+          .documentGrid,
           .actionRow {
             grid-template-columns: 1fr;
           }
 
-          .requestsCard,
+          .listCard,
           .detailsCard {
             padding: 24px;
+          }
+
+          .verificationRow {
+            grid-template-columns: 46px 1fr;
+          }
+
+          .verificationRow .status {
+            grid-column: 1 / -1;
+            width: fit-content;
+          }
+
+          .rowIcon {
+            width: 46px;
+            height: 46px;
+          }
+
+          .sectionHeader {
+            flex-direction: column;
           }
         }
       `}</style>
@@ -803,35 +989,19 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
 }
 
-function DocumentLink({
-  title,
-  url,
-  icon,
-}: {
-  title: string;
-  url?: string;
-  icon: string;
-}) {
+function DocumentLink({ title, url }: { title: string; url?: string }) {
   if (!url) {
-    return (
-      <div className="documentLink missingDoc">
-        <span>{icon}</span>
-        <strong>{title}</strong>
-        <em>Missing</em>
-      </div>
-    );
+    return <div className="docMissing">{title}: Missing</div>;
   }
 
   return (
-    <a className="documentLink" href={url} target="_blank" rel="noreferrer">
-      <span>{icon}</span>
-      <strong>{title}</strong>
-      <em>View</em>
+    <a href={url} target="_blank" rel="noreferrer" className="docLink">
+      View {title}
     </a>
   );
 }
