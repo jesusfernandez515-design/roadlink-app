@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type RiskLevel = "low" | "medium" | "high";
+type RiskLevel = "low" | "medium" | "high" | "critical";
 type RiskFilter = "all" | RiskLevel;
 
 type UserItem = {
@@ -13,7 +13,10 @@ type UserItem = {
   name?: string;
   email?: string;
   suspended?: boolean;
+  verified?: boolean;
   driverVerified?: boolean;
+  createdAt?: string;
+  fraudReviewStatus?: string;
 };
 
 type BookingItem = {
@@ -23,6 +26,10 @@ type BookingItem = {
   passengerId?: string;
   passengerEmail?: string;
   status?: string;
+  price?: number;
+  amount?: number;
+  seatsBooked?: number;
+  createdAt?: string;
 };
 
 type ReportItem = {
@@ -32,6 +39,8 @@ type ReportItem = {
   reporterId?: string;
   reporterEmail?: string;
   priority?: string;
+  status?: string;
+  reason?: string;
   createdAt?: string;
 };
 
@@ -44,6 +53,7 @@ type DisputeItem = {
   passengerId?: string;
   passengerEmail?: string;
   priority?: string;
+  status?: string;
   createdAt?: string;
 };
 
@@ -53,15 +63,7 @@ type PayoutItem = {
   driverEmail?: string;
   email?: string;
   status?: string;
-  createdAt?: string;
-};
-
-type AuditLogItem = {
-  id: string;
-  action?: string;
-  details?: string;
-  severity?: string;
-  userEmail?: string;
+  amount?: number;
   createdAt?: string;
 };
 
@@ -69,15 +71,18 @@ type FraudCase = {
   id: string;
   userId: string;
   email: string;
-  reason: string;
-  risk: RiskLevel;
+  name: string;
   score: number;
+  risk: RiskLevel;
+  reason: string;
   details: string;
   reports: number;
   disputes: number;
   cancellations: number;
   payouts: number;
+  pendingPayoutAmount: number;
   suspended: boolean;
+  verified: boolean;
 };
 
 export default function AdminFraudPage() {
@@ -86,18 +91,22 @@ export default function AdminFraudPage() {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [disputes, setDisputes] = useState<DisputeItem[]>([]);
   const [payouts, setPayouts] = useState<PayoutItem[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [selected, setSelected] = useState<FraudCase | null>(null);
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
-  const [message, setMessage] = useState("Loading fraud intelligence...");
+  const [message, setMessage] = useState("Loading fraud detection center...");
   const [loadingId, setLoadingId] = useState("");
 
   useEffect(() => {
     const unsubUsers = onSnapshot(
       query(collection(db, "users")),
       (snapshot) => {
-        setUsers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as UserItem[]);
+        setUsers(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as UserItem[]
+        );
         setMessage("");
       },
       (error) => setMessage(error.message)
@@ -106,7 +115,12 @@ export default function AdminFraudPage() {
     const unsubBookings = onSnapshot(
       query(collection(db, "bookings")),
       (snapshot) => {
-        setBookings(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as BookingItem[]);
+        setBookings(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as BookingItem[]
+        );
       },
       () => setBookings([])
     );
@@ -114,7 +128,12 @@ export default function AdminFraudPage() {
     const unsubReports = onSnapshot(
       query(collection(db, "reports")),
       (snapshot) => {
-        setReports(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ReportItem[]);
+        setReports(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as ReportItem[]
+        );
       },
       () => setReports([])
     );
@@ -122,7 +141,12 @@ export default function AdminFraudPage() {
     const unsubDisputes = onSnapshot(
       query(collection(db, "disputes")),
       (snapshot) => {
-        setDisputes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as DisputeItem[]);
+        setDisputes(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as DisputeItem[]
+        );
       },
       () => setDisputes([])
     );
@@ -130,25 +154,14 @@ export default function AdminFraudPage() {
     const unsubPayouts = onSnapshot(
       query(collection(db, "payoutRequests")),
       (snapshot) => {
-        setPayouts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as PayoutItem[]);
+        setPayouts(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as PayoutItem[]
+        );
       },
       () => setPayouts([])
-    );
-
-    const unsubLogs = onSnapshot(
-      query(collection(db, "auditLogs")),
-      (snapshot) => {
-        const data = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as AuditLogItem[];
-
-        data.sort(
-          (a, b) =>
-            new Date(b.createdAt || 0).getTime() -
-            new Date(a.createdAt || 0).getTime()
-        );
-
-        setAuditLogs(data.slice(0, 8));
-      },
-      () => setAuditLogs([])
     );
 
     return () => {
@@ -157,7 +170,6 @@ export default function AdminFraudPage() {
       unsubReports();
       unsubDisputes();
       unsubPayouts();
-      unsubLogs();
     };
   }, []);
 
@@ -176,12 +188,12 @@ export default function AdminFraudPage() {
 
         const userDisputes = disputes.filter(
           (item) =>
+            item.userId === user.id ||
+            item.userEmail === user.email ||
             item.driverId === user.id ||
             item.passengerId === user.id ||
             item.driverEmail === user.email ||
-            item.passengerEmail === user.email ||
-            item.userId === user.id ||
-            item.userEmail === user.email
+            item.passengerEmail === user.email
         );
 
         const userBookings = bookings.filter(
@@ -206,67 +218,92 @@ export default function AdminFraudPage() {
             item.email === user.email
         );
 
-        const urgentReports = userReports.filter((item) => item.priority === "urgent").length;
-        const urgentDisputes = userDisputes.filter((item) => item.priority === "urgent").length;
         const pendingPayouts = userPayouts.filter(
           (item) => item.status === "pending" || item.status === "approved"
+        );
+
+        const pendingPayoutAmount = pendingPayouts.reduce(
+          (total, item) => total + Number(item.amount || 0),
+          0
+        );
+
+        const urgentReports = userReports.filter(
+          (item) => item.priority === "urgent" || item.priority === "critical"
+        ).length;
+
+        const urgentDisputes = userDisputes.filter(
+          (item) => item.priority === "urgent" || item.priority === "critical"
         ).length;
 
         let score =
-          userReports.length * 18 +
+          userReports.length * 16 +
           userDisputes.length * 20 +
-          cancelledBookings.length * 10 +
-          urgentReports * 20 +
-          urgentDisputes * 20 +
-          pendingPayouts * 8;
+          cancelledBookings.length * 9 +
+          urgentReports * 22 +
+          urgentDisputes * 22 +
+          pendingPayouts.length * 8;
 
+        if (pendingPayoutAmount >= 500) score += 15;
         if (user.suspended) score += 25;
-        if (!user.driverVerified && userPayouts.length > 0) score += 20;
+        if (!user.driverVerified && userPayouts.length > 0) score += 18;
 
         score = Math.min(score, 100);
 
         const risk: RiskLevel =
-          score >= 70 ? "high" : score >= 35 ? "medium" : "low";
+          score >= 90
+            ? "critical"
+            : score >= 70
+            ? "high"
+            : score >= 35
+            ? "medium"
+            : "low";
 
         const reasons: string[] = [];
 
         if (userReports.length > 0) reasons.push(`${userReports.length} report(s)`);
         if (userDisputes.length > 0) reasons.push(`${userDisputes.length} dispute(s)`);
         if (cancelledBookings.length > 0) reasons.push(`${cancelledBookings.length} cancellation(s)`);
-        if (pendingPayouts > 0) reasons.push(`${pendingPayouts} pending payout(s)`);
+        if (pendingPayouts.length > 0) reasons.push(`${pendingPayouts.length} pending payout(s)`);
+        if (pendingPayoutAmount >= 500) reasons.push("high payout exposure");
         if (user.suspended) reasons.push("account suspended");
-        if (!user.driverVerified && userPayouts.length > 0) reasons.push("payout without verification");
+        if (!user.driverVerified && userPayouts.length > 0) reasons.push("payout without driver verification");
 
         return {
           id: user.id,
           userId: user.id,
           email: userEmail,
-          reason: reasons.length > 0 ? reasons.join(", ") : "No major risk signals",
-          risk,
+          name: user.name || "RoadLink User",
           score,
+          risk,
+          reason: reasons.length ? reasons.join(", ") : "No major risk signals",
           details:
-            score >= 70
-              ? "High risk user. Review reports, disputes, payouts, cancellations, and account history."
-              : score >= 35
-              ? "Medium risk user. Monitor activity and recent complaints."
-              : "Low risk user. No major fraud pattern detected.",
+            risk === "critical"
+              ? "Critical account. Review immediately before allowing payments, rides, or passenger activity."
+              : risk === "high"
+              ? "High risk account. Review reports, disputes, payouts, and cancellations."
+              : risk === "medium"
+              ? "Medium risk account. Monitor manually before launch."
+              : "Low risk account. No major fraud pattern detected.",
           reports: userReports.length,
           disputes: userDisputes.length,
           cancellations: cancelledBookings.length,
           payouts: userPayouts.length,
+          pendingPayoutAmount,
           suspended: Boolean(user.suspended),
+          verified: Boolean(user.verified || user.driverVerified),
         };
       })
       .sort((a, b) => b.score - a.score);
   }, [users, bookings, reports, disputes, payouts]);
 
-  const filteredCases = useMemo<FraudCase[]>(() => {
+  const filteredCases = useMemo(() => {
     const value = search.toLowerCase().trim();
 
     return fraudCases.filter((item) => {
       const matchesSearch =
         !value ||
         item.email.toLowerCase().includes(value) ||
+        item.name.toLowerCase().includes(value) ||
         item.userId.toLowerCase().includes(value) ||
         item.reason.toLowerCase().includes(value);
 
@@ -284,66 +321,18 @@ export default function AdminFraudPage() {
     });
   }, [filteredCases]);
 
-  const highRiskCount = fraudCases.filter((item) => item.risk === "high").length;
-  const mediumRiskCount = fraudCases.filter((item) => item.risk === "medium").length;
-  const lowRiskCount = fraudCases.filter((item) => item.risk === "low").length;
+  const criticalCount = fraudCases.filter((item) => item.risk === "critical").length;
+  const highCount = fraudCases.filter((item) => item.risk === "high").length;
+  const mediumCount = fraudCases.filter((item) => item.risk === "medium").length;
+  const lowCount = fraudCases.filter((item) => item.risk === "low").length;
   const suspendedCount = fraudCases.filter((item) => item.suspended).length;
 
-  const platformSafety =
-    fraudCases.length === 0 ? 100 : Math.round((lowRiskCount / fraudCases.length) * 100);
+  const safetyScore =
+    fraudCases.length === 0
+      ? 100
+      : Math.max(100 - criticalCount * 25 - highCount * 15 - mediumCount * 6, 0);
 
-  const fraudHealth = Math.max(
-    100 - highRiskCount * 20 - mediumRiskCount * 8 - suspendedCount * 5,
-    0
-  );
-
-  const reportsThisWeek = useMemo(() => {
-    return reports.filter((item) => isThisWeek(item.createdAt)).length;
-  }, [reports]);
-
-  const disputesThisWeek = useMemo(() => {
-    return disputes.filter((item) => isThisWeek(item.createdAt)).length;
-  }, [disputes]);
-
-  const recentFraudEvents = useMemo(() => {
-    const events: { id: string; icon: string; title: string; description: string; danger?: boolean }[] = [];
-
-    auditLogs.forEach((item) => {
-      events.push({
-        id: `log-${item.id}`,
-        icon: item.severity === "danger" ? "⛔" : "📋",
-        title: item.action || "Audit Log",
-        description: item.userEmail || item.details || "Admin action",
-        danger: item.severity === "danger",
-      });
-    });
-
-    reports.slice(0, 3).forEach((item) => {
-      events.push({
-        id: `report-${item.id}`,
-        icon: "🚨",
-        title: item.priority === "urgent" ? "Urgent Report" : "User Report",
-        description: item.targetUserEmail || item.reporterEmail || "Safety report",
-        danger: item.priority === "urgent",
-      });
-    });
-
-    payouts
-      .filter((item) => item.status === "pending" || item.status === "approved")
-      .slice(0, 3)
-      .forEach((item) => {
-        events.push({
-          id: `payout-${item.id}`,
-          icon: "💰",
-          title: "Payout Review",
-          description: item.driverEmail || item.email || "Pending payout",
-        });
-      });
-
-    return events.slice(0, 8);
-  }, [auditLogs, reports, payouts]);
-
-  async function updateUserSuspension(item: FraudCase, suspended: boolean) {
+  async function updateUserStatus(item: FraudCase, suspended: boolean) {
     try {
       setLoadingId(item.userId);
       setMessage("");
@@ -354,7 +343,9 @@ export default function AdminFraudPage() {
         doc(db, "users", item.userId),
         {
           suspended,
-          fraudReviewStatus: suspended ? "suspended_by_admin" : "cleared_by_admin",
+          fraudReviewStatus: suspended ? "suspended_by_fraud_center" : "cleared_by_fraud_center",
+          fraudRiskScore: item.score,
+          fraudRiskLevel: item.risk,
           updatedAt: now,
         },
         { merge: true }
@@ -365,9 +356,7 @@ export default function AdminFraudPage() {
         {
           userId: item.userId,
           userEmail: item.email,
-          action: suspended
-            ? "User Suspended From Fraud Center"
-            : "User Cleared From Fraud Center",
+          action: suspended ? "User Suspended From Fraud Center" : "User Cleared From Fraud Center",
           targetId: item.userId,
           targetType: "user",
           details: item.reason,
@@ -384,8 +373,8 @@ export default function AdminFraudPage() {
           type: "account",
           title: suspended ? "Account Suspended" : "Account Reactivated",
           message: suspended
-            ? "Your RoadLink account was suspended after an admin review."
-            : "Your RoadLink account was reactivated after an admin review.",
+            ? "Your RoadLink account was suspended after an admin fraud review."
+            : "Your RoadLink account was cleared after an admin fraud review.",
           read: false,
           createdAt: now,
           actionUrl: "/profile",
@@ -393,7 +382,7 @@ export default function AdminFraudPage() {
         { merge: true }
       );
 
-      setMessage(suspended ? "User suspended successfully." : "User reactivated successfully.");
+      setMessage(suspended ? "User suspended successfully." : "User cleared successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
@@ -428,7 +417,7 @@ export default function AdminFraudPage() {
           targetId: item.userId,
           targetType: "user",
           details: item.reason,
-          severity: item.risk === "high" ? "warning" : "info",
+          severity: item.risk === "critical" || item.risk === "high" ? "warning" : "info",
           createdAt: now,
         },
         { merge: true }
@@ -442,30 +431,28 @@ export default function AdminFraudPage() {
     }
   }
 
+  function money(value: number) {
+    return `$${Math.round(value).toLocaleString()}`;
+  }
+
   function riskLabel(risk: RiskLevel) {
+    if (risk === "critical") return "Critical";
     if (risk === "high") return "High Risk";
     if (risk === "medium") return "Medium Risk";
     return "Low Risk";
   }
 
-  function shortText(value: string, max = 34) {
+  function shortText(value: string, max = 42) {
     if (!value) return "Not available";
     if (value.length <= max) return value;
     return `${value.slice(0, max)}...`;
   }
 
   function recommendedAction(item: FraudCase) {
-    if (item.score >= 70) return "🚨 Suspend Account";
-    if (item.score >= 35) return "⚠️ Manual Review";
-    return "✅ No Action Needed";
-  }
-
-  function isThisWeek(value?: string) {
-    if (!value) return false;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return false;
-    const diff = Date.now() - date.getTime();
-    return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000;
+    if (item.risk === "critical") return "🚨 Suspend immediately";
+    if (item.risk === "high") return "⚠️ Manual review required";
+    if (item.risk === "medium") return "🔎 Monitor account";
+    return "✅ No action needed";
   }
 
   return (
@@ -474,64 +461,42 @@ export default function AdminFraudPage() {
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin</Link>
           <Link href="/admin/reports" className="miniButton">Reports</Link>
-          <Link href="/admin/disputes" className="miniButton">Disputes</Link>
           <Link href="/admin/payouts" className="miniButton">Payouts</Link>
-          <Link href="/admin/audit-log" className="miniButton">Audit Log</Link>
+          <Link href="/admin/logs" className="miniButton">Logs</Link>
+          <Link href="/admin/live" className="miniButton">Live</Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Admin</p>
-            <h1>Fraud <span>Intelligence</span></h1>
+            <h1>Fraud <span>Detection</span></h1>
             <p className="subtitle">
-              Detect risky users, suspicious payouts, cancelled bookings and safety reports.
+              Detect suspicious accounts, payout risks, reports, disputes, cancellations and unsafe user patterns.
             </p>
           </div>
 
-          <div className={fraudHealth < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
-            <strong>{platformSafety}%</strong>
-            <span>Safe</span>
+          <div className={safetyScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
+            <strong>{safetyScore}</strong>
+            <span>Safety Score</span>
           </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚨" label="High" value={String(highRiskCount)} danger={highRiskCount > 0} />
-          <Metric icon="⚠️" label="Medium" value={String(mediumRiskCount)} danger={mediumRiskCount > 0} />
-          <Metric icon="✅" label="Low" value={String(lowRiskCount)} />
-          <Metric icon="⛔" label="Suspended" value={String(suspendedCount)} danger={suspendedCount > 0} />
+          <Metric icon="🚨" label="Critical" value={String(criticalCount)} danger={criticalCount > 0} />
+          <Metric icon="⛔" label="High Risk" value={String(highCount)} danger={highCount > 0} />
+          <Metric icon="⚠️" label="Medium" value={String(mediumCount)} danger={mediumCount > 0} />
+          <Metric icon="✅" label="Low Risk" value={String(lowCount)} />
           <Metric icon="👥" label="Scanned" value={String(fraudCases.length)} />
-          <Metric icon="🛡️" label="Health" value={String(fraudHealth)} danger={fraudHealth < 80} />
-        </section>
-
-        <section className="distributionCard">
-          <p className="eyebrow">Risk Distribution</p>
-          <h2>Platform Safety</h2>
-
-          <div className="barWrap">
-            <div className="barFill" style={{ width: `${platformSafety}%` }} />
-          </div>
-
-          <div className="distributionMeta">
-            <span>Low Risk: {lowRiskCount}</span>
-            <span>Medium: {mediumRiskCount}</span>
-            <span>High: {highRiskCount}</span>
-          </div>
-        </section>
-
-        <section className="trendGrid">
-          <Metric icon="🚨" label="Reports This Week" value={String(reportsThisWeek)} danger={reportsThisWeek > 0} />
-          <Metric icon="⚖️" label="Disputes This Week" value={String(disputesThisWeek)} danger={disputesThisWeek > 0} />
-          <Metric icon="⛔" label="Suspended Users" value={String(suspendedCount)} danger={suspendedCount > 0} />
-          <Metric icon="📈" label="High Risk Users" value={String(highRiskCount)} danger={highRiskCount > 0} />
+          <Metric icon="🔒" label="Suspended" value={String(suspendedCount)} danger={suspendedCount > 0} />
         </section>
 
         <section className="filters">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search email, UID, reason..."
+            placeholder="Search by email, name, UID or reason..."
           />
 
           <select
@@ -539,6 +504,7 @@ export default function AdminFraudPage() {
             onChange={(event) => setRiskFilter(event.target.value as RiskFilter)}
           >
             <option value="all">All risk levels</option>
+            <option value="critical">Critical</option>
             <option value="high">High risk</option>
             <option value="medium">Medium risk</option>
             <option value="low">Low risk</option>
@@ -553,7 +519,7 @@ export default function AdminFraudPage() {
             {filteredCases.length === 0 ? (
               <div className="empty">
                 <h3>No fraud cases found</h3>
-                <p>No suspicious accounts match your filters.</p>
+                <p>No suspicious users match your search or filters.</p>
               </div>
             ) : (
               <div className="fraudList">
@@ -564,12 +530,18 @@ export default function AdminFraudPage() {
                     onClick={() => setSelected(item)}
                   >
                     <div className={`fraudIcon ${item.risk}`}>
-                      {item.risk === "high" ? "🚨" : item.risk === "medium" ? "⚠️" : "✅"}
+                      {item.risk === "critical"
+                        ? "🚨"
+                        : item.risk === "high"
+                        ? "⛔"
+                        : item.risk === "medium"
+                        ? "⚠️"
+                        : "✅"}
                     </div>
 
                     <div className="fraudInfo">
-                      <strong>{shortText(item.email, 32)}</strong>
-                      <span>{shortText(item.reason, 48)}</span>
+                      <strong>{shortText(item.email, 34)}</strong>
+                      <span>{shortText(item.reason, 52)}</span>
                       <small>Score {item.score}/100</small>
                     </div>
 
@@ -586,8 +558,8 @@ export default function AdminFraudPage() {
                 <div className="sectionHeader">
                   <div>
                     <p className="eyebrow">Selected Account</p>
-                    <h2>{shortText(selected.email, 36)}</h2>
-                    <p className="email">{shortText(selected.userId, 40)}</p>
+                    <h2>{shortText(selected.email, 42)}</h2>
+                    <p className="email">{selected.name}</p>
                   </div>
 
                   <span className={`riskPill ${selected.risk}`}>
@@ -615,10 +587,10 @@ export default function AdminFraudPage() {
                   <Info label="Reports" value={String(selected.reports)} />
                   <Info label="Disputes" value={String(selected.disputes)} />
                   <Info label="Cancellations" value={String(selected.cancellations)} />
-                  <Info label="Payouts" value={String(selected.payouts)} />
+                  <Info label="Payout Requests" value={String(selected.payouts)} />
+                  <Info label="Pending Payout Exposure" value={money(selected.pendingPayoutAmount)} />
                   <Info label="Suspended" value={selected.suspended ? "Yes" : "No"} />
-                  <Info label="Risk Level" value={riskLabel(selected.risk)} />
-                  <Info label="Email" value={selected.email} />
+                  <Info label="Verified" value={selected.verified ? "Yes" : "No"} />
                   <Info label="User ID" value={selected.userId} />
                 </div>
 
@@ -628,19 +600,16 @@ export default function AdminFraudPage() {
                     onClick={() => markForReview(selected)}
                     disabled={loadingId === selected.userId}
                   >
-                    🔍 Review
+                    🔎 Review
                   </button>
 
-                  <Link
-                    href={`/admin/chat?user=${selected.userId}`}
-                    className="linkButton"
-                  >
-                    📧 Contact
+                  <Link href={`/admin/users?user=${selected.userId}`} className="linkButton">
+                    👤 User
                   </Link>
 
                   <button
                     className="rejectButton"
-                    onClick={() => updateUserSuspension(selected, true)}
+                    onClick={() => updateUserStatus(selected, true)}
                     disabled={loadingId === selected.userId}
                   >
                     ⛔ Suspend
@@ -648,7 +617,7 @@ export default function AdminFraudPage() {
 
                   <button
                     className="approveButton"
-                    onClick={() => updateUserSuspension(selected, false)}
+                    onClick={() => updateUserStatus(selected, false)}
                     disabled={loadingId === selected.userId}
                   >
                     ✅ Clear
@@ -658,34 +627,10 @@ export default function AdminFraudPage() {
             ) : (
               <div className="empty">
                 <h3>Select an account</h3>
-                <p>Choose a suspicious account to review risk details.</p>
+                <p>Choose a suspicious account to review fraud signals.</p>
               </div>
             )}
           </div>
-        </section>
-
-        <section className="eventsCard">
-          <p className="eyebrow">Fraud Activity</p>
-          <h2>Recent Fraud Events</h2>
-
-          {recentFraudEvents.length === 0 ? (
-            <div className="empty">
-              <h3>No recent events</h3>
-              <p>Fraud logs, reports and payout reviews will appear here.</p>
-            </div>
-          ) : (
-            <div className="eventList">
-              {recentFraudEvents.map((item) => (
-                <div key={item.id} className={item.danger ? "eventRow dangerEvent" : "eventRow"}>
-                  <div className="eventIcon">{item.icon}</div>
-                  <div>
-                    <strong>{shortText(item.title, 36)}</strong>
-                    <span>{shortText(item.description, 52)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </section>
       </section>
 
@@ -700,14 +645,14 @@ export default function AdminFraudPage() {
         .page {
           width: 100%;
           min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 12px;
           padding-bottom: 150px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.12), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
         .container {
@@ -738,9 +683,7 @@ export default function AdminFraudPage() {
         .metric,
         .filters,
         .fraudCard,
-        .detailsCard,
-        .distributionCard,
-        .eventsCard {
+        .detailsCard {
           background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 16px 44px rgba(0,0,0,0.45);
@@ -782,7 +725,6 @@ export default function AdminFraudPage() {
         h2 {
           font-size: 24px;
           margin: 0 0 12px;
-          overflow-wrap: anywhere;
         }
 
         .subtitle,
@@ -816,7 +758,7 @@ export default function AdminFraudPage() {
 
         .scoreOrb strong {
           color: #22c55e;
-          font-size: 22px;
+          font-size: 24px;
           font-weight: 900;
         }
 
@@ -837,8 +779,7 @@ export default function AdminFraudPage() {
           font-size: 13px;
         }
 
-        .stats,
-        .trendGrid {
+        .stats {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
@@ -884,41 +825,6 @@ export default function AdminFraudPage() {
           font-weight: 900;
         }
 
-        .distributionCard,
-        .eventsCard {
-          border-radius: 22px;
-          padding: 16px;
-          margin-bottom: 12px;
-        }
-
-        .barWrap {
-          width: 100%;
-          height: 14px;
-          border-radius: 999px;
-          overflow: hidden;
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.1);
-          margin-bottom: 10px;
-        }
-
-        .barFill {
-          height: 100%;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-        }
-
-        .distributionMeta {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 6px;
-        }
-
-        .distributionMeta span {
-          color: #a1a1aa;
-          font-size: 11px;
-          font-weight: 900;
-        }
-
         .filters {
           display: grid;
           grid-template-columns: 1fr;
@@ -948,7 +854,6 @@ export default function AdminFraudPage() {
           display: grid;
           grid-template-columns: 1fr;
           gap: 12px;
-          margin-bottom: 12px;
         }
 
         .fraudCard,
@@ -958,8 +863,7 @@ export default function AdminFraudPage() {
           overflow: hidden;
         }
 
-        .fraudList,
-        .eventList {
+        .fraudList {
           display: grid;
           gap: 8px;
         }
@@ -985,8 +889,7 @@ export default function AdminFraudPage() {
           background: rgba(34,197,94,0.1);
         }
 
-        .fraudIcon,
-        .eventIcon {
+        .fraudIcon {
           width: 42px;
           height: 42px;
           border-radius: 50%;
@@ -998,14 +901,15 @@ export default function AdminFraudPage() {
           border: 1px solid rgba(34,197,94,0.25);
         }
 
+        .fraudIcon.critical,
         .fraudIcon.high {
           background: rgba(239,68,68,0.13);
-          border: 1px solid rgba(239,68,68,0.35);
+          border-color: rgba(239,68,68,0.35);
         }
 
         .fraudIcon.medium {
           background: rgba(250,204,21,0.13);
-          border: 1px solid rgba(250,204,21,0.35);
+          border-color: rgba(250,204,21,0.35);
         }
 
         .fraudInfo {
@@ -1045,6 +949,13 @@ export default function AdminFraudPage() {
           font-weight: 900;
           font-size: 10px;
           white-space: nowrap;
+        }
+
+        .risk.critical,
+        .riskPill.critical {
+          color: #fecaca;
+          background: rgba(185,28,28,0.25);
+          border: 1px solid rgba(239,68,68,0.45);
         }
 
         .risk.high,
@@ -1098,10 +1009,6 @@ export default function AdminFraudPage() {
           font-weight: 900;
           font-size: 11px;
           margin-bottom: 6px;
-        }
-
-        .recommendationBox span {
-          color: #93c5fd;
         }
 
         .scoreBox strong {
@@ -1200,40 +1107,6 @@ export default function AdminFraudPage() {
           border: 1px solid rgba(255,255,255,0.12);
         }
 
-        .eventRow {
-          display: grid;
-          grid-template-columns: 42px 1fr;
-          gap: 10px;
-          align-items: center;
-          padding: 12px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .dangerEvent {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.18);
-        }
-
-        .eventRow strong,
-        .eventRow span {
-          display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .eventRow strong {
-          font-size: 13px;
-        }
-
-        .eventRow span {
-          color: #a1a1aa;
-          font-size: 11px;
-          margin-top: 3px;
-        }
-
         button:disabled {
           opacity: 0.6;
           cursor: not-allowed;
@@ -1261,14 +1134,6 @@ export default function AdminFraudPage() {
             grid-template-columns: repeat(6, 1fr);
           }
 
-          .trendGrid {
-            grid-template-columns: repeat(4, 1fr);
-          }
-
-          .distributionMeta {
-            grid-template-columns: repeat(3, 1fr);
-          }
-
           .filters {
             grid-template-columns: 1fr 220px;
             padding: 18px;
@@ -1280,9 +1145,7 @@ export default function AdminFraudPage() {
           }
 
           .fraudCard,
-          .detailsCard,
-          .distributionCard,
-          .eventsCard {
+          .detailsCard {
             padding: 28px;
           }
 
@@ -1334,4 +1197,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value || "Not available"}</strong>
     </div>
   );
-                                                    }
+}
