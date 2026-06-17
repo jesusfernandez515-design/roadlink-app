@@ -27,6 +27,7 @@ type Ride = {
   seats: number;
   originalSeats?: number;
   price: number;
+  suggestedPrice?: number;
   vehicle?: string;
   notes?: string;
   status?: string;
@@ -83,6 +84,16 @@ function RideDetailsContent() {
 
   const isOwnRide = Boolean(ride?.driverId && userId && ride.driverId === userId);
   const noSeats = Number(ride?.seats || 0) <= 0;
+
+  function routeMapUrl(currentRide: Ride) {
+    if (currentRide.mapUrl) return currentRide.mapUrl;
+
+    if (!currentRide.from || !currentRide.to) return "";
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      currentRide.from
+    )}&destination=${encodeURIComponent(currentRide.to)}&travelmode=driving`;
+  }
 
   async function loadRide(currentUserId?: string) {
     if (!rideId) {
@@ -163,11 +174,12 @@ function RideDetailsContent() {
         date: ride.date,
         time: ride.time,
         price: Number(ride.price || 0),
+        suggestedPrice: Number(ride.suggestedPrice || 0),
         distanceText: ride.distanceText || "",
         durationText: ride.durationText || "",
         distanceMiles: Number(ride.distanceMiles || 0),
         durationMinutes: Number(ride.durationMinutes || 0),
-        mapUrl: ride.mapUrl || "",
+        mapUrl: routeMapUrl(ride),
         seatsBooked: 1,
         status: "reserved",
         createdAt: new Date().toISOString(),
@@ -266,6 +278,7 @@ function RideDetailsContent() {
             <Stat label="Distance" value={ride.distanceText || "Not available"} />
             <Stat label="Duration" value={ride.durationText || "Not available"} />
             <Stat label="Miles" value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"} />
+            <Stat label="Suggested" value={ride.suggestedPrice ? `$${ride.suggestedPrice}` : "N/A"} />
           </div>
 
           <div className="chips">
@@ -282,9 +295,14 @@ function RideDetailsContent() {
             {ride.notes && <Info icon="📝" label="Trip Notes" value={ride.notes} />}
           </div>
 
-          {ride.mapUrl && (
-            <a href={ride.mapUrl} target="_blank" rel="noopener noreferrer" className="mapButton">
-              Open Route in Google Maps
+          {routeMapUrl(ride) && (
+            <a
+              href={routeMapUrl(ride)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mapButton"
+            >
+              🗺️ Open Route in Google Maps
             </a>
           )}
 
@@ -335,7 +353,7 @@ function RideDetailsContent() {
 
         .hero,
         .detailsCard {
-          max-width: 860px;
+          max-width: 900px;
           margin-left: auto;
           margin-right: auto;
           background: rgba(8,13,25,0.9);
@@ -460,7 +478,7 @@ function RideDetailsContent() {
 
         .routeStats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
           margin: 24px 0;
         }
