@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "../../lib/firebase";
@@ -23,12 +24,18 @@ type Ride = {
   time: string;
   seats: number;
   price: number;
+  suggestedPrice?: number;
   vehicle: string;
   notes?: string;
   status: string;
   driverId?: string;
   driverEmail?: string;
   createdAt?: string;
+  distanceText?: string;
+  durationText?: string;
+  distanceMiles?: number;
+  durationMinutes?: number;
+  mapUrl?: string;
 };
 
 type Booking = {
@@ -128,6 +135,11 @@ export default function MyRidesPage() {
       return total + Number(ride?.price || 0) * Number(booking.seatsBooked || 1);
     }, 0);
 
+  const totalMiles = rides.reduce(
+    (total, ride) => total + Number(ride.distanceMiles || 0),
+    0
+  );
+
   const groupedRides = useMemo(() => {
     return {
       active: rides.filter((ride) => ride.status === "active" || ride.status === "full"),
@@ -140,6 +152,15 @@ export default function MyRidesPage() {
     return bookings.filter(
       (booking) => booking.rideId === rideId && booking.status !== "cancelled"
     );
+  }
+
+  function formatMoney(value?: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  function formatMiles(value?: number) {
+    if (!value) return "Not calculated";
+    return `${Number(value).toFixed(1)} miles`;
   }
 
   async function updateRideStatus(ride: Ride, status: "completed" | "cancelled" | "active") {
@@ -215,12 +236,38 @@ export default function MyRidesPage() {
         <div className="routeHeader">
           <div>
             <p className="eyebrow">Published Ride</p>
-            <h2>{ride.from} <span>→</span> {ride.to}</h2>
+            <h2>
+              {ride.from} <span>→</span> {ride.to}
+            </h2>
           </div>
 
           <div className="priceBox">
             <small>PRICE</small>
-            <strong>${ride.price}</strong>
+            <strong>{formatMoney(ride.price)}</strong>
+          </div>
+        </div>
+
+        <div className="gpsPanel">
+          <div className="gpsItem">
+            <small>DISTANCE</small>
+            <strong>{ride.distanceText || "Not calculated"}</strong>
+          </div>
+
+          <div className="gpsItem">
+            <small>DURATION</small>
+            <strong>{ride.durationText || "Not calculated"}</strong>
+          </div>
+
+          <div className="gpsItem">
+            <small>MILES</small>
+            <strong>{formatMiles(ride.distanceMiles)}</strong>
+          </div>
+
+          <div className="gpsItem suggested">
+            <small>SUGGESTED</small>
+            <strong>
+              {ride.suggestedPrice ? formatMoney(ride.suggestedPrice) : "Not set"}
+            </strong>
           </div>
         </div>
 
@@ -228,13 +275,29 @@ export default function MyRidesPage() {
           <div className="chip">📅 {ride.date}</div>
           <div className="chip">🕒 {ride.time}</div>
           <div className="chip">💺 {ride.seats} seats left</div>
-          <div className="chip">🎟️ {passengers.length} passenger{passengers.length === 1 ? "" : "s"}</div>
+          <div className="chip">
+            🎟️ {passengers.length} passenger{passengers.length === 1 ? "" : "s"}
+          </div>
           <div className={getStatusClass(ride.status)}>● {ride.status}</div>
         </div>
 
         <div className="infoGrid">
           <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not specified"} />
-          <Info icon="👤" label="Driver" value={ride.driverEmail || currentUser?.email || "RoadLink Driver"} />
+          <Info
+            icon="👤"
+            label="Driver"
+            value={ride.driverEmail || currentUser?.email || "RoadLink Driver"}
+          />
+          <Info
+            icon="🛣️"
+            label="Route Distance"
+            value={ride.distanceText || formatMiles(ride.distanceMiles)}
+          />
+          <Info
+            icon="⏱️"
+            label="Estimated Time"
+            value={ride.durationText || "Not calculated"}
+          />
           {ride.notes && <Info icon="📝" label="Notes" value={ride.notes} />}
         </div>
 
@@ -248,6 +311,13 @@ export default function MyRidesPage() {
                 <strong>{booking.status || "reserved"}</strong>
               </div>
             ))}
+
+            {passengers.length > 3 && (
+              <p className="morePassengers">
+                +{passengers.length - 3} more passenger
+                {passengers.length - 3 === 1 ? "" : "s"}
+              </p>
+            )}
           </div>
         )}
 
@@ -263,6 +333,17 @@ export default function MyRidesPage() {
           <Link href={`/edit-ride?rideId=${ride.id}`} className="outlineButton">
             Edit Ride
           </Link>
+
+          {ride.mapUrl && (
+            <a
+              href={ride.mapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mapButton"
+            >
+              Open Route In Google Maps
+            </a>
+          )}
 
           {!isFinal && (
             <button
@@ -302,25 +383,45 @@ export default function MyRidesPage() {
     <main className="page">
       <section className="hero">
         <div className="topActions">
-          <button className="miniButton" onClick={() => router.back()}>← Back</button>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/find-ride" className="miniButton">Find Ride</Link>
-          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
+          <button className="miniButton" onClick={() => router.back()}>
+            ← Back
+          </button>
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
+          <Link href="/find-ride" className="miniButton">
+            Find Ride
+          </Link>
+          <Link href="/offer-ride" className="miniButton">
+            Offer Ride
+          </Link>
+          <Link href="/profile" className="miniButton">
+            Profile
+          </Link>
         </div>
 
-        <div className="logo">Road<span>Link</span></div>
+        <div className="logo">
+          Road<span>Link</span>
+        </div>
+
         <p className="eyebrow">Driver Control Center</p>
 
-        <h1>My <span>Rides</span></h1>
+        <h1>
+          My <span>Rides</span>
+        </h1>
 
         <p className="subtitle">
-          Manage your published routes, passengers, availability, completed trips, and cancellations.
+          Manage your published routes, passengers, real GPS distance, route time,
+          availability, completed trips, and cancellations.
         </p>
 
         <div className="mainActions">
-          <Link href="/offer-ride" className="primaryButton">Offer New Ride</Link>
-          <Link href="/dashboard" className="secondaryTopButton">Back to Dashboard</Link>
+          <Link href="/offer-ride" className="primaryButton">
+            Offer New Ride
+          </Link>
+          <Link href="/dashboard" className="secondaryTopButton">
+            Back to Dashboard
+          </Link>
         </div>
       </section>
 
@@ -330,7 +431,8 @@ export default function MyRidesPage() {
         <Metric icon="✅" label="Completed" value={String(completedRides)} />
         <Metric icon="❌" label="Cancelled" value={String(cancelledRides)} />
         <Metric icon="🎟️" label="Reserved Seats" value={String(reservedSeats)} />
-        <Metric icon="💵" label="Estimated" value={`$${estimatedEarnings}`} />
+        <Metric icon="🛣️" label="Total Miles" value={totalMiles.toFixed(1)} />
+        <Metric icon="💵" label="Estimated" value={formatMoney(estimatedEarnings)} />
       </section>
 
       <section className="results">
@@ -341,25 +443,33 @@ export default function MyRidesPage() {
             <div className="emptyIcon">🚘</div>
             <h2>No rides published yet</h2>
             <p>Publish your first ride and start connecting with passengers.</p>
-            <Link href="/offer-ride" className="primaryButton">Offer Your First Ride</Link>
+            <Link href="/offer-ride" className="primaryButton">
+              Offer Your First Ride
+            </Link>
           </div>
         ) : (
           <>
             {groupedRides.active.length > 0 && (
               <RideGroup title="Active Rides" count={groupedRides.active.length}>
-                {groupedRides.active.map((ride) => <RideCard key={ride.id} ride={ride} />)}
+                {groupedRides.active.map((ride) => (
+                  <RideCard key={ride.id} ride={ride} />
+                ))}
               </RideGroup>
             )}
 
             {groupedRides.completed.length > 0 && (
               <RideGroup title="Completed Rides" count={groupedRides.completed.length}>
-                {groupedRides.completed.map((ride) => <RideCard key={ride.id} ride={ride} />)}
+                {groupedRides.completed.map((ride) => (
+                  <RideCard key={ride.id} ride={ride} />
+                ))}
               </RideGroup>
             )}
 
             {groupedRides.cancelled.length > 0 && (
               <RideGroup title="Cancelled Rides" count={groupedRides.cancelled.length}>
-                {groupedRides.cancelled.map((ride) => <RideCard key={ride.id} ride={ride} />)}
+                {groupedRides.cancelled.map((ride) => (
+                  <RideCard key={ride.id} ride={ride} />
+                ))}
               </RideGroup>
             )}
           </>
@@ -367,7 +477,9 @@ export default function MyRidesPage() {
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .page {
           min-height: 100vh;
@@ -380,13 +492,18 @@ export default function MyRidesPage() {
           font-family: Arial, sans-serif;
         }
 
-        .hero, .stats, .results {
-          max-width: 900px;
+        .hero,
+        .stats,
+        .results {
+          max-width: 980px;
           margin-left: auto;
           margin-right: auto;
         }
 
-        .hero, .rideCard, .metric, .empty {
+        .hero,
+        .rideCard,
+        .metric,
+        .empty {
           background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -423,7 +540,12 @@ export default function MyRidesPage() {
           margin-bottom: 28px;
         }
 
-        .logo span, h1 span, h2 span, .eyebrow, .priceBox strong, .metricValue {
+        .logo span,
+        h1 span,
+        h2 span,
+        .eyebrow,
+        .priceBox strong,
+        .metricValue {
           color: #22c55e;
         }
 
@@ -441,6 +563,10 @@ export default function MyRidesPage() {
           margin: 0 0 16px;
         }
 
+        h2 {
+          margin: 0;
+        }
+
         .subtitle {
           color: #a1a1aa;
           font-size: 20px;
@@ -448,14 +574,16 @@ export default function MyRidesPage() {
           margin: 0;
         }
 
-        .mainActions, .cardButtons {
+        .mainActions,
+        .cardButtons {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 14px;
           margin-top: 30px;
         }
 
-        .primaryButton, .secondaryTopButton {
+        .primaryButton,
+        .secondaryTopButton {
           width: 100%;
           padding: 18px;
           border-radius: 999px;
@@ -479,7 +607,7 @@ export default function MyRidesPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
           margin-bottom: 24px;
         }
@@ -524,6 +652,7 @@ export default function MyRidesPage() {
         .groupHeader {
           display: flex;
           justify-content: space-between;
+          align-items: center;
           margin: 30px 0 16px;
         }
 
@@ -555,12 +684,55 @@ export default function MyRidesPage() {
         }
 
         .priceBox {
-          min-width: 110px;
+          min-width: 120px;
           padding: 16px;
           border-radius: 20px;
           background: rgba(34,197,94,0.1);
           border: 1px solid rgba(34,197,94,0.35);
           text-align: center;
+        }
+
+        .priceBox small,
+        .gpsItem small {
+          display: block;
+          color: #a1a1aa;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          margin-bottom: 6px;
+        }
+
+        .priceBox strong {
+          font-size: 25px;
+        }
+
+        .gpsPanel {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .gpsItem {
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .gpsItem strong {
+          color: white;
+          font-size: 16px;
+          overflow-wrap: anywhere;
+        }
+
+        .gpsItem.suggested {
+          background: rgba(34,197,94,0.08);
+          border-color: rgba(34,197,94,0.28);
+        }
+
+        .gpsItem.suggested strong {
+          color: #22c55e;
         }
 
         .chips {
@@ -570,7 +742,8 @@ export default function MyRidesPage() {
           margin-bottom: 20px;
         }
 
-        .chip, .status {
+        .chip,
+        .status {
           padding: 10px 14px;
           border-radius: 14px;
           background: rgba(255,255,255,0.06);
@@ -601,6 +774,7 @@ export default function MyRidesPage() {
 
         .infoGrid {
           display: grid;
+          grid-template-columns: 1fr 1fr;
           gap: 10px;
         }
 
@@ -625,9 +799,16 @@ export default function MyRidesPage() {
           background: rgba(34,197,94,0.15);
         }
 
+        .infoText strong {
+          display: block;
+          margin-bottom: 4px;
+        }
+
         .infoText span {
+          display: block;
           color: #a1a1aa;
           overflow-wrap: anywhere;
+          line-height: 1.35;
         }
 
         .passengerBox {
@@ -645,11 +826,25 @@ export default function MyRidesPage() {
           padding: 10px 0;
         }
 
-        .passengerRow strong {
+        .passengerRow span {
+          overflow-wrap: anywhere;
+        }
+
+        .passengerRow strong,
+        .morePassengers {
           color: #22c55e;
         }
 
-        .outlineButton, .completeButton, .cancelButton, .reactivateButton {
+        .morePassengers {
+          margin: 10px 0 0;
+          font-weight: 900;
+        }
+
+        .outlineButton,
+        .completeButton,
+        .cancelButton,
+        .reactivateButton,
+        .mapButton {
           width: 100%;
           padding: 15px;
           border-radius: 999px;
@@ -660,6 +855,12 @@ export default function MyRidesPage() {
           border: 1px solid rgba(255,255,255,0.12);
           background: rgba(255,255,255,0.04);
           cursor: pointer;
+        }
+
+        .mapButton {
+          background: rgba(34,197,94,0.1);
+          border-color: rgba(34,197,94,0.35);
+          color: #22c55e;
         }
 
         .completeButton {
@@ -688,23 +889,59 @@ export default function MyRidesPage() {
           text-align: center;
         }
 
-        @media (max-width: 700px) {
-          .page { padding: 16px; }
+        .emptyIcon {
+          font-size: 54px;
+          margin-bottom: 14px;
+        }
 
-          .hero, .rideCard, .empty {
+        .empty p {
+          color: #a1a1aa;
+        }
+
+        @media (max-width: 900px) {
+          .stats {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .gpsPanel,
+          .infoGrid {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+
+        @media (max-width: 700px) {
+          .page {
+            padding: 16px;
+          }
+
+          .hero,
+          .rideCard,
+          .empty {
             padding: 24px;
             border-radius: 28px;
           }
 
-          h1 { font-size: 50px; }
+          h1 {
+            font-size: 50px;
+          }
 
-          .stats, .routeHeader, .cardButtons, .mainActions {
+          .stats,
+          .routeHeader,
+          .cardButtons,
+          .mainActions,
+          .gpsPanel,
+          .infoGrid {
             grid-template-columns: 1fr;
           }
 
           .groupHeader {
             flex-direction: column;
+            align-items: flex-start;
             gap: 10px;
+          }
+
+          .passengerRow {
+            flex-direction: column;
           }
         }
       `}</style>
@@ -719,7 +956,7 @@ function RideGroup({
 }: {
   title: string;
   count: number;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section>
