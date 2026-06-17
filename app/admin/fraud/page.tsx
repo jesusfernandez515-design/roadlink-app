@@ -139,11 +139,13 @@ export default function AdminFraudPage() {
       query(collection(db, "auditLogs")),
       (snapshot) => {
         const data = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as AuditLogItem[];
+
         data.sort(
           (a, b) =>
             new Date(b.createdAt || 0).getTime() -
             new Date(a.createdAt || 0).getTime()
         );
+
         setAuditLogs(data.slice(0, 8));
       },
       () => setAuditLogs([])
@@ -287,9 +289,8 @@ export default function AdminFraudPage() {
   const lowRiskCount = fraudCases.filter((item) => item.risk === "low").length;
   const suspendedCount = fraudCases.filter((item) => item.suspended).length;
 
-  const platformSafety = fraudCases.length === 0
-    ? 100
-    : Math.round((lowRiskCount / fraudCases.length) * 100);
+  const platformSafety =
+    fraudCases.length === 0 ? 100 : Math.round((lowRiskCount / fraudCases.length) * 100);
 
   const fraudHealth = Math.max(
     100 - highRiskCount * 20 - mediumRiskCount * 8 - suspendedCount * 5,
@@ -364,7 +365,9 @@ export default function AdminFraudPage() {
         {
           userId: item.userId,
           userEmail: item.email,
-          action: suspended ? "User Suspended From Fraud Center" : "User Cleared From Fraud Center",
+          action: suspended
+            ? "User Suspended From Fraud Center"
+            : "User Cleared From Fraud Center",
           targetId: item.userId,
           targetType: "user",
           details: item.reason,
@@ -473,7 +476,7 @@ export default function AdminFraudPage() {
           <Link href="/admin/reports" className="miniButton">Reports</Link>
           <Link href="/admin/disputes" className="miniButton">Disputes</Link>
           <Link href="/admin/payouts" className="miniButton">Payouts</Link>
-          <Link href="/admin/logs" className="miniButton">Logs</Link>
+          <Link href="/admin/audit-log" className="miniButton">Audit Log</Link>
         </div>
 
         <section className="hero">
@@ -507,7 +510,7 @@ export default function AdminFraudPage() {
           <h2>Platform Safety</h2>
 
           <div className="barWrap">
-            <div className="barFill" style={{ width: `${platformSafety}%` }}></div>
+            <div className="barFill" style={{ width: `${platformSafety}%` }} />
           </div>
 
           <div className="distributionMeta">
@@ -629,7 +632,7 @@ export default function AdminFraudPage() {
                   </button>
 
                   <Link
-                    href={`/admin/messages?user=${selected.userId}`}
+                    href={`/admin/chat?user=${selected.userId}`}
                     className="linkButton"
                   >
                     📧 Contact
@@ -1331,4 +1334,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value || "Not available"}</strong>
     </div>
   );
-}
+                                                    }
