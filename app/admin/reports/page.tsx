@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  addDoc,
   collection,
   doc,
   onSnapshot,
@@ -12,7 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type ReportStatus = "open" | "reviewing" | "resolved" | "dismissed";
+type ReportStatus = "open" | "reviewing" | "resolved" | "dismissed" | "escalated";
 type ReportPriority = "low" | "medium" | "high" | "urgent";
 
 type ReportItem = {
@@ -21,8 +22,6 @@ type ReportItem = {
   reporterEmail?: string;
   targetUserId?: string;
   targetUserEmail?: string;
-  reportedUserId?: string;
-  reportedUserEmail?: string;
   rideId?: string;
   bookingId?: string;
   chatId?: string;
@@ -48,9 +47,9 @@ export default function AdminReportsPage() {
     const unsubscribe = onSnapshot(
       query(collection(db, "reports")),
       (snapshot) => {
-        const data = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
         })) as ReportItem[];
 
         data.sort((a, b) =>
@@ -60,6 +59,7 @@ export default function AdminReportsPage() {
         );
 
         setReports(data);
+
         setSelected((current) => {
           if (!current) return data[0] || null;
           return data.find((item) => item.id === current.id) || data[0] || null;
@@ -74,40 +74,36 @@ export default function AdminReportsPage() {
   }, []);
 
   const filteredReports = useMemo(() => {
-    const value = search.toLowerCase().trim();
+    const text = search.toLowerCase().trim();
 
     return reports.filter((report) => {
-      const targetId = report.targetUserId || report.reportedUserId || "";
-      const targetEmail = report.targetUserEmail || report.reportedUserEmail || "";
+      const status = report.status || "open";
+
+      const matchesStatus = statusFilter === "all" || status === statusFilter;
 
       const matchesSearch =
-        !value ||
-        String(report.reporterEmail || "").toLowerCase().includes(value) ||
-        String(targetEmail).toLowerCase().includes(value) ||
-        String(targetId).toLowerCase().includes(value) ||
-        String(report.reason || "").toLowerCase().includes(value) ||
-        String(report.details || "").toLowerCase().includes(value) ||
-        String(report.type || "").toLowerCase().includes(value) ||
-        String(report.rideId || "").toLowerCase().includes(value) ||
-        String(report.bookingId || "").toLowerCase().includes(value) ||
-        String(report.chatId || "").toLowerCase().includes(value) ||
-        String(report.id || "").toLowerCase().includes(value);
+        !text ||
+        report.reporterEmail?.toLowerCase().includes(text) ||
+        report.targetUserEmail?.toLowerCase().includes(text) ||
+        report.reason?.toLowerCase().includes(text) ||
+        report.details?.toLowerCase().includes(text) ||
+        report.type?.toLowerCase().includes(text) ||
+        report.rideId?.toLowerCase().includes(text) ||
+        report.bookingId?.toLowerCase().includes(text) ||
+        report.chatId?.toLowerCase().includes(text) ||
+        report.id.toLowerCase().includes(text);
 
-      const matchesStatus =
-        statusFilter === "all" ||
-        String(report.status || "open") === statusFilter;
-
-      return matchesSearch && matchesStatus;
+      return matchesStatus && matchesSearch;
     });
   }, [reports, search, statusFilter]);
 
   const openCount = reports.filter((item) => !item.status || item.status === "open").length;
   const reviewingCount = reports.filter((item) => item.status === "reviewing").length;
   const resolvedCount = reports.filter((item) => item.status === "resolved").length;
-  const dismissedCount = reports.filter((item) => item.status === "dismissed").length;
+  const escalatedCount = reports.filter((item) => item.status === "escalated").length;
   const urgentCount = reports.filter((item) => item.priority === "urgent").length;
 
-  async function updateReportStatus(report: ReportItem, status: ReportStatus) {
+  async function updateReport(report: ReportItem, status: ReportStatus) {
     try {
       setLoadingId(report.id);
       setMessage("");
@@ -120,50 +116,49 @@ export default function AdminReportsPage() {
         resolvedAt: status === "resolved" || status === "dismissed" ? now : "",
       });
 
-      if (report.reporterId) {
-        await setDoc(
-          doc(db, "notifications", `${report.reporterId}-report-${Date.now()}`),
-          {
-            userId: report.reporterId,
-            type: "report",
-            title: "Report Update",
-            message: `Your report was marked as ${status}.`,
-            read: false,
-            createdAt: now,
-            actionUrl: "/notifications",
-          },
-          { merge: true }
-        );
-      }
-
-      await setDoc(doc(db, "auditLogs", `report-${report.id}-${Date.now()}`), {
-        type: "report",
-        action: `Report marked as ${status}`,
-        reportId: report.id,
-        targetUserId: report.targetUserId || report.reportedUserId || "",
-        reporterId: report.reporterId || "",
+      await addDoc(collection(db, "auditLogs"), {
+        userId: report.targetUserId || report.reporterId || "system",
+        userEmail: report.targetUserEmail || report.reporterEmail || "system",
+        action: `Report ${status}`,
+        targetId: report.id,
+        targetType: "report",
+        details: report.reason || report.details || "Report status updated",
+        severity:
+          status === "escalated"
+            ? "warning"
+            : status === "resolved"
+            ? "success"
+            : "info",
         createdAt: now,
       });
 
+      if (report.reporterId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: report.reporterId,
+          type: "report",
+          title: "Report Update",
+          message: `Your report was marked as ${status}.`,
+          read: false,
+          createdAt: now,
+          actionUrl: "/notifications",
+        });
+      }
+
       setMessage(`Report marked as ${status}.`);
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "Could not update report.");
     } finally {
       setLoadingId("");
     }
   }
 
-  async function suspendTargetUser(report: ReportItem) {
-    const targetUserId = report.targetUserId || report.reportedUserId || "";
-
-    if (!targetUserId) {
+  async function suspendUser(report: ReportItem) {
+    if (!report.targetUserId) {
       setMessage("No target user found for this report.");
       return;
     }
 
-    const confirmSuspend = window.confirm(
-      "Are you sure you want to suspend this user?"
-    );
+    const confirmSuspend = window.confirm("Suspend this user?");
 
     if (!confirmSuspend) return;
 
@@ -174,7 +169,7 @@ export default function AdminReportsPage() {
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "users", targetUserId),
+        doc(db, "users", report.targetUserId),
         {
           suspended: true,
           updatedAt: now,
@@ -188,30 +183,28 @@ export default function AdminReportsPage() {
         resolvedAt: now,
       });
 
-      await setDoc(
-        doc(db, "notifications", `${targetUserId}-suspended-${Date.now()}`),
-        {
-          userId: targetUserId,
-          type: "account",
-          title: "Account Suspended",
-          message:
-            "Your RoadLink account has been suspended after an admin review.",
-          read: false,
-          createdAt: now,
-        },
-        { merge: true }
-      );
-
-      await setDoc(doc(db, "auditLogs", `suspend-${targetUserId}-${Date.now()}`), {
-        type: "user",
-        action: "User suspended from report center",
-        reportId: report.id,
-        targetUserId,
-        reporterId: report.reporterId || "",
+      await addDoc(collection(db, "auditLogs"), {
+        userId: report.targetUserId,
+        userEmail: report.targetUserEmail || "No email",
+        action: "User Suspended From Reports Center",
+        targetId: report.targetUserId,
+        targetType: "user",
+        details: report.reason || report.details || "Suspended after report review",
+        severity: "danger",
         createdAt: now,
       });
 
-      setMessage("Target user suspended and report resolved.");
+      await addDoc(collection(db, "notifications"), {
+        userId: report.targetUserId,
+        type: "account",
+        title: "Account Suspended",
+        message: "Your RoadLink account has been suspended after an admin review.",
+        read: false,
+        createdAt: now,
+        actionUrl: "/profile",
+      });
+
+      setMessage("User suspended and report resolved.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not suspend user.");
     } finally {
@@ -223,6 +216,7 @@ export default function AdminReportsPage() {
     if (status === "reviewing") return "Reviewing";
     if (status === "resolved") return "Resolved";
     if (status === "dismissed") return "Dismissed";
+    if (status === "escalated") return "Escalated";
     return "Open";
   }
 
@@ -243,54 +237,63 @@ export default function AdminReportsPage() {
     }
   }
 
-  function targetUserId(report: ReportItem) {
-    return report.targetUserId || report.reportedUserId || "";
-  }
+  function riskScore(report: ReportItem) {
+    let score = 20;
 
-  function targetUserEmail(report: ReportItem) {
-    return report.targetUserEmail || report.reportedUserEmail || "";
+    if (report.priority === "urgent") score += 50;
+    if (report.priority === "high") score += 35;
+    if (report.type === "fraud") score += 25;
+    if (report.type === "safety") score += 30;
+    if (report.type === "harassment") score += 25;
+    if (report.rideId) score += 10;
+    if (report.bookingId) score += 10;
+
+    return Math.min(score, 100);
   }
 
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
-          <Link href="/admin/users" className="miniButton">Users</Link>
-          <Link href="/admin/chat" className="miniButton">Chat</Link>
+          <Link href="/admin" className="miniButton">Admin</Link>
           <Link href="/admin/fraud" className="miniButton">Fraud</Link>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/admin/driver-risk" className="miniButton">Driver Risk</Link>
+          <Link href="/admin/support" className="miniButton">Support</Link>
+          <Link href="/admin/operations" className="miniButton">Operations</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Admin</p>
+            <p className="eyebrow">RoadLink Safety</p>
             <h1>Reports <span>Center</span></h1>
             <p className="subtitle">
-              Review user reports, investigate safety issues, resolve complaints,
-              dismiss invalid reports, and suspend dangerous accounts.
+              Review user reports, investigate safety issues, escalate fraud cases,
+              suspend unsafe accounts, and keep RoadLink protected.
             </p>
           </div>
 
-          <div className="heroIcon">🚨</div>
+          <div className={urgentCount > 0 ? "scoreOrb warningScore" : "scoreOrb"}>
+            <strong>{urgentCount}</strong>
+            <span>Urgent</span>
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
           <Metric icon="🚨" label="Total Reports" value={String(reports.length)} />
-          <Metric icon="📌" label="Open" value={String(openCount)} />
+          <Metric icon="📌" label="Open" value={String(openCount)} danger={openCount > 0} />
           <Metric icon="🔎" label="Reviewing" value={String(reviewingCount)} />
+          <Metric icon="⚠️" label="Escalated" value={String(escalatedCount)} danger={escalatedCount > 0} />
           <Metric icon="✅" label="Resolved" value={String(resolvedCount)} />
-          <Metric icon="🗑️" label="Dismissed" value={String(dismissedCount)} />
-          <Metric icon="🔥" label="Urgent" value={String(urgentCount)} />
+          <Metric icon="🔥" label="Urgent" value={String(urgentCount)} danger={urgentCount > 0} />
         </section>
 
         <section className="filters">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by email, reason, report ID, ride ID, chat ID..."
+            placeholder="Search by email, reason, report ID, ride ID, booking ID..."
           />
 
           <select
@@ -300,6 +303,7 @@ export default function AdminReportsPage() {
             <option value="all">All statuses</option>
             <option value="open">Open</option>
             <option value="reviewing">Reviewing</option>
+            <option value="escalated">Escalated</option>
             <option value="resolved">Resolved</option>
             <option value="dismissed">Dismissed</option>
           </select>
@@ -308,23 +312,19 @@ export default function AdminReportsPage() {
         <section className="adminGrid">
           <div className="reportsCard">
             <p className="eyebrow">Reports</p>
-            <h2>User Reports</h2>
+            <h2>Report Queue</h2>
 
             {filteredReports.length === 0 ? (
               <div className="empty">
                 <h3>No reports found</h3>
-                <p>Reports submitted by users will appear here.</p>
+                <p>User reports will appear here.</p>
               </div>
             ) : (
               <div className="reportList">
                 {filteredReports.map((report) => (
                   <button
                     key={report.id}
-                    className={
-                      selected?.id === report.id
-                        ? "reportRow activeReport"
-                        : "reportRow"
-                    }
+                    className={selected?.id === report.id ? "reportRow activeReport" : "reportRow"}
                     onClick={() => setSelected(report)}
                   >
                     <div className="reportIcon">🚨</div>
@@ -332,7 +332,7 @@ export default function AdminReportsPage() {
                     <div className="reportInfo">
                       <strong>{report.reason || report.type || "User Report"}</strong>
                       <span>{report.reporterEmail || "Reporter not available"}</span>
-                      <small>{targetUserEmail(report) || "Target user not available"}</small>
+                      <small>{report.targetUserEmail || "Target not available"}</small>
                     </div>
 
                     <em className={`status ${report.status || "open"}`}>
@@ -359,20 +359,18 @@ export default function AdminReportsPage() {
                   </span>
                 </div>
 
-                <div className="priorityBox">
-                  <span>Priority</span>
-                  <strong>{priorityLabel(selected.priority)}</strong>
+                <div className="riskBox">
+                  <span>Risk Score</span>
+                  <strong>{riskScore(selected)}/100</strong>
                 </div>
 
                 <div className="infoGrid">
                   <Info label="Report ID" value={selected.id} />
                   <Info label="Type" value={selected.type || "Not available"} />
-                  <Info label="Reason" value={selected.reason || "Not available"} />
                   <Info label="Priority" value={priorityLabel(selected.priority)} />
-                  <Info label="Reporter ID" value={selected.reporterId || "Not available"} />
+                  <Info label="Status" value={statusLabel(selected.status)} />
                   <Info label="Reporter Email" value={selected.reporterEmail || "Not available"} />
-                  <Info label="Target User ID" value={targetUserId(selected) || "Not available"} />
-                  <Info label="Target Email" value={targetUserEmail(selected) || "Not available"} />
+                  <Info label="Target Email" value={selected.targetUserEmail || "Not available"} />
                   <Info label="Ride ID" value={selected.rideId || "Not available"} />
                   <Info label="Booking ID" value={selected.bookingId || "Not available"} />
                   <Info label="Chat ID" value={selected.chatId || "Not available"} />
@@ -386,63 +384,42 @@ export default function AdminReportsPage() {
                   <p>{selected.details || "No extra details provided."}</p>
                 </div>
 
-                <div className="linkRow">
-                  {targetUserId(selected) && (
-                    <Link
-                      href={`/admin/users?userId=${targetUserId(selected)}`}
-                      className="outlineLink"
-                    >
-                      Open Target User
-                    </Link>
-                  )}
-
-                  {selected.rideId && (
-                    <Link
-                      href={`/ride-details?rideId=${selected.rideId}`}
-                      className="outlineLink"
-                    >
-                      Open Ride
-                    </Link>
-                  )}
-
-                  {selected.chatId && (
-                    <Link
-                      href={`/chat?chatId=${selected.chatId}`}
-                      className="outlineLink"
-                    >
-                      Open Chat
-                    </Link>
-                  )}
-                </div>
-
                 <div className="actionRow">
                   <button
                     className="reviewButton"
-                    onClick={() => updateReportStatus(selected, "reviewing")}
+                    onClick={() => updateReport(selected, "reviewing")}
                     disabled={loadingId === selected.id}
                   >
                     Reviewing
                   </button>
 
                   <button
-                    className="approveButton"
-                    onClick={() => updateReportStatus(selected, "resolved")}
+                    className="escalateButton"
+                    onClick={() => updateReport(selected, "escalated")}
+                    disabled={loadingId === selected.id}
+                  >
+                    Escalate
+                  </button>
+
+                  <button
+                    className="resolveButton"
+                    onClick={() => updateReport(selected, "resolved")}
                     disabled={loadingId === selected.id}
                   >
                     Resolve
                   </button>
 
                   <button
-                    className="paidButton"
-                    onClick={() => updateReportStatus(selected, "dismissed")}
+                    className="dismissButton"
+                    onClick={() => updateReport(selected, "dismissed")}
                     disabled={loadingId === selected.id}
                   >
                     Dismiss
                   </button>
 
                   <button
-                    className="rejectButton"
-                    onClick={() => suspendTargetUser(selected)}
+                    className="suspendButton"
+                    onClick={() => suspendUser(selected)}
                     disabled={loadingId === selected.id}
                   >
                     Suspend User
@@ -465,8 +442,8 @@ export default function AdminReportsPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.2), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
+            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.13), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -474,10 +451,7 @@ export default function AdminReportsPage() {
           font-family: Arial, sans-serif;
         }
 
-        .container {
-          max-width: 1180px;
-          margin: auto;
-        }
+        .container { max-width: 1180px; margin: auto; }
 
         .topNav {
           display: flex;
@@ -501,7 +475,7 @@ export default function AdminReportsPage() {
         .filters,
         .reportsCard,
         .detailsCard {
-          background: rgba(8, 13, 25, 0.92);
+          background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
           backdrop-filter: blur(16px);
@@ -526,48 +500,52 @@ export default function AdminReportsPage() {
           text-transform: uppercase;
         }
 
-        h1 {
-          font-size: 58px;
-          line-height: 1;
-          margin: 0 0 16px;
-        }
-
-        h1 span,
-        h2,
-        .metricValue,
-        .priorityBox strong {
-          color: #22c55e;
-        }
-
-        h2 {
-          font-size: 32px;
-          margin: 0 0 8px;
-        }
+        h1 { font-size: 58px; line-height: 1; margin: 0 0 16px; }
+        h1 span, h2, .metricValue, .riskBox strong { color: #22c55e; }
+        h2 { font-size: 32px; margin: 0 0 14px; }
 
         .subtitle,
         .email,
-        .empty p {
+        .empty p,
+        .detailsBox p {
           color: #a1a1aa;
           line-height: 1.5;
+          overflow-wrap: anywhere;
         }
 
-        .heroIcon {
+        .scoreOrb {
           min-width: 92px;
           height: 92px;
           border-radius: 50%;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 42px;
+          flex-direction: column;
+          text-align: center;
         }
 
-        .message {
-          color: #22c55e;
-          font-weight: 900;
-          margin: 16px 0;
+        .warningScore {
+          background: rgba(239,68,68,0.12);
+          border-color: rgba(239,68,68,0.35);
         }
+
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 30px;
+          font-weight: 900;
+        }
+
+        .warningScore strong { color: #fca5a5; }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 10px;
+          font-weight: 900;
+        }
+
+        .message { color: #22c55e; font-weight: 900; margin: 16px 0; }
 
         .stats {
           display: grid;
@@ -579,6 +557,11 @@ export default function AdminReportsPage() {
         .metric {
           border-radius: 24px;
           padding: 18px;
+        }
+
+        .dangerMetric {
+          border-color: rgba(239,68,68,0.35);
+          background: rgba(127,29,29,0.2);
         }
 
         .metricIcon {
@@ -601,10 +584,7 @@ export default function AdminReportsPage() {
           margin-bottom: 8px;
         }
 
-        .metricValue {
-          font-size: 24px;
-          font-weight: 900;
-        }
+        .metricValue { font-size: 24px; font-weight: 900; }
 
         .filters {
           display: grid;
@@ -615,8 +595,8 @@ export default function AdminReportsPage() {
           margin-bottom: 24px;
         }
 
-        .filters input,
-        .filters select {
+        input,
+        select {
           width: 100%;
           padding: 15px;
           border-radius: 16px;
@@ -627,13 +607,11 @@ export default function AdminReportsPage() {
           outline: none;
         }
 
-        .filters option {
-          color: black;
-        }
+        select option { color: black; }
 
         .adminGrid {
           display: grid;
-          grid-template-columns: 0.9fr 1.4fr;
+          grid-template-columns: 0.95fr 1.4fr;
           gap: 24px;
         }
 
@@ -643,10 +621,7 @@ export default function AdminReportsPage() {
           padding: 28px;
         }
 
-        .reportList {
-          display: grid;
-          gap: 12px;
-        }
+        .reportList { display: grid; gap: 12px; }
 
         .reportRow {
           width: 100%;
@@ -680,9 +655,7 @@ export default function AdminReportsPage() {
           font-size: 24px;
         }
 
-        .reportInfo {
-          min-width: 0;
-        }
+        .reportInfo { min-width: 0; }
 
         .reportInfo strong,
         .reportInfo span,
@@ -707,6 +680,7 @@ export default function AdminReportsPage() {
           font-weight: 900;
           font-size: 12px;
           white-space: nowrap;
+          text-transform: capitalize;
         }
 
         .status.open,
@@ -721,6 +695,13 @@ export default function AdminReportsPage() {
           color: #93c5fd;
           background: rgba(59,130,246,0.12);
           border: 1px solid rgba(59,130,246,0.35);
+        }
+
+        .status.escalated,
+        .statusPill.escalated {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
         }
 
         .status.resolved,
@@ -745,7 +726,7 @@ export default function AdminReportsPage() {
           margin-bottom: 20px;
         }
 
-        .priorityBox,
+        .riskBox,
         .detailsBox {
           padding: 22px;
           border-radius: 22px;
@@ -754,22 +735,21 @@ export default function AdminReportsPage() {
           margin-bottom: 20px;
         }
 
-        .priorityBox span {
+        .riskBox span {
           display: block;
           color: #a1a1aa;
           font-weight: 900;
           margin-bottom: 8px;
         }
 
-        .priorityBox strong {
-          font-size: 44px;
+        .riskBox strong {
+          font-size: 46px;
           font-weight: 900;
         }
 
-        .detailsBox p {
-          color: #e5e7eb;
-          line-height: 1.5;
-          margin-bottom: 0;
+        .detailsBox strong {
+          display: block;
+          margin-bottom: 8px;
         }
 
         .infoGrid {
@@ -798,34 +778,17 @@ export default function AdminReportsPage() {
           overflow-wrap: anywhere;
         }
 
-        .linkRow {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-
-        .outlineLink {
-          padding: 14px;
-          border-radius: 999px;
-          text-align: center;
-          color: white;
-          text-decoration: none;
-          font-weight: 900;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
-        }
-
         .actionRow {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(5, 1fr);
           gap: 10px;
         }
 
         .reviewButton,
-        .approveButton,
-        .paidButton,
-        .rejectButton {
+        .escalateButton,
+        .resolveButton,
+        .dismissButton,
+        .suspendButton {
           padding: 15px;
           border-radius: 999px;
           border: none;
@@ -834,22 +797,11 @@ export default function AdminReportsPage() {
           cursor: pointer;
         }
 
-        .reviewButton {
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-        }
-
-        .approveButton {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-        }
-
-        .paidButton {
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
-        .rejectButton {
-          background: linear-gradient(135deg, #ef4444, #991b1b);
-        }
+        .reviewButton { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+        .escalateButton { background: linear-gradient(135deg, #f97316, #c2410c); }
+        .resolveButton { background: linear-gradient(135deg, #22c55e, #16a34a); }
+        .dismissButton { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); }
+        .suspendButton { background: linear-gradient(135deg, #ef4444, #991b1b); }
 
         button:disabled {
           opacity: 0.6;
@@ -869,25 +821,13 @@ export default function AdminReportsPage() {
         }
 
         @media (max-width: 1100px) {
-          .stats {
-            grid-template-columns: repeat(3, 1fr);
-          }
-
-          .adminGrid {
-            grid-template-columns: 1fr;
-          }
-
-          .actionRow,
-          .linkRow {
-            grid-template-columns: repeat(2, 1fr);
-          }
+          .stats { grid-template-columns: repeat(3, 1fr); }
+          .adminGrid { grid-template-columns: 1fr; }
+          .actionRow { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 720px) {
-          .page {
-            padding: 16px;
-            padding-bottom: 140px;
-          }
+          .page { padding: 16px; padding-bottom: 140px; }
 
           .hero {
             flex-direction: column;
@@ -895,21 +835,13 @@ export default function AdminReportsPage() {
             padding: 28px;
           }
 
-          h1 {
-            font-size: 44px;
-          }
+          h1 { font-size: 44px; }
 
           .stats,
           .filters,
           .infoGrid,
-          .actionRow,
-          .linkRow {
+          .actionRow {
             grid-template-columns: 1fr;
-          }
-
-          .reportsCard,
-          .detailsCard {
-            padding: 24px;
           }
 
           .reportRow {
@@ -926,9 +858,7 @@ export default function AdminReportsPage() {
             height: 46px;
           }
 
-          .sectionHeader {
-            flex-direction: column;
-          }
+          .sectionHeader { flex-direction: column; }
         }
       `}</style>
     </main>
@@ -939,13 +869,15 @@ function Metric({
   icon,
   label,
   value,
+  danger,
 }: {
   icon: string;
   label: string;
   value: string;
+  danger?: boolean;
 }) {
   return (
-    <div className="metric">
+    <div className={danger ? "metric dangerMetric" : "metric"}>
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
       <div className="metricValue">{value}</div>
@@ -957,7 +889,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
 }
