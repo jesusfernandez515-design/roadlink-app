@@ -38,6 +38,11 @@ type ChatData = {
   participants?: string[];
   participantEmails?: string[];
   lastMessage?: string;
+  lastMessageTime?: string;
+  lastSenderId?: string;
+  lastSenderEmail?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type UserProfile = {
@@ -68,7 +73,6 @@ export default function ChatPage() {
 function ChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const [rideId, setRideId] = useState("");
@@ -173,6 +177,8 @@ function ChatContent() {
           }
         }
 
+        const now = new Date().toISOString();
+
         await setDoc(
           doc(db, "chats", finalChatId),
           {
@@ -182,8 +188,8 @@ function ChatContent() {
             driverId: finalDriverId,
             passengerId: finalPassengerId,
             participants: [finalDriverId, finalPassengerId],
-            updatedAt: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
+            updatedAt: now,
+            createdAt: now,
           },
           { merge: true }
         );
@@ -342,8 +348,14 @@ function ChatContent() {
           rideId: rideId || "",
           driverId: finalDriverId,
           passengerId: finalPassengerId,
-          driverEmail: userId === finalDriverId ? userEmail : chatData?.driverEmail || ride?.driverEmail || "",
-          passengerEmail: userId === finalPassengerId ? userEmail : chatData?.passengerEmail || "",
+          driverEmail:
+            userId === finalDriverId
+              ? userEmail
+              : chatData?.driverEmail || ride?.driverEmail || "",
+          passengerEmail:
+            userId === finalPassengerId
+              ? userEmail
+              : chatData?.passengerEmail || "",
           participants: [finalDriverId, finalPassengerId],
           lastMessage: cleanText,
           lastMessageTime: now,
