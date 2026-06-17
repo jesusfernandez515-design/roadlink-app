@@ -5,6 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
+type RiskLevel = "low" | "medium" | "high";
+type RiskFilter = "all" | RiskLevel;
+
 type UserItem = {
   id: string;
   name?: string;
@@ -87,7 +90,7 @@ type UserIntelligence = {
   name: string;
   email: string;
   trustScore: number;
-  riskLevel: "low" | "medium" | "high";
+  riskLevel: RiskLevel;
   role: string;
   verified: boolean;
   driverVerified: boolean;
@@ -113,7 +116,7 @@ export default function AdminUserIntelligencePage() {
   const [redemptions, setRedemptions] = useState<RedemptionItem[]>([]);
   const [selected, setSelected] = useState<UserIntelligence | null>(null);
   const [search, setSearch] = useState("");
-  const [riskFilter, setRiskFilter] = useState<"all" | "low" | "medium" | "high">("all");
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
   const [message, setMessage] = useState("Loading user intelligence...");
   const [loadingId, setLoadingId] = useState("");
 
@@ -164,7 +167,7 @@ export default function AdminUserIntelligencePage() {
 
   const intelligence = useMemo<UserIntelligence[]>(() => {
     return users
-      .map((user) => {
+      .map((user): UserIntelligence => {
         const userEmail = user.email || "No email";
 
         const userBookings = bookings.filter(
@@ -228,7 +231,7 @@ export default function AdminUserIntelligencePage() {
 
         trustScore = Math.max(Math.min(trustScore, 100), 0);
 
-        const riskLevel =
+        const riskLevel: RiskLevel =
           trustScore < 55 ? "high" : trustScore < 78 ? "medium" : "low";
 
         const reasons: string[] = [];
@@ -382,7 +385,7 @@ export default function AdminUserIntelligencePage() {
     return `$${Math.round(value).toLocaleString()}`;
   }
 
-  function riskLabel(value: "low" | "medium" | "high") {
+  function riskLabel(value: RiskLevel) {
     if (value === "high") return "High Risk";
     if (value === "medium") return "Medium Risk";
     return "Low Risk";
@@ -441,7 +444,7 @@ export default function AdminUserIntelligencePage() {
 
           <select
             value={riskFilter}
-            onChange={(event) => setRiskFilter(event.target.value as "all" | "low" | "medium" | "high")}
+            onChange={(event) => setRiskFilter(event.target.value as RiskFilter)}
           >
             <option value="all">All risk levels</option>
             <option value="high">High risk</option>
