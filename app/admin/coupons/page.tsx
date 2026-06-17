@@ -9,11 +9,13 @@ import {
   onSnapshot,
   query,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type CouponType = "fixed" | "percent";
-type CouponAudience = "all" | "new_users" | "drivers" | "passengers";
+type CouponType = "percent" | "fixed";
+type CouponAudience = "all" | "drivers" | "passengers" | "new_users";
+type CouponStatus = "active" | "paused" | "expired";
 
 type Coupon = {
   id: string;
@@ -21,45 +23,38 @@ type Coupon = {
   title?: string;
   description?: string;
   type?: CouponType;
-  amount?: number;
+  discount?: number;
   audience?: CouponAudience;
+  status?: CouponStatus;
   active?: boolean;
   maxUses?: number;
   usedCount?: number;
+  minTripAmount?: number;
   expiresAt?: string;
   createdAt?: string;
   updatedAt?: string;
 };
 
-type Redemption = {
-  id: string;
-  couponId?: string;
-  couponCode?: string;
-  userId?: string;
-  userEmail?: string;
-  bookingId?: string;
-  discountAmount?: number;
-  createdAt?: string;
-};
-
 export default function AdminCouponsPage() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [selected, setSelected] = useState<Coupon | null>(null);
   const [message, setMessage] = useState("Loading coupons...");
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | CouponStatus>("all");
 
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [type, setType] = useState<CouponType>("fixed");
-  const [amount, setAmount] = useState(10);
+  const [type, setType] = useState<CouponType>("percent");
+  const [discount, setDiscount] = useState(10);
   const [audience, setAudience] = useState<CouponAudience>("all");
   const [maxUses, setMaxUses] = useState(100);
+  const [minTripAmount, setMinTripAmount] = useState(0);
   const [expiresAt, setExpiresAt] = useState("");
 
   useEffect(() => {
-    const unsubCoupons = onSnapshot(
+    const unsubscribe = onSnapshot(
       query(collection(db, "coupons")),
       (snapshot) => {
         const data = snapshot.docs.map((item) => ({
@@ -68,12 +63,11 @@ export default function AdminCouponsPage() {
         })) as Coupon[];
 
         data.sort((a, b) =>
-          String(b.createdAt || b.updatedAt || "").localeCompare(
-            String(a.createdAt || a.updatedAt || "")
-          )
+          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
         );
 
         setCoupons(data);
+
         setSelected((current) => {
           if (!current) return data[0] || null;
           return data.find((item) => item.id === current.id) || data[0] || null;
@@ -84,44 +78,64 @@ export default function AdminCouponsPage() {
       (error) => setMessage(error.message)
     );
 
-    const unsubRedemptions = onSnapshot(
-      query(collection(db, "couponRedemptions")),
-      (snapshot) => {
-        const data = snapshot.docs.map((item) => ({
-          id: item.id,
-          ...item.data(),
-        })) as Redemption[];
-
-        data.sort((a, b) =>
-          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-        );
-
-        setRedemptions(data);
-      },
-      (error) => setMessage(error.message)
-    );
-
-    return () => {
-      unsubCoupons();
-      unsubRedemptions();
-    };
+    return () => unsubscribe();
   }, []);
 
-  const activeCoupons = coupons.filter((item) => item.active !== false).length;
-  const inactiveCoupons = coupons.filter((item) => item.active === false).length;
-  const totalUses = redemptions.length;
+  const filteredCoupons = useMemo(() => {
+    const text = search.toLowerCase().trim();
 
-  const totalDiscountGiven = redemptions.reduce(
-    (total, item) => total + Number(item.discountAmount || 0),
-    0
-  );
+    return coupons.filter((coupon) => {
+      const currentStatus = getCouponStatus(coupon);
 
-  const selectedRedemptions = useMemo(() => {
-    if (!selected) return [];
-    return redemptions.filter(
-      (item) => item.couponId === selected.id || item.couponCode === selected.code
-    );
-  }, [selected, redemptions]);
+      const matchesFilter = filter === "all" || currentStatus === filter;
+
+      const matchesSearch =
+        !text ||
+        coupon.code?.toLowerCase().includes(text) ||
+        coupon.title?.toLowerCase().includes(text) ||
+        coupon.description?.toLowerCase().includes(text) ||
+        coupon.audience?.toLowerCase().includes(text) ||
+        coupon.id.toLowerCase().includes(text);
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [coupons, search, filter]);
+
+  const activeCount = coupons.filter((item) => getCouponStatus(item) === "active").length;
+  const pausedCount = coupons.filter((item) => getCouponStatus(item) === "paused").length;
+  const expiredCount = coupons.filter((item) => getCouponStatus(item) === "expired").length;
+  const totalUses = coupons.reduce((total, item) => total + Number(item.usedCount || 0), 0);
+
+  function generateCode() {
+    const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+    setCode(`ROAD${random}`);
+  }
+
+  function getCouponStatus(coupon: Coupon): CouponStatus {
+    if (coupon.status === "paused" || coupon.active === false) return "paused";
+
+    if (coupon.expiresAt) {
+      const date = new Date(coupon.expiresAt);
+      if (!Number.isNaN(date.getTime()) && date.getTime() < Date.now()) return "expired";
+    }
+
+    if (Number(coupon.maxUses || 0) > 0 && Number(coupon.usedCount || 0) >= Number(coupon.maxUses || 0)) {
+      return "expired";
+    }
+
+    return "active";
+  }
+
+  function dateText(value?: string) {
+    if (!value) return "No expiration";
+    try {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "No expiration";
+      return date.toLocaleDateString();
+    } catch {
+      return "No expiration";
+    }
+  }
 
   async function createCoupon() {
     if (!code.trim() || !title.trim()) {
@@ -133,31 +147,43 @@ export default function AdminCouponsPage() {
       setSaving(true);
       setMessage("");
 
+      const cleanCode = code.trim().toUpperCase();
       const now = new Date().toISOString();
-      const cleanCode = code.trim().toUpperCase().replace(/\s+/g, "");
 
       await addDoc(collection(db, "coupons"), {
         code: cleanCode,
         title: title.trim(),
         description: description.trim(),
         type,
-        amount: Number(amount || 0),
+        discount: Number(discount || 0),
         audience,
+        status: "active",
         active: true,
         maxUses: Number(maxUses || 0),
         usedCount: 0,
+        minTripAmount: Number(minTripAmount || 0),
         expiresAt: expiresAt || "",
         createdAt: now,
         updatedAt: now,
       });
 
+      await addDoc(collection(db, "auditLogs"), {
+        action: "Coupon Created",
+        targetType: "coupon",
+        targetId: cleanCode,
+        details: `Coupon ${cleanCode} was created.`,
+        severity: "success",
+        createdAt: now,
+      });
+
       setCode("");
       setTitle("");
       setDescription("");
-      setType("fixed");
-      setAmount(10);
+      setType("percent");
+      setDiscount(10);
       setAudience("all");
       setMaxUses(100);
+      setMinTripAmount(0);
       setExpiresAt("");
 
       setMessage("Coupon created successfully.");
@@ -168,47 +194,36 @@ export default function AdminCouponsPage() {
     }
   }
 
-  async function updateCouponStatus(coupon: Coupon, active: boolean) {
+  async function updateCoupon(coupon: Coupon, updates: Partial<Coupon>) {
     try {
       setSaving(true);
       setMessage("");
 
+      const now = new Date().toISOString();
+
       await setDoc(
         doc(db, "coupons", coupon.id),
         {
-          active,
-          updatedAt: new Date().toISOString(),
+          ...updates,
+          updatedAt: now,
         },
         { merge: true }
       );
 
-      setMessage(active ? "Coupon activated." : "Coupon deactivated.");
+      await addDoc(collection(db, "auditLogs"), {
+        action: "Coupon Updated",
+        targetType: "coupon",
+        targetId: coupon.id,
+        details: `Coupon ${coupon.code || coupon.id} was updated.`,
+        severity: updates.status === "paused" || updates.active === false ? "warning" : "success",
+        createdAt: now,
+      });
+
+      setMessage("Coupon updated successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not update coupon.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  function couponValue(coupon: Coupon) {
-    if (coupon.type === "percent") return `${Number(coupon.amount || 0)}% OFF`;
-    return `$${Number(coupon.amount || 0)} OFF`;
-  }
-
-  function audienceText(value?: CouponAudience) {
-    if (value === "new_users") return "New Users";
-    if (value === "drivers") return "Drivers";
-    if (value === "passengers") return "Passengers";
-    return "All Users";
-  }
-
-  function dateText(value?: string) {
-    if (!value) return "No expiration";
-
-    try {
-      return new Date(value).toLocaleString();
-    } catch {
-      return "No expiration";
     }
   }
 
@@ -218,8 +233,8 @@ export default function AdminCouponsPage() {
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin Home</Link>
           <Link href="/admin/marketing" className="miniButton">Marketing</Link>
-          <Link href="/admin/payments" className="miniButton">Payments</Link>
           <Link href="/admin/notifications" className="miniButton">Notifications</Link>
+          <Link href="/admin/revenue" className="miniButton">Revenue</Link>
         </div>
 
         <section className="hero">
@@ -227,22 +242,23 @@ export default function AdminCouponsPage() {
             <p className="eyebrow">RoadLink Admin</p>
             <h1>Coupons <span>Center</span></h1>
             <p className="subtitle">
-              Create discount codes, manage active promotions, track redemptions,
-              and prepare RoadLink for real payment campaigns.
+              Create promo codes, control discounts, target drivers or passengers,
+              track usage, pause campaigns, and boost RoadLink growth.
             </p>
           </div>
 
-          <div className="heroIcon">🎟️</div>
+          <div className="heroIcon">🎁</div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🎟️" label="Coupons" value={String(coupons.length)} />
-          <Metric icon="✅" label="Active" value={String(activeCoupons)} />
-          <Metric icon="⛔" label="Inactive" value={String(inactiveCoupons)} />
-          <Metric icon="📌" label="Redemptions" value={String(totalUses)} />
-          <Metric icon="💵" label="Discount Given" value={`$${totalDiscountGiven}`} />
+          <Metric icon="🎁" label="Total Coupons" value={String(coupons.length)} />
+          <Metric icon="🟢" label="Active" value={String(activeCount)} />
+          <Metric icon="⏸️" label="Paused" value={String(pausedCount)} />
+          <Metric icon="⌛" label="Expired" value={String(expiredCount)} />
+          <Metric icon="🔥" label="Total Uses" value={String(totalUses)} />
+          <Metric icon="📋" label="Filtered" value={String(filteredCoupons.length)} />
         </section>
 
         <section className="createCard">
@@ -250,140 +266,208 @@ export default function AdminCouponsPage() {
           <h2>New Promotion</h2>
 
           <div className="formGrid">
-            <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Code: ROAD10" />
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Title" />
+            <div className="codeRow">
+              <input
+                value={code}
+                onChange={(event) => setCode(event.target.value.toUpperCase())}
+                placeholder="Coupon code"
+              />
+              <button type="button" onClick={generateCode}>Generate</button>
+            </div>
+
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Coupon title"
+            />
+
             <select value={type} onChange={(event) => setType(event.target.value as CouponType)}>
-              <option value="fixed">Fixed amount</option>
-              <option value="percent">Percent</option>
+              <option value="percent">Percent Discount</option>
+              <option value="fixed">Fixed Discount</option>
             </select>
-            <input type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} placeholder="Amount" />
+
+            <input
+              type="number"
+              value={discount}
+              onChange={(event) => setDiscount(Number(event.target.value))}
+              placeholder="Discount"
+            />
+
             <select value={audience} onChange={(event) => setAudience(event.target.value as CouponAudience)}>
-              <option value="all">All users</option>
-              <option value="new_users">New users</option>
+              <option value="all">All Users</option>
               <option value="drivers">Drivers</option>
               <option value="passengers">Passengers</option>
+              <option value="new_users">New Users</option>
             </select>
-            <input type="number" value={maxUses} onChange={(event) => setMaxUses(Number(event.target.value))} placeholder="Max uses" />
-            <input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
+
+            <input
+              type="number"
+              value={maxUses}
+              onChange={(event) => setMaxUses(Number(event.target.value))}
+              placeholder="Max uses"
+            />
+
+            <input
+              type="number"
+              value={minTripAmount}
+              onChange={(event) => setMinTripAmount(Number(event.target.value))}
+              placeholder="Minimum trip amount"
+            />
+
+            <input
+              type="date"
+              value={expiresAt}
+              onChange={(event) => setExpiresAt(event.target.value)}
+            />
           </div>
 
-          <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Coupon description..." />
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Coupon description..."
+          />
 
-          <button className="createButton" onClick={createCoupon} disabled={saving}>
-            {saving ? "Saving..." : "Create Coupon"}
+          <button onClick={createCoupon} disabled={saving} className="createButton">
+            {saving ? "Creating..." : "Create Coupon"}
           </button>
         </section>
 
-        <section className="adminGrid">
-          <div className="couponsCard">
-            <p className="eyebrow">Coupons</p>
-            <h2>Promotion List</h2>
+        <section className="filtersCard">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by code, title, audience, or ID..."
+          />
 
-            {coupons.length === 0 ? (
+          <select
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as "all" | CouponStatus)}
+          >
+            <option value="all">All coupons</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="expired">Expired</option>
+          </select>
+        </section>
+
+        <section className="adminGrid">
+          <section className="couponsCard">
+            <p className="eyebrow">Coupons</p>
+            <h2>Promotion Codes</h2>
+
+            {filteredCoupons.length === 0 ? (
               <div className="empty">
-                <h3>No coupons yet</h3>
+                <h3>No coupons found</h3>
                 <p>Create your first coupon above.</p>
               </div>
             ) : (
               <div className="couponList">
-                {coupons.map((coupon) => (
-                  <button
-                    key={coupon.id}
-                    className={selected?.id === coupon.id ? "couponRow activeCoupon" : "couponRow"}
-                    onClick={() => setSelected(coupon)}
-                  >
-                    <div className="couponIcon">🎟️</div>
+                {filteredCoupons.map((coupon) => {
+                  const status = getCouponStatus(coupon);
 
-                    <div className="couponInfo">
-                      <strong>{coupon.code || "COUPON"}</strong>
-                      <span>{coupon.title || "Untitled coupon"}</span>
-                      <small>{couponValue(coupon)} • {audienceText(coupon.audience)}</small>
-                    </div>
+                  return (
+                    <button
+                      key={coupon.id}
+                      onClick={() => setSelected(coupon)}
+                      className={selected?.id === coupon.id ? "couponRow activeCoupon" : "couponRow"}
+                    >
+                      <div className="couponIcon">🎁</div>
 
-                    <em className={coupon.active === false ? "status inactive" : "status active"}>
-                      {coupon.active === false ? "Inactive" : "Active"}
-                    </em>
-                  </button>
-                ))}
+                      <div className="couponInfo">
+                        <strong>{coupon.code || "COUPON"}</strong>
+                        <span>{coupon.title || "Promotion"}</span>
+                        <small>
+                          {coupon.type === "fixed" ? "$" : ""}
+                          {Number(coupon.discount || 0)}
+                          {coupon.type === "percent" ? "%" : ""} • Used {Number(coupon.usedCount || 0)}
+                        </small>
+                      </div>
+
+                      <em className={`status ${status}`}>{status}</em>
+                    </button>
+                  );
+                })}
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="detailsCard">
+          <section className="detailsCard">
             {selected ? (
               <>
                 <div className="sectionHeader">
                   <div>
                     <p className="eyebrow">Selected Coupon</p>
-                    <h2>{selected.code || "Coupon"}</h2>
-                    <p className="email">{selected.title || "Untitled coupon"}</p>
+                    <h2>{selected.code || "COUPON"}</h2>
+                    <p className="email">{selected.title || "Promotion"}</p>
                   </div>
 
-                  <span className={selected.active === false ? "statusPill inactive" : "statusPill active"}>
-                    {selected.active === false ? "Inactive" : "Active"}
+                  <span className={`statusPill ${getCouponStatus(selected)}`}>
+                    {getCouponStatus(selected)}
                   </span>
                 </div>
 
-                <div className="amountBox">
-                  <span>Discount Value</span>
-                  <strong>{couponValue(selected)}</strong>
-                </div>
-
-                <div className="detailsBox">
-                  <strong>Description</strong>
-                  <p>{selected.description || "No description provided."}</p>
+                <div className="discountBox">
+                  <span>Discount</span>
+                  <strong>
+                    {selected.type === "fixed" ? "$" : ""}
+                    {Number(selected.discount || 0)}
+                    {selected.type === "percent" ? "%" : ""}
+                  </strong>
                 </div>
 
                 <div className="infoGrid">
                   <Info label="Coupon ID" value={selected.id} />
                   <Info label="Code" value={selected.code || "Not available"} />
-                  <Info label="Type" value={selected.type || "fixed"} />
-                  <Info label="Audience" value={audienceText(selected.audience)} />
+                  <Info label="Title" value={selected.title || "Not available"} />
+                  <Info label="Type" value={selected.type || "percent"} />
+                  <Info label="Audience" value={selected.audience || "all"} />
+                  <Info label="Status" value={getCouponStatus(selected)} />
+                  <Info label="Used Count" value={String(selected.usedCount || 0)} />
                   <Info label="Max Uses" value={String(selected.maxUses || 0)} />
-                  <Info label="Used Count" value={String(selected.usedCount || selectedRedemptions.length)} />
+                  <Info label="Min Trip Amount" value={`$${Number(selected.minTripAmount || 0)}`} />
                   <Info label="Expires" value={dateText(selected.expiresAt)} />
-                  <Info label="Created" value={dateText(selected.createdAt)} />
+                  <Info label="Created" value={selected.createdAt ? new Date(selected.createdAt).toLocaleString() : "Not available"} />
+                  <Info label="Updated" value={selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : "Not available"} />
+                </div>
+
+                <div className="descriptionBox">
+                  <strong>Description</strong>
+                  <p>{selected.description || "No description provided."}</p>
                 </div>
 
                 <div className="actionRow">
-                  <button className="approveButton" onClick={() => updateCouponStatus(selected, true)} disabled={saving}>
+                  <button
+                    className="activateButton"
+                    onClick={() => updateCoupon(selected, { active: true, status: "active" })}
+                    disabled={saving}
+                  >
                     Activate
                   </button>
 
-                  <button className="rejectButton" onClick={() => updateCouponStatus(selected, false)} disabled={saving}>
-                    Deactivate
+                  <button
+                    className="pauseButton"
+                    onClick={() => updateCoupon(selected, { active: false, status: "paused" })}
+                    disabled={saving}
+                  >
+                    Pause
+                  </button>
+
+                  <button
+                    className="expireButton"
+                    onClick={() => updateCoupon(selected, { active: false, status: "expired" })}
+                    disabled={saving}
+                  >
+                    Expire
                   </button>
                 </div>
-
-                <section className="redemptionBox">
-                  <p className="eyebrow">Redemptions</p>
-                  <h2>Coupon Usage</h2>
-
-                  {selectedRedemptions.length === 0 ? (
-                    <div className="empty">
-                      <h3>No redemptions yet</h3>
-                      <p>Usage history will appear here.</p>
-                    </div>
-                  ) : (
-                    <div className="redemptionList">
-                      {selectedRedemptions.map((item) => (
-                        <div key={item.id} className="redemptionItem">
-                          <strong>{item.userEmail || item.userId || "User"}</strong>
-                          <span>Discount: ${Number(item.discountAmount || 0)}</span>
-                          <small>{dateText(item.createdAt)}</small>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
               </>
             ) : (
               <div className="empty">
                 <h3>Select a coupon</h3>
-                <p>Choose a coupon to manage details.</p>
+                <p>Choose a coupon to manage it.</p>
               </div>
             )}
-          </div>
+          </section>
         </section>
       </section>
 
@@ -394,7 +478,7 @@ export default function AdminCouponsPage() {
           min-height: 100vh;
           background:
             radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
+            radial-gradient(circle at bottom left, rgba(59,130,246,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
@@ -424,6 +508,7 @@ export default function AdminCouponsPage() {
         .hero,
         .metric,
         .createCard,
+        .filtersCard,
         .couponsCard,
         .detailsCard {
           background: rgba(8, 13, 25, 0.92);
@@ -456,7 +541,7 @@ export default function AdminCouponsPage() {
         h1 span,
         h2,
         .metricValue,
-        .amountBox strong {
+        .discountBox strong {
           color: #22c55e;
         }
 
@@ -465,9 +550,11 @@ export default function AdminCouponsPage() {
         .subtitle,
         .email,
         .empty p,
-        .detailsBox p {
+        .descriptionBox p {
           color: #a1a1aa;
           line-height: 1.5;
+          margin: 0;
+          overflow-wrap: anywhere;
         }
 
         .heroIcon {
@@ -486,12 +573,15 @@ export default function AdminCouponsPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(5, 1fr);
+          grid-template-columns: repeat(6, 1fr);
           gap: 14px;
-          margin-bottom: 24px;
+          margin-bottom: 18px;
         }
 
-        .metric { border-radius: 24px; padding: 18px; }
+        .metric {
+          border-radius: 24px;
+          padding: 18px;
+        }
 
         .metricIcon {
           width: 42px;
@@ -516,18 +606,24 @@ export default function AdminCouponsPage() {
         .metricValue { font-size: 24px; font-weight: 900; }
 
         .createCard,
+        .filtersCard,
         .couponsCard,
         .detailsCard {
           border-radius: 30px;
           padding: 28px;
+          margin-bottom: 24px;
         }
-
-        .createCard { margin-bottom: 24px; }
 
         .formGrid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
+        }
+
+        .codeRow {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 8px;
         }
 
         input,
@@ -549,12 +645,14 @@ export default function AdminCouponsPage() {
           min-height: 110px;
           resize: vertical;
           margin-top: 12px;
+          font-family: Arial, sans-serif;
         }
 
+        .codeRow button,
         .createButton,
-        .approveButton,
-        .rejectButton {
-          padding: 15px;
+        .activateButton,
+        .pauseButton,
+        .expireButton {
           border-radius: 999px;
           border: none;
           color: white;
@@ -562,10 +660,23 @@ export default function AdminCouponsPage() {
           cursor: pointer;
         }
 
+        .codeRow button {
+          padding: 0 14px;
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
         .createButton {
           width: 100%;
           margin-top: 14px;
+          padding: 16px;
           background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .filtersCard {
+          display: grid;
+          grid-template-columns: 1fr 220px;
+          gap: 12px;
         }
 
         .adminGrid {
@@ -574,8 +685,7 @@ export default function AdminCouponsPage() {
           gap: 24px;
         }
 
-        .couponList,
-        .redemptionList {
+        .couponList {
           display: grid;
           gap: 12px;
         }
@@ -637,6 +747,7 @@ export default function AdminCouponsPage() {
           font-weight: 900;
           font-size: 12px;
           white-space: nowrap;
+          text-transform: capitalize;
         }
 
         .status.active,
@@ -646,8 +757,15 @@ export default function AdminCouponsPage() {
           border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .status.inactive,
-        .statusPill.inactive {
+        .status.paused,
+        .statusPill.paused {
+          color: #fde68a;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
+        }
+
+        .status.expired,
+        .statusPill.expired {
           color: #fca5a5;
           background: rgba(239,68,68,0.12);
           border: 1px solid rgba(239,68,68,0.35);
@@ -661,24 +779,31 @@ export default function AdminCouponsPage() {
           margin-bottom: 20px;
         }
 
-        .amountBox,
-        .detailsBox,
-        .redemptionBox {
-          padding: 22px;
+        .discountBox,
+        .descriptionBox {
+          padding: 20px;
           border-radius: 22px;
           background: rgba(34,197,94,0.1);
           border: 1px solid rgba(34,197,94,0.35);
           margin-bottom: 20px;
         }
 
-        .amountBox span {
+        .discountBox span {
           display: block;
           color: #a1a1aa;
           font-weight: 900;
           margin-bottom: 8px;
         }
 
-        .amountBox strong { font-size: 44px; font-weight: 900; }
+        .discountBox strong {
+          font-size: 46px;
+          font-weight: 900;
+        }
+
+        .descriptionBox strong {
+          display: block;
+          margin-bottom: 8px;
+        }
 
         .infoGrid {
           display: grid;
@@ -702,31 +827,35 @@ export default function AdminCouponsPage() {
           margin-bottom: 6px;
         }
 
-        .infoBox strong { overflow-wrap: anywhere; }
+        .infoBox strong {
+          overflow-wrap: anywhere;
+        }
 
         .actionRow {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: repeat(3, 1fr);
           gap: 10px;
-          margin-bottom: 20px;
         }
 
-        .approveButton { background: linear-gradient(135deg, #22c55e, #16a34a); }
-        .rejectButton { background: linear-gradient(135deg, #ef4444, #991b1b); }
-
-        .redemptionItem {
-          padding: 14px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
+        .activateButton,
+        .pauseButton,
+        .expireButton {
+          padding: 15px;
         }
 
-        .redemptionItem span,
-        .redemptionItem small {
-          display: block;
-          color: #a1a1aa;
-          margin-top: 4px;
+        .activateButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
         }
+
+        .pauseButton {
+          background: linear-gradient(135deg, #f59e0b, #b45309);
+        }
+
+        .expireButton {
+          background: linear-gradient(135deg, #ef4444, #991b1b);
+        }
+
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .empty {
           padding: 26px;
@@ -737,12 +866,10 @@ export default function AdminCouponsPage() {
 
         .empty h3 { margin: 0 0 8px; font-size: 24px; }
 
-        button:disabled { opacity: 0.6; cursor: not-allowed; }
-
         @media (max-width: 1100px) {
-          .stats { grid-template-columns: repeat(2, 1fr); }
+          .stats { grid-template-columns: repeat(3, 1fr); }
+          .formGrid { grid-template-columns: repeat(2, 1fr); }
           .adminGrid { grid-template-columns: 1fr; }
-          .formGrid { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 720px) {
@@ -757,6 +884,8 @@ export default function AdminCouponsPage() {
           h1 { font-size: 44px; }
 
           .stats,
+          .formGrid,
+          .filtersCard,
           .infoGrid,
           .actionRow {
             grid-template-columns: 1fr;
@@ -776,7 +905,9 @@ export default function AdminCouponsPage() {
             height: 46px;
           }
 
-          .sectionHeader { flex-direction: column; }
+          .sectionHeader {
+            flex-direction: column;
+          }
         }
       `}</style>
     </main>
@@ -805,7 +936,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
 }
