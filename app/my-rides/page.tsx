@@ -174,8 +174,8 @@ export default function MyRidesPage() {
           <div className={getStatusClass(ride.status)}>● {ride.status}</div>
 
           <div className="actions">
-            <Link href={`/ride-details?rideId=${ride.id}`} className="manageButton">
-              Manage
+            <Link href={`/ride-passengers?rideId=${ride.id}`} className="manageButton">
+              Passengers
             </Link>
 
             {ride.mapUrl && (
@@ -201,9 +201,11 @@ export default function MyRidesPage() {
           <button className="miniButton" onClick={() => router.back()}>
             ← Back
           </button>
+
           <Link href="/dashboard" className="miniButton">
             Dashboard
           </Link>
+
           <Link href="/offer-ride" className="miniButton">
             Offer
           </Link>
