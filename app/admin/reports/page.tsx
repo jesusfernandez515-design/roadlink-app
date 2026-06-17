@@ -21,6 +21,8 @@ type ReportItem = {
   reporterEmail?: string;
   targetUserId?: string;
   targetUserEmail?: string;
+  reportedUserId?: string;
+  reportedUserEmail?: string;
   rideId?: string;
   bookingId?: string;
   chatId?: string;
@@ -62,6 +64,7 @@ export default function AdminReportsPage() {
           if (!current) return data[0] || null;
           return data.find((item) => item.id === current.id) || data[0] || null;
         });
+
         setMessage("");
       },
       (error) => setMessage(error.message)
@@ -74,10 +77,14 @@ export default function AdminReportsPage() {
     const value = search.toLowerCase().trim();
 
     return reports.filter((report) => {
+      const targetId = report.targetUserId || report.reportedUserId || "";
+      const targetEmail = report.targetUserEmail || report.reportedUserEmail || "";
+
       const matchesSearch =
         !value ||
         String(report.reporterEmail || "").toLowerCase().includes(value) ||
-        String(report.targetUserEmail || "").toLowerCase().includes(value) ||
+        String(targetEmail).toLowerCase().includes(value) ||
+        String(targetId).toLowerCase().includes(value) ||
         String(report.reason || "").toLowerCase().includes(value) ||
         String(report.details || "").toLowerCase().includes(value) ||
         String(report.type || "").toLowerCase().includes(value) ||
@@ -97,6 +104,7 @@ export default function AdminReportsPage() {
   const openCount = reports.filter((item) => !item.status || item.status === "open").length;
   const reviewingCount = reports.filter((item) => item.status === "reviewing").length;
   const resolvedCount = reports.filter((item) => item.status === "resolved").length;
+  const dismissedCount = reports.filter((item) => item.status === "dismissed").length;
   const urgentCount = reports.filter((item) => item.priority === "urgent").length;
 
   async function updateReportStatus(report: ReportItem, status: ReportStatus) {
@@ -128,6 +136,15 @@ export default function AdminReportsPage() {
         );
       }
 
+      await setDoc(doc(db, "auditLogs", `report-${report.id}-${Date.now()}`), {
+        type: "report",
+        action: `Report marked as ${status}`,
+        reportId: report.id,
+        targetUserId: report.targetUserId || report.reportedUserId || "",
+        reporterId: report.reporterId || "",
+        createdAt: now,
+      });
+
       setMessage(`Report marked as ${status}.`);
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -137,7 +154,9 @@ export default function AdminReportsPage() {
   }
 
   async function suspendTargetUser(report: ReportItem) {
-    if (!report.targetUserId) {
+    const targetUserId = report.targetUserId || report.reportedUserId || "";
+
+    if (!targetUserId) {
       setMessage("No target user found for this report.");
       return;
     }
@@ -155,7 +174,7 @@ export default function AdminReportsPage() {
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "users", report.targetUserId),
+        doc(db, "users", targetUserId),
         {
           suspended: true,
           updatedAt: now,
@@ -170,9 +189,9 @@ export default function AdminReportsPage() {
       });
 
       await setDoc(
-        doc(db, "notifications", `${report.targetUserId}-suspended-${Date.now()}`),
+        doc(db, "notifications", `${targetUserId}-suspended-${Date.now()}`),
         {
-          userId: report.targetUserId,
+          userId: targetUserId,
           type: "account",
           title: "Account Suspended",
           message:
@@ -182,6 +201,15 @@ export default function AdminReportsPage() {
         },
         { merge: true }
       );
+
+      await setDoc(doc(db, "auditLogs", `suspend-${targetUserId}-${Date.now()}`), {
+        type: "user",
+        action: "User suspended from report center",
+        reportId: report.id,
+        targetUserId,
+        reporterId: report.reporterId || "",
+        createdAt: now,
+      });
 
       setMessage("Target user suspended and report resolved.");
     } catch (error: unknown) {
@@ -215,13 +243,22 @@ export default function AdminReportsPage() {
     }
   }
 
+  function targetUserId(report: ReportItem) {
+    return report.targetUserId || report.reportedUserId || "";
+  }
+
+  function targetUserEmail(report: ReportItem) {
+    return report.targetUserEmail || report.reportedUserEmail || "";
+  }
+
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin Home</Link>
           <Link href="/admin/users" className="miniButton">Users</Link>
-          <Link href="/admin/messages" className="miniButton">Messages</Link>
+          <Link href="/admin/chat" className="miniButton">Chat</Link>
+          <Link href="/admin/fraud" className="miniButton">Fraud</Link>
           <Link href="/dashboard" className="miniButton">Dashboard</Link>
         </div>
 
@@ -245,8 +282,8 @@ export default function AdminReportsPage() {
           <Metric icon="📌" label="Open" value={String(openCount)} />
           <Metric icon="🔎" label="Reviewing" value={String(reviewingCount)} />
           <Metric icon="✅" label="Resolved" value={String(resolvedCount)} />
+          <Metric icon="🗑️" label="Dismissed" value={String(dismissedCount)} />
           <Metric icon="🔥" label="Urgent" value={String(urgentCount)} />
-          <Metric icon="📋" label="Filtered" value={String(filteredReports.length)} />
         </section>
 
         <section className="filters">
@@ -295,7 +332,7 @@ export default function AdminReportsPage() {
                     <div className="reportInfo">
                       <strong>{report.reason || report.type || "User Report"}</strong>
                       <span>{report.reporterEmail || "Reporter not available"}</span>
-                      <small>{report.targetUserEmail || "Target user not available"}</small>
+                      <small>{targetUserEmail(report) || "Target user not available"}</small>
                     </div>
 
                     <em className={`status ${report.status || "open"}`}>
@@ -334,8 +371,8 @@ export default function AdminReportsPage() {
                   <Info label="Priority" value={priorityLabel(selected.priority)} />
                   <Info label="Reporter ID" value={selected.reporterId || "Not available"} />
                   <Info label="Reporter Email" value={selected.reporterEmail || "Not available"} />
-                  <Info label="Target User ID" value={selected.targetUserId || "Not available"} />
-                  <Info label="Target Email" value={selected.targetUserEmail || "Not available"} />
+                  <Info label="Target User ID" value={targetUserId(selected) || "Not available"} />
+                  <Info label="Target Email" value={targetUserEmail(selected) || "Not available"} />
                   <Info label="Ride ID" value={selected.rideId || "Not available"} />
                   <Info label="Booking ID" value={selected.bookingId || "Not available"} />
                   <Info label="Chat ID" value={selected.chatId || "Not available"} />
@@ -347,6 +384,35 @@ export default function AdminReportsPage() {
                 <div className="detailsBox">
                   <strong>Report Details</strong>
                   <p>{selected.details || "No extra details provided."}</p>
+                </div>
+
+                <div className="linkRow">
+                  {targetUserId(selected) && (
+                    <Link
+                      href={`/admin/users?userId=${targetUserId(selected)}`}
+                      className="outlineLink"
+                    >
+                      Open Target User
+                    </Link>
+                  )}
+
+                  {selected.rideId && (
+                    <Link
+                      href={`/ride-details?rideId=${selected.rideId}`}
+                      className="outlineLink"
+                    >
+                      Open Ride
+                    </Link>
+                  )}
+
+                  {selected.chatId && (
+                    <Link
+                      href={`/chat?chatId=${selected.chatId}`}
+                      className="outlineLink"
+                    >
+                      Open Chat
+                    </Link>
+                  )}
                 </div>
 
                 <div className="actionRow">
@@ -408,7 +474,10 @@ export default function AdminReportsPage() {
           font-family: Arial, sans-serif;
         }
 
-        .container { max-width: 1180px; margin: auto; }
+        .container {
+          max-width: 1180px;
+          margin: auto;
+        }
 
         .topNav {
           display: flex;
@@ -558,7 +627,9 @@ export default function AdminReportsPage() {
           outline: none;
         }
 
-        .filters option { color: black; }
+        .filters option {
+          color: black;
+        }
 
         .adminGrid {
           display: grid;
@@ -572,7 +643,10 @@ export default function AdminReportsPage() {
           padding: 28px;
         }
 
-        .reportList { display: grid; gap: 12px; }
+        .reportList {
+          display: grid;
+          gap: 12px;
+        }
 
         .reportRow {
           width: 100%;
@@ -606,7 +680,9 @@ export default function AdminReportsPage() {
           font-size: 24px;
         }
 
-        .reportInfo { min-width: 0; }
+        .reportInfo {
+          min-width: 0;
+        }
 
         .reportInfo strong,
         .reportInfo span,
@@ -718,7 +794,27 @@ export default function AdminReportsPage() {
           margin-bottom: 6px;
         }
 
-        .infoBox strong { overflow-wrap: anywhere; }
+        .infoBox strong {
+          overflow-wrap: anywhere;
+        }
+
+        .linkRow {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+
+        .outlineLink {
+          padding: 14px;
+          border-radius: 999px;
+          text-align: center;
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.04);
+        }
 
         .actionRow {
           display: grid;
@@ -773,9 +869,18 @@ export default function AdminReportsPage() {
         }
 
         @media (max-width: 1100px) {
-          .stats { grid-template-columns: repeat(3, 1fr); }
-          .adminGrid { grid-template-columns: 1fr; }
-          .actionRow { grid-template-columns: repeat(2, 1fr); }
+          .stats {
+            grid-template-columns: repeat(3, 1fr);
+          }
+
+          .adminGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .actionRow,
+          .linkRow {
+            grid-template-columns: repeat(2, 1fr);
+          }
         }
 
         @media (max-width: 720px) {
@@ -790,12 +895,15 @@ export default function AdminReportsPage() {
             padding: 28px;
           }
 
-          h1 { font-size: 44px; }
+          h1 {
+            font-size: 44px;
+          }
 
           .stats,
           .filters,
           .infoGrid,
-          .actionRow {
+          .actionRow,
+          .linkRow {
             grid-template-columns: 1fr;
           }
 
@@ -818,7 +926,9 @@ export default function AdminReportsPage() {
             height: 46px;
           }
 
-          .sectionHeader { flex-direction: column; }
+          .sectionHeader {
+            flex-direction: column;
+          }
         }
       `}</style>
     </main>
