@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
@@ -171,6 +172,7 @@ export default function AdminAnalyticsPage() {
 
   function isThisMonth(value?: string) {
     if (!value) return false;
+
     const date = new Date(value);
     const now = new Date();
 
@@ -275,6 +277,7 @@ export default function AdminAnalyticsPage() {
       users.length > 0 ? Math.round((verifiedDrivers / users.length) * 100) : 0;
 
     let healthScore = 100;
+
     if (activeSOS > 0) healthScore -= 20;
     if (urgentReports > 0) healthScore -= Math.min(15, urgentReports * 5);
     if (cancelledBookings > 0) healthScore -= Math.min(15, cancelledBookings * 3);
@@ -380,10 +383,12 @@ export default function AdminAnalyticsPage() {
                 {activities.map((activity) => (
                   <div className="activityRow" key={activity.id}>
                     <div className="activityIcon">{activityIcon(activity.type)}</div>
+
                     <div>
                       <strong>{activity.title || "RoadLink Activity"}</strong>
                       <span>{activity.description || activity.type || "Platform update"}</span>
                     </div>
+
                     <em>{timeAgo(activity.createdAt)}</em>
                   </div>
                 ))}
@@ -415,7 +420,16 @@ export default function AdminAnalyticsPage() {
             <Info label="Cancellation Rate" value={`${analytics.cancellationRate}%`} />
             <Info label="Driver Ratio" value={`${analytics.driverRatio}%`} />
             <Info label="Suspended Users" value={String(analytics.suspendedUsers)} />
-            <Info label="Health Status" value={analytics.healthScore >= 85 ? "Excellent" : analytics.healthScore >= 70 ? "Watch" : "Risk"} />
+            <Info
+              label="Health Status"
+              value={
+                analytics.healthScore >= 85
+                  ? "Excellent"
+                  : analytics.healthScore >= 70
+                  ? "Watch"
+                  : "Risk"
+              }
+            />
           </Panel>
         </section>
 
@@ -966,7 +980,7 @@ function Panel({
   title: string;
   eyebrow: string;
   icon: string;
-  children: React.ReactNode;
+  children: ReactNode;
   danger?: boolean;
 }) {
   return (
@@ -1011,4 +1025,4 @@ function AdminAlert({
       <strong>{value}</strong>
     </Link>
   );
-}
+      }
