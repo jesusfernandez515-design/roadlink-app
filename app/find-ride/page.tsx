@@ -59,10 +59,14 @@ export default function FindRidePage() {
 
       const snapshot = await getDocs(ridesQuery);
 
-      const ridesData = snapshot.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      })) as Ride[];
+      const ridesData = snapshot.docs.map((document) => {
+        const data = document.data();
+
+        return {
+          ...data,
+          id: document.id,
+        };
+      }) as Ride[];
 
       setRides(ridesData);
       setMessage(ridesData.length ? "" : "No rides available yet.");
@@ -82,14 +86,24 @@ export default function FindRidePage() {
 
       const bookingsQuery = query(
         collection(db, "bookings"),
-        where("passengerId", "==", currentUserId),
-        where("status", "==", "reserved")
+        where("passengerId", "==", currentUserId)
       );
 
       const snapshot = await getDocs(bookingsQuery);
 
       const ids = snapshot.docs
-        .map((document) => document.data().rideId)
+        .map((document) => {
+          const data = document.data();
+          if (
+            data.status === "reserved" ||
+            data.status === "confirmed" ||
+            data.status === "completed"
+          ) {
+            return data.rideId;
+          }
+
+          return "";
+        })
         .filter(Boolean) as string[];
 
       setReservedRideIds(ids);
@@ -122,12 +136,17 @@ export default function FindRidePage() {
       return;
     }
 
+    if (!ride.id) {
+      setMessage("Ride ID is missing. Please refresh and try again.");
+      return;
+    }
+
     if (ride.driverId === userId) {
       setMessage("You cannot reserve your own ride.");
       return;
     }
 
-    if (ride.seats <= 0) {
+    if (Number(ride.seats || 0) <= 0) {
       setMessage("No seats available for this ride.");
       return;
     }
@@ -138,13 +157,21 @@ export default function FindRidePage() {
       const duplicateQuery = query(
         collection(db, "bookings"),
         where("rideId", "==", ride.id),
-        where("passengerId", "==", userId),
-        where("status", "==", "reserved")
+        where("passengerId", "==", userId)
       );
 
       const duplicateSnapshot = await getDocs(duplicateQuery);
 
-      if (!duplicateSnapshot.empty) {
+      const hasActiveBooking = duplicateSnapshot.docs.some((document) => {
+        const data = document.data();
+        return (
+          data.status === "reserved" ||
+          data.status === "confirmed" ||
+          data.status === "completed"
+        );
+      });
+
+      if (hasActiveBooking) {
         setMessage("You already reserved this ride.");
         setReservedRideIds((previous) =>
           previous.includes(ride.id) ? previous : [...previous, ride.id]
@@ -152,35 +179,53 @@ export default function FindRidePage() {
         return;
       }
 
+      const now = new Date().toISOString();
+      const finalMapUrl = routeMapUrl(ride);
+      const finalDriverId = ride.driverId || "";
+      const finalDriverEmail = ride.driverEmail || "";
+
       await addDoc(collection(db, "bookings"), {
         rideId: ride.id,
+
         passengerId: userId,
         passengerEmail: userEmail,
-        driverId: ride.driverId || "",
-        driverEmail: ride.driverEmail || "",
-        from: ride.from,
-        to: ride.to,
-        date: ride.date,
-        time: ride.time,
-        price: ride.price,
+
+        driverId: finalDriverId,
+        driverEmail: finalDriverEmail,
+
+        from: ride.from || "",
+        to: ride.to || "",
+        date: ride.date || "",
+        time: ride.time || "",
+
+        price: Number(ride.price || 0),
         seatsBooked: 1,
+
         distanceText: ride.distanceText || "",
         durationText: ride.durationText || "",
         distanceMiles: Number(ride.distanceMiles || 0),
         durationMinutes: Number(ride.durationMinutes || 0),
-        mapUrl: routeMapUrl(ride),
+        mapUrl: finalMapUrl,
+
         status: "reserved",
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       });
 
-      if (ride.driverId) {
+      if (finalDriverId) {
         await addDoc(collection(db, "notifications"), {
-          userId: ride.driverId,
+          userId: finalDriverId,
           type: "booking",
           title: "New Ride Booking",
           message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
+          rideId: ride.id,
+          passengerId: userId,
+          passengerEmail: userEmail,
+          driverId: finalDriverId,
+          driverEmail: finalDriverEmail,
           read: false,
-          createdAt: new Date().toISOString(),
+          createdAt: now,
+          actionUrl: `/ride-passengers?rideId=${ride.id}`,
         });
       }
 
@@ -189,6 +234,7 @@ export default function FindRidePage() {
       await updateDoc(doc(db, "rides", ride.id), {
         seats: newSeats,
         status: newSeats <= 0 ? "full" : "active",
+        updatedAt: now,
       });
 
       setReservedRideIds((previous) =>
