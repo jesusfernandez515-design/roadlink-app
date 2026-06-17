@@ -43,12 +43,20 @@ type ChatData = {
   lastSenderEmail?: string;
   createdAt?: string;
   updatedAt?: string;
+  typing?: {
+    [key: string]: boolean;
+  };
+  unread?: {
+    [key: string]: number;
+  };
 };
 
 type UserProfile = {
   name?: string;
   email?: string;
   photoURL?: string;
+  online?: boolean;
+  lastSeen?: string;
 };
 
 type Message = {
@@ -102,6 +110,7 @@ function ChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [rideId, setRideId] = useState("");
   const [driverId, setDriverId] = useState("");
@@ -124,6 +133,7 @@ function ChatContent() {
     const urlChatId = searchParams.get("chatId") || "";
 
     let unsubscribeChat: (() => void) | undefined;
+    let unsubscribeOtherUser: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -134,6 +144,16 @@ function ChatContent() {
 
       setUserId(user.uid);
       setUserEmail(user.email || "");
+
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          online: true,
+          lastSeen: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
 
       try {
         let finalRideId = urlRideId;
@@ -199,11 +219,11 @@ function ChatContent() {
           user.uid === finalDriverId ? finalPassengerId : finalDriverId;
 
         if (receiverId) {
-          const userSnap = await getDoc(doc(db, "users", receiverId));
-
-          if (userSnap.exists()) {
-            setOtherUser(userSnap.data() as UserProfile);
-          }
+          unsubscribeOtherUser = onSnapshot(doc(db, "users", receiverId), (snapshot) => {
+            if (snapshot.exists()) {
+              setOtherUser(snapshot.data() as UserProfile);
+            }
+          });
         }
 
         const now = new Date().toISOString();
@@ -241,6 +261,8 @@ function ChatContent() {
     return () => {
       unsubscribeAuth();
       if (unsubscribeChat) unsubscribeChat();
+      if (unsubscribeOtherUser) unsubscribeOtherUser();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [router, searchParams]);
 
@@ -304,6 +326,12 @@ function ChatContent() {
     });
   }, [messages]);
 
+  const otherUserId = useMemo(() => {
+    if (!userId) return "";
+    if (userId === driverId) return passengerId;
+    return driverId;
+  }, [driverId, passengerId, userId]);
+
   const otherUserLabel = useMemo(() => {
     if (otherUser?.name) return otherUser.name;
     if (otherUser?.email) return otherUser.email;
@@ -315,6 +343,18 @@ function ChatContent() {
     return chatData?.driverEmail || ride?.driverEmail || "Driver";
   }, [chatData, driverId, otherUser, ride, userId]);
 
+  const otherUserInitial = otherUserLabel.charAt(0).toUpperCase() || "R";
+
+  const isOtherUserTyping = Boolean(
+    otherUserId && chatData?.typing && chatData.typing[otherUserId]
+  );
+
+  const onlineText = otherUser?.online
+    ? "Online now"
+    : otherUser?.lastSeen
+    ? `Last seen ${formatRelativeTime(otherUser.lastSeen)}`
+    : "Secure RoadLink user";
+
   const unreadOutgoingCount = useMemo(() => {
     return messages.filter(
       (message) => message.senderId === userId && message.read === false
@@ -324,6 +364,36 @@ function ChatContent() {
   const chatTitle = ride
     ? `${ride.from || "Starting point"} → ${ride.to || "Destination"}`
     : `Chat with ${otherUserLabel}`;
+
+  async function handleTyping(value: string) {
+    setText(value);
+
+    if (!chatId || !userId) return;
+
+    await setDoc(
+      doc(db, "chats", chatId),
+      {
+        [`typing.${userId}`]: Boolean(value.trim()),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    typingTimeoutRef.current = setTimeout(async () => {
+      if (!chatId || !userId) return;
+
+      await setDoc(
+        doc(db, "chats", chatId),
+        {
+          [`typing.${userId}`]: false,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }, 1200);
+  }
 
   async function sendMessage() {
     const cleanText = text.trim();
@@ -393,6 +463,7 @@ function ChatContent() {
           lastSenderId: userId,
           lastSenderEmail: userEmail,
           [`unread.${receiverId}`]: 1,
+          [`typing.${userId}`]: false,
           updatedAt: now,
           createdAt: chatData?.createdAt || now,
         },
@@ -442,6 +513,71 @@ function ChatContent() {
     }
   }
 
+  function formatDateLabel(value?: string) {
+    if (!value) return "";
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+    return date.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  function shouldShowDateSeparator(current: Message, previous?: Message) {
+    if (!current.createdAt) return false;
+    if (!previous?.createdAt) return true;
+
+    const currentDate = new Date(current.createdAt);
+    const previousDate = new Date(previous.createdAt);
+
+    if (Number.isNaN(currentDate.getTime()) || Number.isNaN(previousDate.getTime())) {
+      return false;
+    }
+
+    return currentDate.toDateString() !== previousDate.toDateString();
+  }
+
+  function getMessageStatus(message: Message) {
+    if (message.senderId !== userId) return "";
+
+    if (message.read) return "✓✓ Read";
+    if (message.status === "sent") return "✓ Sent";
+
+    return "✓ Sent";
+  }
+
+  function formatRelativeTime(value?: string) {
+    if (!value) return "recently";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "recently";
+
+    const diffMs = Date.now() - date.getTime();
+    const diffMinutes = Math.max(1, Math.floor(diffMs / 60000));
+
+    if (diffMinutes < 2) return "just now";
+    if (diffMinutes < 60) return `${diffMinutes} min ago`;
+
+    const diffHours = Math.floor(diffMinutes / 60);
+
+    if (diffHours < 24) return `${diffHours} hr ago`;
+
+    const diffDays = Math.floor(diffHours / 24);
+
+    return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  }
+
   return (
     <main className="page">
       <section className="chatShell">
@@ -469,7 +605,11 @@ function ChatContent() {
           </div>
 
           <div className="routeCard">
-            <div className="avatar">💬</div>
+            {otherUser?.photoURL ? (
+              <img src={otherUser.photoURL} alt={otherUserLabel} className="avatarImage" />
+            ) : (
+              <div className="avatar">{otherUserInitial}</div>
+            )}
 
             <div>
               <p className="eyebrow">Live RoadLink Chat</p>
@@ -477,10 +617,12 @@ function ChatContent() {
               <p className="subtitle">{chatTitle}</p>
 
               <div className="chips">
+                <span className={otherUser?.online ? "onlineChip" : ""}>
+                  {otherUser?.online ? "● Online" : onlineText}
+                </span>
                 {ride?.date && <span>📅 {ride.date}</span>}
                 {ride?.time && <span>🕒 {ride.time}</span>}
-                <span>🛡️ Secure Chat</span>
-                <span>🔔 Real Time</span>
+                <span>🛡️ Secure</span>
                 {unreadOutgoingCount > 0 && <span>{unreadOutgoingCount} unread</span>}
               </div>
             </div>
@@ -500,26 +642,52 @@ function ChatContent() {
             </div>
           ) : (
             <>
-              {messages.map((message) => {
+              {messages.map((message, index) => {
                 const isMine = message.senderId === userId;
+                const previousMessage = index > 0 ? messages[index - 1] : undefined;
+                const showDate = shouldShowDateSeparator(message, previousMessage);
 
                 return (
-                  <div
-                    key={message.id}
-                    className={isMine ? "messageRow mine" : "messageRow"}
-                  >
-                    <div className={isMine ? "bubble myBubble" : "bubble"}>
-                      <p>{message.text}</p>
+                  <div key={message.id}>
+                    {showDate && (
+                      <div className="dateSeparator">
+                        {formatDateLabel(message.createdAt)}
+                      </div>
+                    )}
 
-                      <small>
-                        {isMine ? "You" : message.senderEmail || "RoadLink User"}
-                        {message.createdAt ? ` • ${formatTime(message.createdAt)}` : ""}
-                        {isMine && message.read ? " • Read" : ""}
-                      </small>
+                    <div className={isMine ? "messageRow mine" : "messageRow"}>
+                      {!isMine && (
+                        <div className="smallAvatar">
+                          {otherUser?.photoURL ? (
+                            <img src={otherUser.photoURL} alt={otherUserLabel} />
+                          ) : (
+                            <span>{otherUserInitial}</span>
+                          )}
+                        </div>
+                      )}
+
+                      <div className={isMine ? "bubble myBubble" : "bubble"}>
+                        <p>{message.text}</p>
+
+                        <small>
+                          {isMine ? "You" : message.senderEmail || "RoadLink User"}
+                          {message.createdAt ? ` • ${formatTime(message.createdAt)}` : ""}
+                          {getMessageStatus(message) ? ` • ${getMessageStatus(message)}` : ""}
+                        </small>
+                      </div>
                     </div>
                   </div>
                 );
               })}
+
+              {isOtherUserTyping && (
+                <div className="typingIndicator">
+                  <span>{otherUserLabel} is typing</span>
+                  <b>.</b>
+                  <b>.</b>
+                  <b>.</b>
+                </div>
+              )}
 
               <div ref={messagesEndRef} />
             </>
@@ -529,7 +697,7 @@ function ChatContent() {
         <section className="composer">
           <textarea
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => handleTyping(event.target.value)}
             placeholder="Write a message..."
             aria-label="Write a message"
             onKeyDown={(event) => {
@@ -605,7 +773,8 @@ function ChatContent() {
 
         .brand span,
         .eyebrow,
-        .status {
+        .status,
+        .onlineChip {
           color: #22c55e;
         }
 
@@ -615,15 +784,27 @@ function ChatContent() {
           align-items: center;
         }
 
-        .avatar {
+        .avatar,
+        .avatarImage {
           min-width: 82px;
+          width: 82px;
           height: 82px;
           border-radius: 50%;
+          border: 2px solid rgba(34,197,94,0.45);
+          box-shadow: 0 18px 55px rgba(34,197,94,0.25);
+        }
+
+        .avatar {
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 36px;
+          font-weight: 900;
+        }
+
+        .avatarImage {
+          object-fit: cover;
         }
 
         .eyebrow {
@@ -664,6 +845,11 @@ function ChatContent() {
           border: 1px solid rgba(255,255,255,0.12);
           color: #e5e7eb;
           font-weight: 800;
+        }
+
+        .chips .onlineChip {
+          background: rgba(34,197,94,0.12);
+          border-color: rgba(34,197,94,0.35);
         }
 
         .status {
@@ -716,14 +902,48 @@ function ChatContent() {
           margin: 0;
         }
 
+        .dateSeparator {
+          width: fit-content;
+          margin: 12px auto 18px;
+          padding: 8px 12px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.1);
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
         .messageRow {
           display: flex;
           justify-content: flex-start;
+          align-items: flex-end;
+          gap: 10px;
           margin-bottom: 14px;
         }
 
         .messageRow.mine {
           justify-content: flex-end;
+        }
+
+        .smallAvatar {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          overflow: hidden;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .smallAvatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
         }
 
         .bubble {
@@ -753,6 +973,37 @@ function ChatContent() {
           font-weight: 800;
         }
 
+        .typingIndicator {
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          margin: 4px 0 12px 44px;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          color: #a1a1aa;
+          font-weight: 900;
+        }
+
+        .typingIndicator b {
+          color: #22c55e;
+          animation: blink 1s infinite;
+        }
+
+        .typingIndicator b:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+
+        .typingIndicator b:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+
+        @keyframes blink {
+          0%, 80%, 100% { opacity: 0.2; }
+          40% { opacity: 1; }
+        }
+
         .composer {
           border-radius: 26px;
           padding: 14px;
@@ -774,6 +1025,7 @@ function ChatContent() {
           font-size: 16px;
           outline: none;
           resize: vertical;
+          font-family: Arial, sans-serif;
         }
 
         textarea::placeholder {
@@ -814,8 +1066,10 @@ function ChatContent() {
             align-items: flex-start;
           }
 
-          .avatar {
+          .avatar,
+          .avatarImage {
             min-width: 68px;
+            width: 68px;
             height: 68px;
             font-size: 30px;
           }
