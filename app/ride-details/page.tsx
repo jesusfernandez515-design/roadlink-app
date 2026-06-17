@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   updateDoc,
   where,
@@ -36,6 +37,20 @@ type Ride = {
   distanceMiles?: number;
   durationMinutes?: number;
   mapUrl?: string;
+  createdAt?: string;
+};
+
+type Booking = {
+  id: string;
+  rideId?: string;
+  passengerId?: string;
+  passengerEmail?: string;
+  driverId?: string;
+  driverEmail?: string;
+  status?: string;
+  seatsBooked?: number;
+  price?: number;
+  createdAt?: string;
 };
 
 export default function RideDetailsPage() {
@@ -78,12 +93,39 @@ function RideDetailsContent() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [ride, setRide] = useState<Ride | null>(null);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [alreadyReserved, setAlreadyReserved] = useState(false);
   const [message, setMessage] = useState("Loading ride details...");
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState("");
 
   const isOwnRide = Boolean(ride?.driverId && userId && ride.driverId === userId);
   const noSeats = Number(ride?.seats || 0) <= 0;
+
+  const activeBookings = useMemo(
+    () => bookings.filter((booking) => booking.status !== "cancelled"),
+    [bookings]
+  );
+
+  const completedBookings = useMemo(
+    () => bookings.filter((booking) => booking.status === "completed"),
+    [bookings]
+  );
+
+  const totalBookedSeats = activeBookings.reduce(
+    (total, booking) => total + Number(booking.seatsBooked || 1),
+    0
+  );
+
+  const earnings = activeBookings.reduce(
+    (total, booking) =>
+      total + Number(booking.price || ride?.price || 0) * Number(booking.seatsBooked || 1),
+    0
+  );
+
+  const originalSeats = Number(ride?.originalSeats || 0);
+  const capacity = Math.max(originalSeats, Number(ride?.seats || 0) + totalBookedSeats, 1);
+  const occupancyRate = Math.min(100, Math.round((totalBookedSeats / capacity) * 100));
 
   function routeMapUrl(currentRide: Ride) {
     if (currentRide.mapUrl) return currentRide.mapUrl;
@@ -93,6 +135,18 @@ function RideDetailsContent() {
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
       currentRide.from
     )}&destination=${encodeURIComponent(currentRide.to)}&travelmode=driving`;
+  }
+
+  function formatMoney(value?: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  function statusClass(status?: string) {
+    if (status === "active") return "status activeStatus";
+    if (status === "full") return "status fullStatus";
+    if (status === "completed") return "status completedStatus";
+    if (status === "cancelled") return "status cancelledStatus";
+    return "status";
   }
 
   async function loadRide(currentUserId?: string) {
@@ -111,8 +165,8 @@ function RideDetailsContent() {
       }
 
       const rideData = {
-        id: snapshot.id,
         ...snapshot.data(),
+        id: snapshot.id,
       } as Ride;
 
       setRide(rideData);
@@ -122,12 +176,21 @@ function RideDetailsContent() {
         const bookingQuery = query(
           collection(db, "bookings"),
           where("rideId", "==", rideId),
-          where("passengerId", "==", currentUserId),
-          where("status", "==", "reserved")
+          where("passengerId", "==", currentUserId)
         );
 
         const bookingSnapshot = await getDocs(bookingQuery);
-        setAlreadyReserved(!bookingSnapshot.empty);
+
+        const hasActiveBooking = bookingSnapshot.docs.some((document) => {
+          const data = document.data();
+          return (
+            data.status === "reserved" ||
+            data.status === "confirmed" ||
+            data.status === "completed"
+          );
+        });
+
+        setAlreadyReserved(hasActiveBooking);
       }
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -163,26 +226,35 @@ function RideDetailsContent() {
     try {
       setLoading(true);
 
+      const now = new Date().toISOString();
+
       await addDoc(collection(db, "bookings"), {
         rideId: ride.id,
+
         passengerId: userId,
         passengerEmail: userEmail,
+
         driverId: ride.driverId || "",
         driverEmail: ride.driverEmail || "",
-        from: ride.from,
-        to: ride.to,
-        date: ride.date,
-        time: ride.time,
+
+        from: ride.from || "",
+        to: ride.to || "",
+        date: ride.date || "",
+        time: ride.time || "",
+
         price: Number(ride.price || 0),
         suggestedPrice: Number(ride.suggestedPrice || 0),
+
         distanceText: ride.distanceText || "",
         durationText: ride.durationText || "",
         distanceMiles: Number(ride.distanceMiles || 0),
         durationMinutes: Number(ride.durationMinutes || 0),
         mapUrl: routeMapUrl(ride),
+
         seatsBooked: 1,
         status: "reserved",
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       });
 
       if (ride.driverId) {
@@ -191,8 +263,12 @@ function RideDetailsContent() {
           type: "booking",
           title: "New Ride Booking",
           message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
+          rideId: ride.id,
+          passengerId: userId,
+          passengerEmail: userEmail,
           read: false,
-          createdAt: new Date().toISOString(),
+          createdAt: now,
+          actionUrl: `/ride-passengers?rideId=${ride.id}`,
         });
       }
 
@@ -201,6 +277,7 @@ function RideDetailsContent() {
       await updateDoc(doc(db, "rides", ride.id), {
         seats: newSeats,
         status: newSeats <= 0 ? "full" : "active",
+        updatedAt: now,
       });
 
       setAlreadyReserved(true);
@@ -218,7 +295,83 @@ function RideDetailsContent() {
     }
   }
 
+  async function notifyPassenger(booking: Booking, title: string, text: string) {
+    if (!booking.passengerId) return;
+
+    await addDoc(collection(db, "notifications"), {
+      userId: booking.passengerId,
+      type: "ride",
+      title,
+      message: text,
+      rideId,
+      bookingId: booking.id,
+      driverId: ride?.driverId || "",
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async function updateRideStatus(status: "completed" | "cancelled") {
+    if (!ride || !isOwnRide) return;
+
+    const confirmed = confirm(`Are you sure you want to mark this ride as ${status}?`);
+    if (!confirmed) return;
+
+    try {
+      setActionLoading(status);
+      setMessage("");
+
+      const now = new Date().toISOString();
+
+      await updateDoc(doc(db, "rides", ride.id), {
+        status,
+        updatedAt: now,
+      });
+
+      await Promise.all(
+        activeBookings.map(async (booking) => {
+          await updateDoc(doc(db, "bookings", booking.id), {
+            status,
+            updatedAt: now,
+          });
+
+          await notifyPassenger(
+            booking,
+            status === "completed" ? "Ride Completed" : "Ride Cancelled",
+            status === "completed"
+              ? `Your ride from ${ride.from} to ${ride.to} was completed. Please rate your trip experience.`
+              : `Your ride from ${ride.from} to ${ride.to} was cancelled.`
+          );
+
+          if (status === "completed" && booking.passengerId) {
+            await addDoc(collection(db, "notifications"), {
+              userId: booking.passengerId,
+              type: "review",
+              title: "Rate Your Driver",
+              message: `Please rate your trip from ${ride.from} to ${ride.to}.`,
+              rideId: ride.id,
+              driverId: ride.driverId || "",
+              passengerId: booking.passengerId,
+              read: false,
+              createdAt: now,
+              actionUrl: `/rate-driver?rideId=${ride.id}&driverId=${ride.driverId || ""}`,
+            });
+          }
+        })
+      );
+
+      setRide({ ...ride, status });
+      setMessage(`Ride marked as ${status}.`);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setActionLoading("");
+    }
+  }
+
   useEffect(() => {
+    let unsubscribeBookings: (() => void) | undefined;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setMessage("Please sign in to view ride details.");
@@ -229,9 +382,32 @@ function RideDetailsContent() {
       setUserId(user.uid);
       setUserEmail(user.email || "");
       await loadRide(user.uid);
+
+      if (rideId) {
+        const bookingsQuery = query(
+          collection(db, "bookings"),
+          where("rideId", "==", rideId)
+        );
+
+        unsubscribeBookings = onSnapshot(
+          bookingsQuery,
+          (snapshot) => {
+            const data = snapshot.docs.map((document) => ({
+              ...document.data(),
+              id: document.id,
+            })) as Booking[];
+
+            setBookings(data);
+          },
+          (error) => setMessage(error.message)
+        );
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubscribeBookings) unsubscribeBookings();
+    };
   }, [router, rideId]);
 
   return (
@@ -254,86 +430,137 @@ function RideDetailsContent() {
         <h1>Trip <span>Overview</span></h1>
 
         <p className="subtitle">
-          Review the full route, driver, vehicle and travel information before reserving.
+          Review the route, passengers, earnings, driver details and trip status.
         </p>
       </section>
 
       {message && <p className="message">{message}</p>}
 
       {ride && (
-        <section className="detailsCard">
-          <div className="routeHeader">
-            <div>
-              <p className="label">ROUTE</p>
-              <h2>{ride.from} <span>→</span> {ride.to}</h2>
+        <>
+          <section className="detailsCard">
+            <div className="routeHeader">
+              <div>
+                <p className="label">ROUTE</p>
+                <h2>{ride.from} <span>→</span> {ride.to}</h2>
+              </div>
+
+              <div className="priceBox">
+                <span>PRICE</span>
+                <strong>{formatMoney(ride.price)}</strong>
+              </div>
             </div>
 
-            <div className="priceBox">
-              <span>PRICE</span>
-              <strong>${ride.price}</strong>
+            <div className="routeStats">
+              <Stat label="Distance" value={ride.distanceText || "Not available"} />
+              <Stat label="Duration" value={ride.durationText || "Not available"} />
+              <Stat label="Miles" value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"} />
+              <Stat label="Suggested" value={ride.suggestedPrice ? formatMoney(ride.suggestedPrice) : "N/A"} />
             </div>
-          </div>
 
-          <div className="routeStats">
-            <Stat label="Distance" value={ride.distanceText || "Not available"} />
-            <Stat label="Duration" value={ride.durationText || "Not available"} />
-            <Stat label="Miles" value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"} />
-            <Stat label="Suggested" value={ride.suggestedPrice ? `$${ride.suggestedPrice}` : "N/A"} />
-          </div>
+            <div className="chips">
+              <div className="chip">📅 {ride.date}</div>
+              <div className="chip">🕒 {ride.time}</div>
+              <div className="chip">💺 {ride.seats} seats left</div>
+              <div className={statusClass(ride.status)}>● {ride.status || "active"}</div>
+            </div>
 
-          <div className="chips">
-            <div className="chip">📅 {ride.date}</div>
-            <div className="chip">🕒 {ride.time}</div>
-            <div className="chip">💺 {ride.seats} seats left</div>
-            <div className="chip active">● {ride.status || "active"}</div>
-          </div>
+            <div className="infoGrid">
+              <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not specified"} />
+              <Info icon="👤" label="Driver" value={ride.driverEmail || "RoadLink Driver"} />
+              <Info icon="💵" label="Price per Seat" value={formatMoney(ride.price)} />
+              {ride.notes && <Info icon="📝" label="Trip Notes" value={ride.notes} />}
+            </div>
 
-          <div className="infoGrid">
-            <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not specified"} />
-            <Info icon="👤" label="Driver" value={ride.driverEmail || "RoadLink Driver"} />
-            <Info icon="💵" label="Price per Seat" value={`$${ride.price}`} />
-            {ride.notes && <Info icon="📝" label="Trip Notes" value={ride.notes} />}
-          </div>
+            {routeMapUrl(ride) && (
+              <a
+                href={routeMapUrl(ride)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mapButton"
+              >
+                Open Route in Google Maps
+              </a>
+            )}
 
-          {routeMapUrl(ride) && (
-            <a
-              href={routeMapUrl(ride)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mapButton"
-            >
-              🗺️ Open Route in Google Maps
-            </a>
-          )}
+            {isOwnRide && <p className="warning">This is your own ride.</p>}
+            {alreadyReserved && <p className="success">You already reserved this ride.</p>}
 
-          {isOwnRide && <p className="warning">This is your own ride.</p>}
-          {alreadyReserved && <p className="success">You already reserved this ride.</p>}
+            <div className="actions">
+              {isOwnRide ? (
+                <>
+                  <Link
+                    href={`/ride-passengers?rideId=${ride.id}`}
+                    className="outlineButton"
+                  >
+                    Passenger List
+                  </Link>
 
-          <div className="actions">
-            <Link
-              href={`/driver-profile?driverId=${ride.driverId || ""}`}
-              className="outlineButton"
-            >
-              View Driver Profile
-            </Link>
+                  <button
+                    className="completeButton"
+                    onClick={() => updateRideStatus("completed")}
+                    disabled={actionLoading === "completed" || ride.status === "completed"}
+                  >
+                    {actionLoading === "completed" ? "Updating..." : "Complete Ride"}
+                  </button>
 
-            <button
-              className="reserve"
-              onClick={reserveSeat}
-              disabled={loading || alreadyReserved || isOwnRide || noSeats}
-            >
-              {loading
-                ? "Reserving..."
-                : alreadyReserved
-                ? "Already Reserved"
-                : isOwnRide
-                ? "Your Own Ride"
-                : noSeats
-                ? "No Seats Available"
-                : "Reserve Seat"}
-            </button>
-          </div>
-        </section>
+                  <button
+                    className="cancelButton"
+                    onClick={() => updateRideStatus("cancelled")}
+                    disabled={actionLoading === "cancelled" || ride.status === "cancelled"}
+                  >
+                    {actionLoading === "cancelled" ? "Updating..." : "Cancel Ride"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href={`/driver-profile?driverId=${ride.driverId || ""}`}
+                    className="outlineButton"
+                  >
+                    View Driver Profile
+                  </Link>
+
+                  <button
+                    className="reserve"
+                    onClick={reserveSeat}
+                    disabled={loading || alreadyReserved || isOwnRide || noSeats}
+                  >
+                    {loading
+                      ? "Reserving..."
+                      : alreadyReserved
+                      ? "Already Reserved"
+                      : noSeats
+                      ? "No Seats Available"
+                      : "Reserve Seat"}
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="analyticsCard">
+            <p className="eyebrow">Driver Analytics</p>
+
+            <div className="analyticsGrid">
+              <Metric label="Passengers" value={String(activeBookings.length)} />
+              <Metric label="Seats Sold" value={String(totalBookedSeats)} />
+              <Metric label="Earnings" value={formatMoney(earnings)} />
+              <Metric label="Occupancy" value={`${occupancyRate}%`} />
+              <Metric label="Completed" value={String(completedBookings.length)} />
+              <Metric label="Status" value={ride.status || "active"} />
+            </div>
+          </section>
+
+          <section className="timelineCard">
+            <p className="eyebrow">Trip Timeline</p>
+
+            <TimelineItem active label="Ride Created" detail={ride.createdAt || "Created in RoadLink"} />
+            <TimelineItem active={activeBookings.length > 0} label="Passenger Reserved" detail={`${activeBookings.length} active booking${activeBookings.length === 1 ? "" : "s"}`} />
+            <TimelineItem active={activeBookings.some((item) => item.status === "confirmed")} label="Booking Confirmed" detail="Driver confirmation step" />
+            <TimelineItem active={ride.status === "completed"} label="Ride Completed" detail="Ratings unlocked after completion" />
+          </section>
+        </>
       )}
 
       <style>{`
@@ -352,7 +579,9 @@ function RideDetailsContent() {
         }
 
         .hero,
-        .detailsCard {
+        .detailsCard,
+        .analyticsCard,
+        .timelineCard {
           max-width: 900px;
           margin-left: auto;
           margin-right: auto;
@@ -364,7 +593,11 @@ function RideDetailsContent() {
           backdrop-filter: blur(16px);
         }
 
-        .hero { margin-bottom: 28px; }
+        .hero,
+        .detailsCard,
+        .analyticsCard {
+          margin-bottom: 24px;
+        }
 
         .topActions {
           display: flex;
@@ -398,7 +631,8 @@ function RideDetailsContent() {
         h2 span,
         .active,
         .priceBox strong,
-        .eyebrow {
+        .eyebrow,
+        .metricValue {
           color: #22c55e;
         }
 
@@ -514,13 +748,35 @@ function RideDetailsContent() {
           margin: 24px 0;
         }
 
-        .chip {
+        .chip,
+        .status {
           padding: 10px 14px;
           border-radius: 14px;
           background: rgba(255,255,255,0.06);
           border: 1px solid rgba(255,255,255,0.12);
           color: #e5e7eb;
           font-weight: 800;
+          text-transform: capitalize;
+        }
+
+        .activeStatus {
+          color: #22c55e;
+          border-color: rgba(34,197,94,0.35);
+        }
+
+        .fullStatus {
+          color: #fbbf24;
+          border-color: rgba(251,191,36,0.35);
+        }
+
+        .completedStatus {
+          color: #38bdf8;
+          border-color: rgba(56,189,248,0.35);
+        }
+
+        .cancelledStatus {
+          color: #fca5a5;
+          border-color: rgba(239,68,68,0.35);
         }
 
         .infoGrid { display: grid; gap: 10px; }
@@ -589,8 +845,14 @@ function RideDetailsContent() {
           margin-top: 24px;
         }
 
+        .actions:has(.cancelButton) {
+          grid-template-columns: 1fr 1fr 1fr;
+        }
+
         .outlineButton,
-        .reserve {
+        .reserve,
+        .completeButton,
+        .cancelButton {
           width: 100%;
           padding: 17px;
           border-radius: 999px;
@@ -598,36 +860,110 @@ function RideDetailsContent() {
           font-size: 16px;
           font-weight: 900;
           cursor: pointer;
+          text-decoration: none;
         }
 
         .outlineButton {
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
-          text-decoration: none;
         }
 
-        .reserve {
+        .reserve,
+        .completeButton {
           border: none;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
           box-shadow: 0 18px 50px rgba(34,197,94,0.25);
         }
 
-        .reserve:disabled {
+        .cancelButton {
+          border: none;
+          background: linear-gradient(135deg, #ef4444, #b91c1c);
+          color: white;
+        }
+
+        .reserve:disabled,
+        .completeButton:disabled,
+        .cancelButton:disabled {
           opacity: 0.55;
           cursor: not-allowed;
           box-shadow: none;
         }
 
-        @media (max-width: 650px) {
+        .analyticsGrid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin-top: 16px;
+        }
+
+        .metric {
+          border-radius: 18px;
+          padding: 16px;
+          background: rgba(255,255,255,0.035);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .metricLabel {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .metricValue {
+          font-size: 24px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
+
+        .timelineItem {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 14px;
+          padding: 14px 0;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .timelineItem:last-child {
+          border-bottom: none;
+        }
+
+        .timelineDot {
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .timelineItem.isActive .timelineDot {
+          background: #22c55e;
+          box-shadow: 0 0 24px rgba(34,197,94,0.45);
+        }
+
+        .timelineText strong {
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .timelineText span {
+          color: #a1a1aa;
+          font-size: 14px;
+        }
+
+        @media (max-width: 700px) {
           .page {
             padding: 16px;
             padding-bottom: 150px;
           }
 
           .hero,
-          .detailsCard {
+          .detailsCard,
+          .analyticsCard,
+          .timelineCard {
             padding: 24px;
             border-radius: 28px;
           }
@@ -637,7 +973,9 @@ function RideDetailsContent() {
 
           .routeHeader,
           .routeStats,
-          .actions {
+          .actions,
+          .actions:has(.cancelButton),
+          .analyticsGrid {
             grid-template-columns: 1fr;
           }
 
@@ -670,3 +1008,32 @@ function Info({ icon, label, value }: { icon: string; label: string; value: stri
     </div>
   );
 }
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric">
+      <span className="metricLabel">{label}</span>
+      <div className="metricValue">{value}</div>
+    </div>
+  );
+}
+
+function TimelineItem({
+  active,
+  label,
+  detail,
+}: {
+  active: boolean;
+  label: string;
+  detail: string;
+}) {
+  return (
+    <div className={active ? "timelineItem isActive" : "timelineItem"}>
+      <div className="timelineDot" />
+      <div className="timelineText">
+        <strong>{label}</strong>
+        <span>{detail}</span>
+      </div>
+    </div>
+  );
+      }
