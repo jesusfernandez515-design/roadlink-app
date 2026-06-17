@@ -4,13 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  orderBy,
-} from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 
 type Chat = {
   id: string;
@@ -27,6 +21,9 @@ type Chat = {
   unreadCount?: number;
   unreadByDriver?: number;
   unreadByPassenger?: number;
+  unread?: {
+    [key: string]: number;
+  };
 };
 
 export default function MessagesPage() {
@@ -58,14 +55,12 @@ export default function MessagesPage() {
 
     const driverChatsQuery = query(
       collection(db, "chats"),
-      where("driverId", "==", userId),
-      orderBy("lastMessageTime", "desc")
+      where("driverId", "==", userId)
     );
 
     const passengerChatsQuery = query(
       collection(db, "chats"),
-      where("passengerId", "==", userId),
-      orderBy("lastMessageTime", "desc")
+      where("passengerId", "==", userId)
     );
 
     const unsubscribeDriver = onSnapshot(
@@ -104,22 +99,30 @@ export default function MessagesPage() {
 
   function getConversationKey(chat: Chat) {
     if (chat.chatId) return chat.chatId;
-    if (chat.rideId) return `ride_${chat.rideId}`;
+    if (chat.id) return chat.id;
 
     const driver = chat.driverId || "no_driver";
     const passenger = chat.passengerId || "no_passenger";
+    const ride = chat.rideId || "direct";
 
-    return `direct_${driver}_${passenger}`;
+    return `${ride}_${driver}_${passenger}`;
   }
 
   function getChatTime(chat: Chat) {
-    if (!chat.lastMessageTime) return 0;
+    const value = chat.lastMessageTime || "";
 
-    const date = new Date(chat.lastMessageTime);
+    if (!value) return 0;
+
+    const date = new Date(value);
+
     return Number.isNaN(date.getTime()) ? 0 : date.getTime();
   }
 
   function getUnreadForUser(chat: Chat) {
+    if (chat.unread && userId && chat.unread[userId] !== undefined) {
+      return Number(chat.unread[userId] || 0);
+    }
+
     const isDriver = chat.driverId === userId;
 
     if (isDriver && chat.unreadByDriver !== undefined) {
@@ -174,6 +177,10 @@ export default function MessagesPage() {
           Number(existing.unreadByPassenger || 0),
           Number(chat.unreadByPassenger || 0)
         ),
+        unread: {
+          ...(olderChat.unread || {}),
+          ...(newestChat.unread || {}),
+        },
         driverEmail: newestChat.driverEmail || olderChat.driverEmail || "",
         passengerEmail:
           newestChat.passengerEmail || olderChat.passengerEmail || "",
@@ -217,7 +224,8 @@ export default function MessagesPage() {
   function getOpenChatUrl(chat: Chat) {
     const params = new URLSearchParams();
 
-    if (chat.chatId) params.set("chatId", chat.chatId);
+    params.set("chatId", chat.chatId || chat.id);
+
     if (chat.rideId) params.set("rideId", chat.rideId);
     if (chat.driverId) params.set("driverId", chat.driverId);
     if (chat.passengerId) params.set("passengerId", chat.passengerId);
@@ -235,9 +243,19 @@ export default function MessagesPage() {
         return value.slice(11, 16) || "Now";
       }
 
-      return date.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
+      const today = new Date();
+      const isToday = date.toDateString() === today.toDateString();
+
+      if (isToday) {
+        return date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      return date.toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
       });
     } catch {
       return value.slice(11, 16) || "Now";
@@ -251,12 +269,15 @@ export default function MessagesPage() {
           <Link href="/dashboard" className="miniButton">
             ← Dashboard
           </Link>
+
           <Link href="/find-ride" className="miniButton">
             Find Ride
           </Link>
+
           <Link href="/offer-ride" className="miniButton">
             Offer Ride
           </Link>
+
           <Link href="/notifications" className="miniButton">
             Notifications
           </Link>
@@ -265,9 +286,11 @@ export default function MessagesPage() {
         <section className="heroCard">
           <div>
             <p className="eyebrow">RoadLink Inbox</p>
+
             <h1>
               Your <span>messages.</span>
             </h1>
+
             <p className="subtitle">
               Manage ride conversations, unread messages, and trip coordination
               from one premium inbox.
@@ -315,11 +338,14 @@ export default function MessagesPage() {
           {conversations.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">💬</div>
+
               <h3>No conversations yet</h3>
+
               <p>
                 When someone messages you about a ride, the conversation will
                 appear here.
               </p>
+
               <Link href="/find-ride" className="mainButton">
                 Find a Ride
               </Link>
@@ -352,7 +378,13 @@ export default function MessagesPage() {
                         <span>{formatTime(conversation.lastMessageTime)}</span>
                       </div>
 
-                      <p className={unread > 0 ? "messagePreview strong" : "messagePreview"}>
+                      <p
+                        className={
+                          unread > 0
+                            ? "messagePreview strong"
+                            : "messagePreview"
+                        }
+                      >
                         {isLastMessageMine ? "You: " : ""}
                         {conversation.lastMessage || "New conversation"}
                       </p>
