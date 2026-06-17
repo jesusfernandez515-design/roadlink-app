@@ -23,9 +23,18 @@ type RideItem = {
   date?: string;
   time?: string;
   price?: number;
+  suggestedPrice?: number;
   seats?: number;
+  originalSeats?: number;
   seatsAvailable?: number;
+  vehicle?: string;
+  notes?: string;
   status?: RideStatus;
+  distanceText?: string;
+  durationText?: string;
+  distanceMiles?: number;
+  durationMinutes?: number;
+  mapUrl?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -76,10 +85,12 @@ export default function AdminRidesPage() {
         String(ride.driverId || "").toLowerCase().includes(value) ||
         String(ride.from || "").toLowerCase().includes(value) ||
         String(ride.to || "").toLowerCase().includes(value) ||
+        String(ride.vehicle || "").toLowerCase().includes(value) ||
         String(ride.id || "").toLowerCase().includes(value);
 
       const matchesStatus =
-        statusFilter === "all" || String(ride.status || "active") === statusFilter;
+        statusFilter === "all" ||
+        String(ride.status || "active") === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
@@ -152,23 +163,56 @@ export default function AdminRidesPage() {
     return "Active";
   }
 
+  function money(value?: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  function mapLink(ride: RideItem) {
+    if (ride.mapUrl) return ride.mapUrl;
+
+    if (!ride.from || !ride.to) return "";
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      ride.from
+    )}&destination=${encodeURIComponent(ride.to)}&travelmode=driving`;
+  }
+
   return (
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
-          <Link href="/admin/users" className="miniButton">Users</Link>
-          <Link href="/admin/bookings" className="miniButton">Bookings</Link>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/admin" className="miniButton">
+            Admin Home
+          </Link>
+
+          <Link href="/admin/users" className="miniButton">
+            Users
+          </Link>
+
+          <Link href="/admin/bookings" className="miniButton">
+            Bookings
+          </Link>
+
+          <Link href="/admin/chat" className="miniButton">
+            Chat
+          </Link>
+
+          <Link href="/dashboard" className="miniButton">
+            Dashboard
+          </Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Admin</p>
-            <h1>Rides <span>Management</span></h1>
+
+            <h1>
+              Rides <span>Management</span>
+            </h1>
+
             <p className="subtitle">
-              Monitor all published rides, review driver routes, update ride status,
-              and remove suspicious or fraudulent trips.
+              Monitor all published rides, review driver routes, update ride
+              status, and remove suspicious or fraudulent trips.
             </p>
           </div>
 
@@ -190,7 +234,7 @@ export default function AdminRidesPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by driver, route, ride ID..."
+            placeholder="Search by driver, route, vehicle, ride ID..."
           />
 
           <select
@@ -230,9 +274,11 @@ export default function AdminRidesPage() {
                       <strong>
                         {ride.from || "Origin"} → {ride.to || "Destination"}
                       </strong>
+
                       <span>{ride.driverEmail || ride.driverId || "RoadLink Driver"}</span>
+
                       <small>
-                        {ride.date || "Date"} • {ride.time || "Time"} • ${Number(ride.price || 0)}
+                        {ride.date || "Date"} • {ride.time || "Time"} • {money(ride.price)}
                       </small>
                     </div>
 
@@ -251,9 +297,11 @@ export default function AdminRidesPage() {
                 <div className="sectionHeader">
                   <div>
                     <p className="eyebrow">Selected Ride</p>
+
                     <h2>
                       {selected.from || "Origin"} → {selected.to || "Destination"}
                     </h2>
+
                     <p className="email">{selected.driverEmail || "No driver email"}</p>
                   </div>
 
@@ -264,7 +312,7 @@ export default function AdminRidesPage() {
 
                 <div className="amountBox">
                   <span>Trip Price</span>
-                  <strong>${Number(selected.price || 0)}</strong>
+                  <strong>{money(selected.price)}</strong>
                 </div>
 
                 <div className="infoGrid">
@@ -275,11 +323,60 @@ export default function AdminRidesPage() {
                   <Info label="To" value={selected.to || "Not available"} />
                   <Info label="Date" value={selected.date || "Not available"} />
                   <Info label="Time" value={selected.time || "Not available"} />
-                  <Info label="Seats" value={String(selected.seats ?? "Not available")} />
-                  <Info label="Seats Available" value={String(selected.seatsAvailable ?? selected.seats ?? "Not available")} />
+                  <Info label="Vehicle" value={selected.vehicle || "Not available"} />
+                  <Info label="Seats Left" value={String(selected.seats ?? "Not available")} />
+                  <Info label="Original Seats" value={String(selected.originalSeats ?? "Not available")} />
+                  <Info label="Suggested Price" value={money(selected.suggestedPrice)} />
+                  <Info label="Distance" value={selected.distanceText || "Not available"} />
+                  <Info label="Duration" value={selected.durationText || "Not available"} />
+                  <Info
+                    label="Miles"
+                    value={
+                      selected.distanceMiles !== undefined
+                        ? `${selected.distanceMiles} mi`
+                        : "Not available"
+                    }
+                  />
                   <Info label="Status" value={statusLabel(selected.status)} />
                   <Info label="Created" value={dateText(selected.createdAt)} />
                   <Info label="Updated" value={dateText(selected.updatedAt)} />
+                  <Info label="Notes" value={selected.notes || "Not available"} />
+                </div>
+
+                <div className="linkRow">
+                  <Link
+                    href={`/ride-details?rideId=${selected.id}`}
+                    className="outlineLink"
+                  >
+                    Open Ride Details
+                  </Link>
+
+                  <Link
+                    href={`/ride-passengers?rideId=${selected.id}`}
+                    className="outlineLink"
+                  >
+                    View Passengers
+                  </Link>
+
+                  {selected.driverId && (
+                    <Link
+                      href={`/driver-profile?driverId=${selected.driverId}`}
+                      className="outlineLink"
+                    >
+                      Driver Profile
+                    </Link>
+                  )}
+
+                  {mapLink(selected) && (
+                    <a
+                      href={mapLink(selected)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mapLink"
+                    >
+                      Open Map
+                    </a>
+                  )}
                 </div>
 
                 <div className="actionRow">
@@ -674,6 +771,31 @@ export default function AdminRidesPage() {
           overflow-wrap: anywhere;
         }
 
+        .linkRow {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+
+        .outlineLink,
+        .mapLink {
+          padding: 14px;
+          border-radius: 999px;
+          text-align: center;
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.04);
+        }
+
+        .mapLink {
+          color: #22c55e;
+          background: rgba(34,197,94,0.1);
+          border-color: rgba(34,197,94,0.35);
+        }
+
         .actionRow {
           display: grid;
           grid-template-columns: repeat(5, 1fr);
@@ -759,6 +881,7 @@ export default function AdminRidesPage() {
           .stats,
           .filters,
           .infoGrid,
+          .linkRow,
           .actionRow {
             grid-template-columns: 1fr;
           }
@@ -816,4 +939,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-      }
+}
