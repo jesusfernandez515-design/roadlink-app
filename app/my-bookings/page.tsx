@@ -22,10 +22,16 @@ type Booking = {
   date: string;
   time: string;
   price?: number;
+  driverId?: string;
   driverEmail?: string;
   passengerId?: string;
   passengerEmail?: string;
   status: string;
+  distanceText?: string;
+  durationText?: string;
+  distanceMiles?: number;
+  durationMinutes?: number;
+  mapUrl?: string;
 };
 
 export default function MyBookingsPage() {
@@ -49,7 +55,9 @@ export default function MyBookingsPage() {
       }))
       .filter(
         (booking: any) =>
-          booking.status === "reserved" || booking.status === "confirmed"
+          booking.status === "reserved" ||
+          booking.status === "confirmed" ||
+          booking.status === "completed"
       ) as Booking[];
 
     setBookings(bookingData);
@@ -63,6 +71,7 @@ export default function MyBookingsPage() {
 
       await updateDoc(doc(db, "bookings", booking.id), {
         status: "cancelled",
+        updatedAt: new Date().toISOString(),
       });
 
       if (booking.rideId) {
@@ -76,14 +85,12 @@ export default function MyBookingsPage() {
           await updateDoc(rideRef, {
             seats: currentSeats + 1,
             status: "active",
+            updatedAt: new Date().toISOString(),
           });
         }
       }
 
-      setBookings((current) =>
-        current.filter((item) => item.id !== booking.id)
-      );
-
+      setBookings((current) => current.filter((item) => item.id !== booking.id));
       setMessage("Reservation cancelled successfully.");
 
       if (currentUserId) {
@@ -117,10 +124,114 @@ export default function MyBookingsPage() {
     return () => unsubscribe();
   }, []);
 
+  const activeBookings = bookings.filter(
+    (booking) => booking.status === "reserved" || booking.status === "confirmed"
+  );
+
+  const completedBookings = bookings.filter(
+    (booking) => booking.status === "completed"
+  );
+
   const totalSpent = bookings.reduce(
     (total, booking) => total + Number(booking.price || 0),
     0
   );
+
+  function formatMoney(value?: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  function statusClass(status: string) {
+    if (status === "completed") return "chip completed";
+    if (status === "confirmed") return "chip confirmed";
+    if (status === "reserved") return "chip active";
+    return "chip";
+  }
+
+  function BookingCard({ booking }: { booking: Booking }) {
+    const canCancel =
+      booking.status === "reserved" || booking.status === "confirmed";
+
+    const canRate = booking.status === "completed";
+
+    return (
+      <div className="bookingCard">
+        <div className="routeHeader">
+          <div>
+            <p className="eyebrow">
+              {booking.status === "completed" ? "Completed Trip" : "Reserved Trip"}
+            </p>
+
+            <h2>
+              {booking.from || "Origin"} <span>→</span> {booking.to || "Destination"}
+            </h2>
+          </div>
+
+          <div className="priceBox">
+            <small>PRICE</small>
+            <strong>{formatMoney(booking.price)}</strong>
+          </div>
+        </div>
+
+        <div className="chips">
+          <div className="chip">📅 {booking.date || "N/A"}</div>
+          <div className="chip">🕒 {booking.time || "N/A"}</div>
+          <div className={statusClass(booking.status)}>● {booking.status}</div>
+        </div>
+
+        <div className="miniGrid">
+          <Mini label="Driver" value={booking.driverEmail || "RoadLink Driver"} />
+          <Mini label="Distance" value={booking.distanceText || "N/A"} />
+          <Mini label="Duration" value={booking.durationText || "N/A"} />
+        </div>
+
+        <div className="cardButtons">
+          <Link
+            href={`/ride-details?rideId=${booking.rideId}`}
+            className="outlineButton"
+          >
+            Ride Details
+          </Link>
+
+          {booking.mapUrl ? (
+            <a
+              href={booking.mapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="outlineButton mapButton"
+            >
+              Google Maps
+            </a>
+          ) : (
+            <Link href="/find-ride" className="outlineButton">
+              Find More
+            </Link>
+          )}
+
+          {canRate && (
+            <Link
+              href={`/rate-driver?rideId=${booking.rideId}${
+                booking.driverId ? `&driverId=${booking.driverId}` : ""
+              }`}
+              className="rateButton"
+            >
+              Rate Driver
+            </Link>
+          )}
+        </div>
+
+        {canCancel && (
+          <button
+            className="cancelButton"
+            onClick={() => cancelReservation(booking)}
+            disabled={loadingId === booking.id}
+          >
+            {loadingId === booking.id ? "Cancelling..." : "Cancel Reservation"}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <main className="page">
@@ -152,14 +263,14 @@ export default function MyBookingsPage() {
         </h1>
 
         <p className="subtitle">
-          Manage your reserved rides, view trip details, and cancel bookings when needed.
+          Manage your reservations, view trip details, and rate completed drivers.
         </p>
       </section>
 
       <section className="stats">
-        <Metric icon="🎟️" label="Active Bookings" value={String(bookings.length)} />
-        <Metric icon="💵" label="Reserved Value" value={`$${totalSpent}`} />
-        <Metric icon="🛡️" label="Status" value="Protected" />
+        <Metric icon="🎟️" label="Active" value={String(activeBookings.length)} />
+        <Metric icon="✅" label="Completed" value={String(completedBookings.length)} />
+        <Metric icon="💵" label="Total Value" value={formatMoney(totalSpent)} />
       </section>
 
       <section className="results">
@@ -175,56 +286,23 @@ export default function MyBookingsPage() {
           </div>
         )}
 
-        {bookings.map((booking) => (
-          <div key={booking.id} className="bookingCard">
-            <div className="routeHeader">
-              <div>
-                <p className="eyebrow">Reserved Trip</p>
-                <h2>
-                  {booking.from} <span>→</span> {booking.to}
-                </h2>
-              </div>
+        {activeBookings.length > 0 && (
+          <>
+            <h2 className="sectionTitle">Active Bookings</h2>
+            {activeBookings.map((booking) => (
+              <BookingCard key={booking.id} booking={booking} />
+            ))}
+          </>
+        )}
 
-              <div className="priceBox">
-                <small>PRICE</small>
-                <strong>${booking.price || 0}</strong>
-              </div>
-            </div>
-
-            <div className="chips">
-              <div className="chip">📅 {booking.date}</div>
-              <div className="chip">🕒 {booking.time}</div>
-              <div className="chip active">● {booking.status}</div>
-            </div>
-
-            <div className="infoGrid">
-              <Info icon="👤" label="Driver" value={booking.driverEmail || "RoadLink Driver"} />
-              <Info icon="🧾" label="Booking ID" value={booking.id} />
-              <Info icon="🚗" label="Ride ID" value={booking.rideId || "Not available"} />
-            </div>
-
-            <div className="cardButtons">
-              <Link
-                href={`/ride-details?rideId=${booking.rideId}`}
-                className="outlineButton"
-              >
-                View Ride Details
-              </Link>
-
-              <Link href="/find-ride" className="outlineButton">
-                Find More Rides
-              </Link>
-            </div>
-
-            <button
-              className="cancelButton"
-              onClick={() => cancelReservation(booking)}
-              disabled={loadingId === booking.id}
-            >
-              {loadingId === booking.id ? "Cancelling..." : "Cancel Reservation"}
-            </button>
-          </div>
-        ))}
+        {completedBookings.length > 0 && (
+          <>
+            <h2 className="sectionTitle">Completed Trips</h2>
+            {completedBookings.map((booking) => (
+              <BookingCard key={booking.id} booking={booking} />
+            ))}
+          </>
+        )}
       </section>
 
       <style>{`
@@ -252,7 +330,8 @@ export default function MyBookingsPage() {
 
         .hero,
         .bookingCard,
-        .metric {
+        .metric,
+        .messageBox {
           background: rgba(8, 13, 25, 0.88);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.5);
@@ -297,7 +376,8 @@ export default function MyBookingsPage() {
         .active,
         .eyebrow,
         .priceBox strong,
-        .metricValue {
+        .metricValue,
+        .sectionTitle {
           color: #22c55e;
         }
 
@@ -352,9 +432,12 @@ export default function MyBookingsPage() {
           font-weight: 900;
         }
 
+        .sectionTitle {
+          font-size: 28px;
+          margin: 28px 0 14px;
+        }
+
         .messageBox {
-          background: rgba(8, 13, 25, 0.88);
-          border: 1px solid rgba(255,255,255,0.12);
           border-radius: 24px;
           padding: 24px;
           text-align: center;
@@ -382,8 +465,8 @@ export default function MyBookingsPage() {
 
         .bookingCard {
           border-radius: 30px;
-          padding: 28px;
-          margin-bottom: 24px;
+          padding: 24px;
+          margin-bottom: 18px;
         }
 
         .routeHeader {
@@ -391,7 +474,7 @@ export default function MyBookingsPage() {
           grid-template-columns: 1fr auto;
           gap: 18px;
           align-items: start;
-          margin-bottom: 20px;
+          margin-bottom: 18px;
         }
 
         .eyebrow {
@@ -403,14 +486,14 @@ export default function MyBookingsPage() {
         }
 
         h2 {
-          font-size: 34px;
+          font-size: 30px;
           line-height: 1.15;
           margin: 0;
         }
 
         .priceBox {
-          min-width: 110px;
-          padding: 16px;
+          min-width: 105px;
+          padding: 15px;
           border-radius: 20px;
           background: rgba(34,197,94,0.1);
           border: 1px solid rgba(34,197,94,0.35);
@@ -426,7 +509,7 @@ export default function MyBookingsPage() {
         }
 
         .priceBox strong {
-          font-size: 32px;
+          font-size: 28px;
           font-weight: 900;
         }
 
@@ -434,7 +517,7 @@ export default function MyBookingsPage() {
           display: flex;
           flex-wrap: wrap;
           gap: 10px;
-          margin-bottom: 20px;
+          margin-bottom: 16px;
         }
 
         .chip {
@@ -444,42 +527,45 @@ export default function MyBookingsPage() {
           border: 1px solid rgba(255,255,255,0.12);
           color: #e5e7eb;
           font-weight: 800;
+          text-transform: capitalize;
         }
 
-        .infoGrid {
+        .confirmed {
+          color: #38bdf8;
+          border-color: rgba(56,189,248,0.35);
+        }
+
+        .completed {
+          color: #a78bfa;
+          border-color: rgba(167,139,250,0.35);
+        }
+
+        .miniGrid {
           display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
           gap: 10px;
+          margin-bottom: 18px;
         }
 
-        .infoRow {
-          display: grid;
-          grid-template-columns: 42px 1fr;
-          gap: 12px;
-          align-items: center;
-          padding: 14px;
+        .miniInfo {
+          padding: 13px;
           border-radius: 16px;
           background: rgba(255,255,255,0.035);
           border: 1px solid rgba(255,255,255,0.08);
         }
 
-        .infoIcon {
-          width: 38px;
-          height: 38px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.15);
+        .miniInfo small {
+          display: block;
+          color: #a1a1aa;
+          font-size: 11px;
+          font-weight: 900;
+          text-transform: uppercase;
+          margin-bottom: 5px;
         }
 
-        .infoText strong {
+        .miniInfo strong {
           display: block;
           color: #e5e7eb;
-          margin-bottom: 4px;
-        }
-
-        .infoText span {
-          color: #a1a1aa;
           overflow-wrap: anywhere;
         }
 
@@ -487,16 +573,15 @@ export default function MyBookingsPage() {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
-          margin-top: 24px;
+          margin-top: 12px;
         }
 
-        .outlineButton {
+        .outlineButton,
+        .rateButton {
           display: block;
           width: 100%;
           padding: 15px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-align: center;
           text-decoration: none;
@@ -504,16 +589,33 @@ export default function MyBookingsPage() {
           font-weight: 900;
         }
 
+        .outlineButton {
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .mapButton {
+          color: #22c55e;
+          border-color: rgba(34,197,94,0.35);
+          background: rgba(34,197,94,0.08);
+        }
+
+        .rateButton {
+          grid-column: 1 / -1;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          border: none;
+        }
+
         .cancelButton {
           width: 100%;
-          padding: 18px;
-          margin-top: 16px;
+          padding: 16px;
+          margin-top: 14px;
           border: none;
           border-radius: 999px;
           background: linear-gradient(135deg, #ef4444, #b91c1c);
           color: white;
           font-weight: 900;
-          font-size: 17px;
+          font-size: 16px;
           cursor: pointer;
         }
 
@@ -529,21 +631,22 @@ export default function MyBookingsPage() {
 
           .hero,
           .bookingCard {
-            padding: 24px;
+            padding: 22px;
             border-radius: 28px;
           }
 
           h1 {
-            font-size: 50px;
+            font-size: 48px;
           }
 
           h2 {
-            font-size: 32px;
+            font-size: 28px;
           }
 
           .stats,
           .routeHeader,
-          .cardButtons {
+          .cardButtons,
+          .miniGrid {
             grid-template-columns: 1fr;
           }
 
@@ -574,22 +677,11 @@ function Metric({
   );
 }
 
-function Info({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-}) {
+function Mini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="infoRow">
-      <div className="infoIcon">{icon}</div>
-      <div className="infoText">
-        <strong>{label}</strong>
-        <span>{value}</span>
-      </div>
+    <div className="miniInfo">
+      <small>{label}</small>
+      <strong>{value}</strong>
     </div>
   );
 }
