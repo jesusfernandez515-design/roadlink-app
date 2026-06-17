@@ -15,7 +15,12 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { auth, db } from "../../lib/firebase";
+import {
+  getDownloadURL,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
+import { auth, db, storage } from "../../lib/firebase";
 
 type Ride = {
   id?: string;
@@ -69,6 +74,12 @@ type Message = {
   senderEmail?: string;
   receiverId?: string;
   text?: string;
+  type?: "text" | "image" | "location";
+  imageUrl?: string;
+  imageName?: string;
+  latitude?: number;
+  longitude?: number;
+  locationLabel?: string;
   createdAt?: string;
   read?: boolean;
   status?: string;
@@ -111,6 +122,7 @@ function ChatContent() {
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [rideId, setRideId] = useState("");
   const [driverId, setDriverId] = useState("");
@@ -125,6 +137,8 @@ function ChatContent() {
   const [text, setText] = useState("");
   const [status, setStatus] = useState("Loading chat...");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [sharingLocation, setSharingLocation] = useState(false);
 
   useEffect(() => {
     const urlRideId = searchParams.get("rideId") || "";
@@ -365,6 +379,80 @@ function ChatContent() {
     ? `${ride.from || "Starting point"} → ${ride.to || "Destination"}`
     : `Chat with ${otherUserLabel}`;
 
+  function getReceiverId() {
+    const finalDriverId = driverId || ride?.driverId || "";
+    const finalPassengerId = passengerId || (userId !== finalDriverId ? userId : "");
+
+    if (!finalDriverId || !finalPassengerId) return "";
+
+    return userId === finalDriverId ? finalPassengerId : finalDriverId;
+  }
+
+  function getParticipants() {
+    const finalDriverId = driverId || ride?.driverId || "";
+    const finalPassengerId = passengerId || (userId !== finalDriverId ? userId : "");
+
+    return {
+      finalDriverId,
+      finalPassengerId,
+      receiverId: userId === finalDriverId ? finalPassengerId : finalDriverId,
+    };
+  }
+
+  async function updateChatPreview(lastMessage: string, receiverId: string) {
+    const now = new Date().toISOString();
+    const { finalDriverId, finalPassengerId } = getParticipants();
+
+    await setDoc(
+      doc(db, "chats", chatId),
+      {
+        id: chatId,
+        chatId,
+        rideId: rideId || "",
+        driverId: finalDriverId,
+        passengerId: finalPassengerId,
+        driverEmail:
+          userId === finalDriverId
+            ? userEmail
+            : chatData?.driverEmail || ride?.driverEmail || "",
+        passengerEmail:
+          userId === finalPassengerId
+            ? userEmail
+            : chatData?.passengerEmail || "",
+        participants: [finalDriverId, finalPassengerId],
+        lastMessage,
+        lastMessageTime: now,
+        lastSenderId: userId,
+        lastSenderEmail: userEmail,
+        [`unread.${receiverId}`]: 1,
+        [`typing.${userId}`]: false,
+        updatedAt: now,
+        createdAt: chatData?.createdAt || now,
+      },
+      { merge: true }
+    );
+  }
+
+  async function createMessageNotification(receiverId: string, preview: string) {
+    if (!receiverId || receiverId === userId) return;
+
+    await addDoc(collection(db, "notifications"), {
+      userId: receiverId,
+      type: "message",
+      title: "New Message",
+      message: `${userEmail} sent: ${preview}`,
+      chatId,
+      rideId: rideId || "",
+      driverId: driverId || "",
+      passengerId: passengerId || "",
+      senderId: userId,
+      receiverId,
+      read: false,
+      createdAt: new Date().toISOString(),
+      actionUrl: `/chat?chatId=${chatId}`,
+    });
+  }
+
   async function handleTyping(value: string) {
     setText(value);
 
@@ -414,16 +502,12 @@ function ChatContent() {
       setSending(true);
       setStatus("");
 
-      const finalDriverId = driverId || ride?.driverId || "";
-      const finalPassengerId = passengerId || (userId !== finalDriverId ? userId : "");
+      const { finalDriverId, finalPassengerId, receiverId } = getParticipants();
 
-      if (!finalDriverId || !finalPassengerId) {
+      if (!finalDriverId || !finalPassengerId || !receiverId) {
         setStatus("Chat participants are missing.");
         return;
       }
-
-      const receiverId =
-        userId === finalDriverId ? finalPassengerId : finalDriverId;
 
       const now = new Date().toISOString();
 
@@ -435,58 +519,15 @@ function ChatContent() {
         senderId: userId,
         senderEmail: userEmail,
         receiverId,
+        type: "text",
         text: cleanText,
         createdAt: now,
         status: "sent",
         read: false,
       });
 
-      await setDoc(
-        doc(db, "chats", chatId),
-        {
-          id: chatId,
-          chatId,
-          rideId: rideId || "",
-          driverId: finalDriverId,
-          passengerId: finalPassengerId,
-          driverEmail:
-            userId === finalDriverId
-              ? userEmail
-              : chatData?.driverEmail || ride?.driverEmail || "",
-          passengerEmail:
-            userId === finalPassengerId
-              ? userEmail
-              : chatData?.passengerEmail || "",
-          participants: [finalDriverId, finalPassengerId],
-          lastMessage: cleanText,
-          lastMessageTime: now,
-          lastSenderId: userId,
-          lastSenderEmail: userEmail,
-          [`unread.${receiverId}`]: 1,
-          [`typing.${userId}`]: false,
-          updatedAt: now,
-          createdAt: chatData?.createdAt || now,
-        },
-        { merge: true }
-      );
-
-      if (receiverId && receiverId !== userId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: receiverId,
-          type: "message",
-          title: "New Message",
-          message: `${userEmail} sent you a message.`,
-          chatId,
-          rideId: rideId || "",
-          driverId: finalDriverId,
-          passengerId: finalPassengerId,
-          senderId: userId,
-          receiverId,
-          read: false,
-          createdAt: now,
-          actionUrl: `/chat?chatId=${chatId}`,
-        });
-      }
+      await updateChatPreview(cleanText, receiverId);
+      await createMessageNotification(receiverId, cleanText);
 
       setText("");
     } catch (error: unknown) {
@@ -494,6 +535,139 @@ function ChatContent() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function sendImage(file: File) {
+    if (!file || !chatId || !userId) return;
+
+    if (!file.type.startsWith("image/")) {
+      setStatus("Please select an image file.");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setStatus("");
+
+      const { finalDriverId, finalPassengerId, receiverId } = getParticipants();
+
+      if (!finalDriverId || !finalPassengerId || !receiverId) {
+        setStatus("Chat participants are missing.");
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `chatUploads/${chatId}/${Date.now()}_${safeName}`;
+      const imageRef = ref(storage, filePath);
+
+      await uploadBytes(imageRef, file);
+
+      const imageUrl = await getDownloadURL(imageRef);
+
+      await addDoc(collection(db, "messages"), {
+        chatId,
+        rideId: rideId || "",
+        driverId: finalDriverId,
+        passengerId: finalPassengerId,
+        senderId: userId,
+        senderEmail: userEmail,
+        receiverId,
+        type: "image",
+        text: "Image",
+        imageUrl,
+        imageName: file.name,
+        createdAt: now,
+        status: "sent",
+        read: false,
+      });
+
+      await updateChatPreview("📷 Image", receiverId);
+      await createMessageNotification(receiverId, "📷 Image");
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not upload image.");
+    } finally {
+      setUploading(false);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
+  async function shareLocation() {
+    if (!chatId || !userId) return;
+
+    if (!navigator.geolocation) {
+      setStatus("Location sharing is not supported on this device.");
+      return;
+    }
+
+    try {
+      setSharingLocation(true);
+      setStatus("");
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const { finalDriverId, finalPassengerId, receiverId } = getParticipants();
+
+            if (!finalDriverId || !finalPassengerId || !receiverId) {
+              setStatus("Chat participants are missing.");
+              setSharingLocation(false);
+              return;
+            }
+
+            const now = new Date().toISOString();
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+
+            await addDoc(collection(db, "messages"), {
+              chatId,
+              rideId: rideId || "",
+              driverId: finalDriverId,
+              passengerId: finalPassengerId,
+              senderId: userId,
+              senderEmail: userEmail,
+              receiverId,
+              type: "location",
+              text: "Shared location",
+              latitude,
+              longitude,
+              locationLabel: "Current Location",
+              createdAt: now,
+              status: "sent",
+              read: false,
+            });
+
+            await updateChatPreview("📍 Location", receiverId);
+            await createMessageNotification(receiverId, "📍 Location");
+          } catch (error: unknown) {
+            setStatus(error instanceof Error ? error.message : "Could not share location.");
+          } finally {
+            setSharingLocation(false);
+          }
+        },
+        () => {
+          setStatus("Location permission was denied.");
+          setSharingLocation(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 0,
+        }
+      );
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not share location.");
+      setSharingLocation(false);
+    }
+  }
+
+  function locationUrl(message: Message) {
+    if (!message.latitude || !message.longitude) return "#";
+
+    return `https://www.google.com/maps?q=${message.latitude},${message.longitude}`;
   }
 
   function formatTime(value?: string) {
@@ -576,6 +750,36 @@ function ChatContent() {
     const diffDays = Math.floor(diffHours / 24);
 
     return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  }
+
+  function renderMessageBody(message: Message) {
+    if (message.type === "image" && message.imageUrl) {
+      return (
+        <div className="imageMessage">
+          <img src={message.imageUrl} alt={message.imageName || "Chat image"} />
+          {message.imageName && <span>{message.imageName}</span>}
+        </div>
+      );
+    }
+
+    if (message.type === "location") {
+      return (
+        <div className="locationMessage">
+          <div className="locationIcon">📍</div>
+          <div>
+            <strong>{message.locationLabel || "Shared Location"}</strong>
+            <p>
+              {message.latitude?.toFixed(5)}, {message.longitude?.toFixed(5)}
+            </p>
+            <a href={locationUrl(message)} target="_blank" rel="noopener noreferrer">
+              Open in Google Maps
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    return <p>{message.text}</p>;
   }
 
   return (
@@ -667,7 +871,7 @@ function ChatContent() {
                       )}
 
                       <div className={isMine ? "bubble myBubble" : "bubble"}>
-                        <p>{message.text}</p>
+                        {renderMessageBody(message)}
 
                         <small>
                           {isMine ? "You" : message.senderEmail || "RoadLink User"}
@@ -695,6 +899,37 @@ function ChatContent() {
         </section>
 
         <section className="composer">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hiddenFile"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) sendImage(file);
+            }}
+          />
+
+          <div className="toolRow">
+            <button
+              type="button"
+              className="toolButton"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || sending}
+            >
+              {uploading ? "Uploading..." : "📷 Image"}
+            </button>
+
+            <button
+              type="button"
+              className="toolButton"
+              onClick={shareLocation}
+              disabled={sharingLocation || sending}
+            >
+              {sharingLocation ? "Sharing..." : "📍 Location"}
+            </button>
+          </div>
+
           <textarea
             value={text}
             onChange={(event) => handleTyping(event.target.value)}
@@ -708,7 +943,11 @@ function ChatContent() {
             }}
           />
 
-          <button onClick={sendMessage} disabled={sending || !text.trim()}>
+          <button
+            className="sendButton"
+            onClick={sendMessage}
+            disabled={sending || !text.trim()}
+          >
             {sending ? "Sending..." : "Send"}
           </button>
         </section>
@@ -973,6 +1212,60 @@ function ChatContent() {
           font-weight: 800;
         }
 
+        .imageMessage {
+          display: grid;
+          gap: 8px;
+        }
+
+        .imageMessage img {
+          max-width: 280px;
+          width: 100%;
+          border-radius: 16px;
+          border: 1px solid rgba(255,255,255,0.16);
+          object-fit: cover;
+        }
+
+        .imageMessage span {
+          font-size: 12px;
+          color: rgba(255,255,255,0.75);
+          overflow-wrap: anywhere;
+        }
+
+        .locationMessage {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 12px;
+          align-items: center;
+        }
+
+        .locationIcon {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255,255,255,0.16);
+          font-size: 22px;
+        }
+
+        .locationMessage strong {
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .locationMessage p {
+          margin: 0 0 8px;
+          font-size: 13px;
+          opacity: 0.85;
+        }
+
+        .locationMessage a {
+          color: white;
+          font-weight: 900;
+          text-decoration: underline;
+        }
+
         .typingIndicator {
           display: inline-flex;
           align-items: center;
@@ -1008,9 +1301,41 @@ function ChatContent() {
           border-radius: 26px;
           padding: 14px;
           display: grid;
-          grid-template-columns: 1fr auto;
+          grid-template-columns: auto 1fr auto;
           gap: 12px;
           align-items: end;
+        }
+
+        .hiddenFile {
+          display: none;
+        }
+
+        .toolRow {
+          display: grid;
+          gap: 8px;
+        }
+
+        .toolButton,
+        .sendButton {
+          min-height: 58px;
+          padding: 0 18px;
+          border-radius: 999px;
+          border: none;
+          color: white;
+          font-size: 14px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .toolButton {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .sendButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          font-size: 16px;
+          padding: 0 28px;
         }
 
         textarea {
@@ -1030,18 +1355,6 @@ function ChatContent() {
 
         textarea::placeholder {
           color: #71717a;
-        }
-
-        button {
-          min-height: 58px;
-          padding: 0 28px;
-          border-radius: 999px;
-          border: none;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          font-size: 16px;
-          font-weight: 900;
-          cursor: pointer;
         }
 
         button:disabled {
@@ -1091,11 +1404,16 @@ function ChatContent() {
             grid-template-columns: 1fr;
           }
 
-          button {
+          .toolRow {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .toolButton,
+          .sendButton {
             width: 100%;
           }
         }
       `}</style>
     </main>
   );
-}
+  }
