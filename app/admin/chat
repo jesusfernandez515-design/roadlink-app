@@ -1,0 +1,511 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { auth, db } from "../../../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
+} from "firebase/firestore";
+
+type Chat = {
+  id: string;
+  chatId?: string;
+  rideId?: string;
+  driverId?: string;
+  passengerId?: string;
+  driverEmail?: string;
+  passengerEmail?: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  lastSenderEmail?: string;
+  status?: string;
+  reported?: boolean;
+  blocked?: boolean;
+};
+
+export default function AdminChatPage() {
+  const [userEmail, setUserEmail] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setUserEmail(user?.email || "");
+    });
+
+    const chatsQuery = query(
+      collection(db, "chats"),
+      orderBy("updatedAt", "desc")
+    );
+
+    const unsubscribeChats = onSnapshot(
+      chatsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((docItem) => ({
+          id: docItem.id,
+          ...docItem.data(),
+        })) as Chat[];
+
+        setChats(data);
+        setLoading(false);
+      },
+      (error) => {
+        setStatus(error.message);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeChats();
+    };
+  }, []);
+
+  const filteredChats = useMemo(() => {
+    const term = search.toLowerCase();
+
+    return chats.filter((chat) => {
+      return (
+        chat.driverEmail?.toLowerCase().includes(term) ||
+        chat.passengerEmail?.toLowerCase().includes(term) ||
+        chat.lastMessage?.toLowerCase().includes(term) ||
+        chat.chatId?.toLowerCase().includes(term)
+      );
+    });
+  }, [search, chats]);
+
+  async function blockChat(chatId: string) {
+    try {
+      await updateDoc(doc(db, "chats", chatId), {
+        blocked: true,
+        status: "blocked",
+      });
+
+      setStatus("Conversation blocked.");
+    } catch (error: any) {
+      setStatus(error.message);
+    }
+  }
+
+  async function unblockChat(chatId: string) {
+    try {
+      await updateDoc(doc(db, "chats", chatId), {
+        blocked: false,
+        status: "active",
+      });
+
+      setStatus("Conversation restored.");
+    } catch (error: any) {
+      setStatus(error.message);
+    }
+  }
+
+  async function markReported(chatId: string) {
+    try {
+      await updateDoc(doc(db, "chats", chatId), {
+        reported: true,
+      });
+
+      setStatus("Conversation flagged.");
+    } catch (error: any) {
+      setStatus(error.message);
+    }
+  }
+
+  async function deleteConversation(chatId: string) {
+    const confirmed = window.confirm(
+      "Delete this conversation permanently?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteDoc(doc(db, "chats", chatId));
+
+      setStatus("Conversation deleted.");
+    } catch (error: any) {
+      setStatus(error.message);
+    }
+  }
+
+  function formatDate(date?: string) {
+    if (!date) return "Unknown";
+
+    try {
+      return new Date(date).toLocaleString();
+    } catch {
+      return "Unknown";
+    }
+  }
+
+  const totalChats = chats.length;
+  const blockedChats = chats.filter((c) => c.blocked).length;
+  const reportedChats = chats.filter((c) => c.reported).length;
+
+  return (
+    <main className="page">
+      <section className="container">
+        <div className="topNav">
+          <Link href="/dashboard" className="navButton">
+            Dashboard
+          </Link>
+
+          <Link href="/admin" className="navButton">
+            Admin
+          </Link>
+
+          <Link href="/messages" className="navButton">
+            Inbox
+          </Link>
+        </div>
+
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Admin Center</p>
+
+            <h1>
+              Chat <span>Moderation</span>
+            </h1>
+
+            <p className="subtitle">
+              Monitor conversations, review reports, suspend abuse,
+              and keep the RoadLink community safe.
+            </p>
+          </div>
+
+          <div className="adminBadge">
+            {userEmail?.charAt(0)?.toUpperCase() || "A"}
+          </div>
+        </section>
+
+        {status && <p className="status">{status}</p>}
+
+        <section className="statsGrid">
+          <StatCard label="Total Chats" value={String(totalChats)} />
+          <StatCard label="Reported" value={String(reportedChats)} />
+          <StatCard label="Blocked" value={String(blockedChats)} />
+        </section>
+
+        <section className="panel">
+          <div className="panelHeader">
+            <h2>Chat Management</h2>
+
+            <input
+              placeholder="Search email, message or chat..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          {loading ? (
+            <div className="empty">
+              Loading conversations...
+            </div>
+          ) : filteredChats.length === 0 ? (
+            <div className="empty">
+              No conversations found.
+            </div>
+          ) : (
+            <div className="chatGrid">
+              {filteredChats.map((chat) => (
+                <div key={chat.id} className="chatCard">
+                  <div className="headerRow">
+                    <h3>{chat.chatId || chat.id}</h3>
+
+                    {chat.blocked ? (
+                      <span className="badge red">
+                        BLOCKED
+                      </span>
+                    ) : (
+                      <span className="badge green">
+                        ACTIVE
+                      </span>
+                    )}
+                  </div>
+
+                  <p>
+                    <strong>Driver:</strong>{" "}
+                    {chat.driverEmail || "Unknown"}
+                  </p>
+
+                  <p>
+                    <strong>Passenger:</strong>{" "}
+                    {chat.passengerEmail || "Unknown"}
+                  </p>
+
+                  <p>
+                    <strong>Last Message:</strong>{" "}
+                    {chat.lastMessage || "No messages"}
+                  </p>
+
+                  <p>
+                    <strong>Updated:</strong>{" "}
+                    {formatDate(chat.lastMessageTime)}
+                  </p>
+
+                  <div className="actions">
+                    {!chat.blocked ? (
+                      <button
+                        onClick={() => blockChat(chat.id)}
+                      >
+                        Block
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => unblockChat(chat.id)}
+                      >
+                        Restore
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => markReported(chat.id)}
+                    >
+                      Flag
+                    </button>
+
+                    <button
+                      className="danger"
+                      onClick={() =>
+                        deleteConversation(chat.id)
+                      }
+                    >
+                      Delete
+                    </button>
+
+                    <Link
+                      href={`/chat?chatId=${chat.chatId || chat.id}`}
+                      className="openButton"
+                    >
+                      Open Chat
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+
+      <style jsx>{`
+        .page {
+          min-height: 100vh;
+          background: #020617;
+          color: white;
+          padding: 24px;
+        }
+
+        .container {
+          max-width: 1300px;
+          margin: auto;
+        }
+
+        .topNav {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+        }
+
+        .navButton {
+          padding: 12px 18px;
+          border-radius: 999px;
+          text-decoration: none;
+          color: white;
+          background: rgba(255,255,255,.08);
+        }
+
+        .hero {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: #0f172a;
+          border-radius: 24px;
+          padding: 30px;
+          margin-bottom: 20px;
+        }
+
+        .eyebrow {
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        h1 {
+          font-size: 54px;
+        }
+
+        h1 span {
+          color: #22c55e;
+        }
+
+        .subtitle {
+          color: #94a3b8;
+          max-width: 700px;
+        }
+
+        .adminBadge {
+          width: 90px;
+          height: 90px;
+          border-radius: 50%;
+          background: #22c55e;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 32px;
+          font-weight: 900;
+        }
+
+        .statsGrid {
+          display: grid;
+          grid-template-columns: repeat(3,1fr);
+          gap: 16px;
+          margin-bottom: 20px;
+        }
+
+        .panel {
+          background: #0f172a;
+          border-radius: 24px;
+          padding: 24px;
+        }
+
+        .panelHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        input {
+          width: 320px;
+          padding: 12px;
+          border-radius: 12px;
+          border: none;
+        }
+
+        .chatGrid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .chatCard {
+          background: rgba(255,255,255,.04);
+          border: 1px solid rgba(255,255,255,.08);
+          padding: 20px;
+          border-radius: 18px;
+        }
+
+        .headerRow {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 10px;
+        }
+
+        .badge {
+          padding: 6px 12px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .green {
+          background: rgba(34,197,94,.2);
+          color: #22c55e;
+        }
+
+        .red {
+          background: rgba(239,68,68,.2);
+          color: #ef4444;
+        }
+
+        .actions {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-top: 16px;
+        }
+
+        button,
+        .openButton {
+          border: none;
+          padding: 10px 14px;
+          border-radius: 12px;
+          cursor: pointer;
+          text-decoration: none;
+          font-weight: 700;
+        }
+
+        .danger {
+          background: #ef4444;
+          color: white;
+        }
+
+        .openButton {
+          background: #22c55e;
+          color: white;
+        }
+
+        .empty,
+        .status {
+          text-align: center;
+          padding: 20px;
+        }
+
+        @media (max-width: 900px) {
+          .statsGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .panelHeader {
+            flex-direction: column;
+          }
+
+          input {
+            width: 100%;
+          }
+
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 20px;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "#0f172a",
+        padding: "24px",
+        borderRadius: "20px",
+      }}
+    >
+      <p style={{ color: "#94a3b8", marginBottom: 8 }}>
+        {label}
+      </p>
+
+      <h2 style={{ color: "#22c55e", fontSize: 34 }}>
+        {value}
+      </h2>
+    </div>
+  );
+}
