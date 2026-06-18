@@ -56,7 +56,7 @@ type SafetyCase = {
   subtitle: string;
   priority: RiskLevel;
   status: string;
-  createdAt?: string;
+  createdAt: string;
   href: string;
 };
 
@@ -78,17 +78,29 @@ export default function AdminSafetyPage() {
       (error) => setMessage(error.message)
     );
 
-    const unsubReports = onSnapshot(query(collection(db, "reports")), (snapshot) => {
-      setReports(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ReportItem[]);
-    });
+    const unsubReports = onSnapshot(
+      query(collection(db, "reports")),
+      (snapshot) => {
+        setReports(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ReportItem[]);
+      },
+      () => setReports([])
+    );
 
-    const unsubEmergencies = onSnapshot(query(collection(db, "emergencyAlerts")), (snapshot) => {
-      setEmergencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as EmergencyItem[]);
-    });
+    const unsubEmergencies = onSnapshot(
+      query(collection(db, "emergencyAlerts")),
+      (snapshot) => {
+        setEmergencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as EmergencyItem[]);
+      },
+      () => setEmergencies([])
+    );
 
-    const unsubDisputes = onSnapshot(query(collection(db, "disputes")), (snapshot) => {
-      setDisputes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as DisputeItem[]);
-    });
+    const unsubDisputes = onSnapshot(
+      query(collection(db, "disputes")),
+      (snapshot) => {
+        setDisputes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as DisputeItem[]);
+      },
+      () => setDisputes([])
+    );
 
     return () => {
       unsubUsers();
@@ -133,46 +145,57 @@ export default function AdminSafetyPage() {
     safetyScore = Math.max(safetyScore, 0);
 
     const cases: SafetyCase[] = [
-      ...activeSOS.map((item) => ({
-        id: `sos-${item.id}`,
-        type: "sos" as const,
-        title: item.userEmail || "Active SOS Alert",
-        subtitle: item.latitude && item.longitude ? "Location available" : "Location missing",
-        priority: "critical" as RiskLevel,
-        status: item.status || "active",
-        createdAt: item.createdAt,
-        href: "/admin/emergency",
-      })),
-      ...openReports.map((item) => ({
-        id: `report-${item.id}`,
-        type: "report" as const,
-        title: item.reason || "Safety Report",
-        subtitle: item.targetUserEmail || item.reporterEmail || "User report",
-        priority: normalizePriority(item.priority),
-        status: item.status || "open",
-        createdAt: item.createdAt,
-        href: "/admin/reports",
-      })),
-      ...openDisputes.map((item) => ({
-        id: `dispute-${item.id}`,
-        type: "dispute" as const,
-        title: "Open Dispute",
-        subtitle: item.userEmail || item.driverEmail || item.passengerEmail || "Dispute case",
-        priority: normalizePriority(item.priority),
-        status: item.status || "open",
-        createdAt: item.createdAt,
-        href: "/admin/disputes",
-      })),
-      ...riskyUsers.map((item) => ({
-        id: `user-${item.id}`,
-        type: "user" as const,
-        title: item.name || "Risk User",
-        subtitle: item.email || item.id,
-        priority: item.fraudRiskLevel === "critical" || item.driverRiskLevel === "critical" ? "critical" : "high",
-        status: item.suspended ? "suspended" : "review",
-        createdAt: "",
-        href: "/admin/user-intelligence",
-      })),
+      ...activeSOS.map(
+        (item): SafetyCase => ({
+          id: `sos-${item.id}`,
+          type: "sos",
+          title: item.userEmail || "Active SOS Alert",
+          subtitle: item.latitude && item.longitude ? "Location available" : "Location missing",
+          priority: "critical",
+          status: item.status || "active",
+          createdAt: item.createdAt || "",
+          href: "/admin/emergency",
+        })
+      ),
+      ...openReports.map(
+        (item): SafetyCase => ({
+          id: `report-${item.id}`,
+          type: "report",
+          title: item.reason || "Safety Report",
+          subtitle: item.targetUserEmail || item.reporterEmail || "User report",
+          priority: normalizePriority(item.priority),
+          status: item.status || "open",
+          createdAt: item.createdAt || "",
+          href: "/admin/reports",
+        })
+      ),
+      ...openDisputes.map(
+        (item): SafetyCase => ({
+          id: `dispute-${item.id}`,
+          type: "dispute",
+          title: "Open Dispute",
+          subtitle: item.userEmail || item.driverEmail || item.passengerEmail || "Dispute case",
+          priority: normalizePriority(item.priority),
+          status: item.status || "open",
+          createdAt: item.createdAt || "",
+          href: "/admin/disputes",
+        })
+      ),
+      ...riskyUsers.map(
+        (item): SafetyCase => ({
+          id: `user-${item.id}`,
+          type: "user",
+          title: item.name || "Risk User",
+          subtitle: item.email || item.id,
+          priority:
+            item.fraudRiskLevel === "critical" || item.driverRiskLevel === "critical"
+              ? "critical"
+              : "high",
+          status: item.suspended ? "suspended" : "review",
+          createdAt: "",
+          href: "/admin/user-intelligence",
+        })
+      ),
     ];
 
     return {
