@@ -69,11 +69,19 @@ export default function AdminPage() {
 
   const metrics = useMemo(() => {
     const activeRides = rides.filter(
-      (item) => item.status === "active" || item.status === "open" || item.status === "in_progress"
+      (item) =>
+        item.status === "active" ||
+        item.status === "open" ||
+        item.status === "in_progress" ||
+        item.status === "full"
     );
 
     const activeBookings = bookings.filter(
-      (item) => item.status === "pending" || item.status === "reserved" || item.status === "confirmed"
+      (item) =>
+        item.status === "pending" ||
+        item.status === "reserved" ||
+        item.status === "confirmed" ||
+        item.status === "in_progress"
     );
 
     const pendingPayouts = payouts.filter(
@@ -129,6 +137,9 @@ export default function AdminPage() {
   const modules: AdminModule[] = [
     { href: "/admin/live", icon: "🟢", title: "Live Center", text: "Realtime users, rides, bookings and SOS activity." },
     { href: "/admin/operations", icon: "📡", title: "Operations Center", text: "Command center for daily RoadLink operations." },
+    { href: "/admin/dispatch", icon: "🚦", title: "Dispatch Center", text: "Assign drivers, monitor trips, GPS, SOS and ride operations." },
+    { href: "/admin/live-trips", icon: "🛰️", title: "Live Trips Monitor", text: "Realtime monitoring of active trips, routes and passenger activity.", badge: metrics.activeRides.length },
+    { href: "/admin/map-center", icon: "🗺️", title: "Map Center", text: "Live ride map, SOS locations, drivers and passenger tracking.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
     { href: "/admin/safety", icon: "🛡️", title: "Safety Center", text: "Safety overview, lockdown tools and risk queue.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
     { href: "/admin/emergency", icon: "🚨", title: "Emergency Center", text: "Monitor active SOS alerts and GPS location.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
 
@@ -150,6 +161,7 @@ export default function AdminPage() {
     { href: "/admin/reports", icon: "⚠️", title: "Reports", text: "Safety reports and platform issues.", badge: metrics.openReports.length, danger: metrics.openReports.length > 0 },
     { href: "/admin/disputes", icon: "⚖️", title: "Disputes", text: "Handle disputes between drivers and passengers.", badge: metrics.openDisputes.length, danger: metrics.openDisputes.length > 0 },
     { href: "/admin/support", icon: "🎧", title: "Support", text: "Support tickets, replies and user help desk." },
+    { href: "/admin/tickets", icon: "🎫", title: "Tickets Center", text: "Advanced support tickets, case tracking and admin replies." },
     { href: "/admin/notifications", icon: "🔔", title: "Notifications", text: "Send announcements and user notifications." },
 
     { href: "/admin/analytics", icon: "📊", title: "Analytics", text: "Growth, users, bookings and platform metrics." },
@@ -166,6 +178,14 @@ export default function AdminPage() {
     { href: "/admin/activity", icon: "📡", title: "Activity Center", text: "Realtime platform activity timeline." },
     { href: "/admin/audit-logs", icon: "🧾", title: "Audit Logs", text: "Admin actions, security events and changes." },
     { href: "/admin/launch", icon: "🚀", title: "Launch Center", text: "Readiness checklist for public launch." },
+
+    { href: "/admin/compliance", icon: "📋", title: "Compliance Center", text: "Driver documents, legal compliance and policy monitoring." },
+    { href: "/admin/trust-score", icon: "🏅", title: "Trust Score", text: "Platform trust ratings, driver reputation and safety metrics." },
+    { href: "/admin/growth", icon: "📈", title: "Growth Center", text: "User growth, retention, conversion and acquisition metrics." },
+    { href: "/admin/incident-center", icon: "🔥", title: "Incident Center", text: "Track critical incidents, investigations and emergency escalations.", danger: true },
+    { href: "/admin/geo-intelligence", icon: "🌎", title: "Geo Intelligence", text: "Regional demand, hotspots and ride density analytics." },
+    { href: "/admin/driver-performance", icon: "🏆", title: "Driver Performance", text: "Driver earnings, ratings, completion rates and quality scores." },
+    { href: "/admin/passenger-insights", icon: "👤", title: "Passenger Insights", text: "Passenger activity, loyalty, booking behavior and trust scores." },
   ];
 
   return (
