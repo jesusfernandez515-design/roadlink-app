@@ -5,15 +5,16 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
+type RevenueType = "route" | "driver";
+type RevenueStatus = "strong" | "growing" | "watch" | "leak";
+
 type RideItem = {
   id: string;
   from?: string;
   to?: string;
   status?: string;
-  driverId?: string;
   driverEmail?: string;
   price?: number;
-  createdAt?: string;
 };
 
 type BookingItem = {
@@ -23,9 +24,7 @@ type BookingItem = {
   price?: number;
   amount?: number;
   seatsBooked?: number;
-  passengerEmail?: string;
   driverEmail?: string;
-  createdAt?: string;
 };
 
 type PayoutItem = {
@@ -34,13 +33,12 @@ type PayoutItem = {
   amount?: number;
   driverEmail?: string;
   email?: string;
-  createdAt?: string;
 };
 
 type RevenueProfile = {
   id: string;
   title: string;
-  type: "route" | "driver" | "booking";
+  type: RevenueType;
   revenue: number;
   bookings: number;
   completed: number;
@@ -48,7 +46,7 @@ type RevenueProfile = {
   payoutExposure: number;
   platformFee: number;
   netRevenue: number;
-  status: "strong" | "growing" | "watch" | "leak";
+  status: RevenueStatus;
   insight: string;
 };
 
@@ -57,25 +55,25 @@ export default function AdminRevenueIntelligencePage() {
   const [bookings, setBookings] = useState<BookingItem[]>([]);
   const [payouts, setPayouts] = useState<PayoutItem[]>([]);
   const [selected, setSelected] = useState<RevenueProfile | null>(null);
-  const [filter, setFilter] = useState<"all" | RevenueProfile["status"]>("all");
+  const [filter, setFilter] = useState<"all" | RevenueStatus>("all");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading revenue intelligence...");
   const [loadingId, setLoadingId] = useState("");
 
   useEffect(() => {
-    const listen = (name: string, setter: (items: any[]) => void) =>
+    const listen = <T,>(name: string, setter: (items: T[]) => void) =>
       onSnapshot(
         query(collection(db, name)),
         (snapshot) => {
-          setter(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+          setter(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[]);
           setMessage("");
         },
         () => setter([])
       );
 
-    const unsubRides = listen("rides", setRides);
-    const unsubBookings = listen("bookings", setBookings);
-    const unsubPayouts = listen("payoutRequests", setPayouts);
+    const unsubRides = listen<RideItem>("rides", setRides);
+    const unsubBookings = listen<BookingItem>("bookings", setBookings);
+    const unsubPayouts = listen<PayoutItem>("payoutRequests", setPayouts);
 
     return () => {
       unsubRides();
@@ -96,64 +94,70 @@ export default function AdminRevenueIntelligencePage() {
       routeMap.get(key)?.push(ride);
     });
 
-    const routeProfiles = Array.from(routeMap.entries()).map(([route, routeRides]) => {
-      const rideIds = routeRides.map((ride) => ride.id);
+    const routeProfiles: RevenueProfile[] = Array.from(routeMap.entries()).map(
+      ([route, routeRides]) => {
+        const rideIds = routeRides.map((ride) => ride.id);
 
-      const routeBookings = bookings.filter((booking) =>
-        rideIds.includes(booking.rideId || "")
-      );
+        const routeBookings = bookings.filter((booking) =>
+          rideIds.includes(booking.rideId || "")
+        );
 
-      const revenue = routeBookings.reduce(
-        (total, booking) =>
-          total + Number(booking.price || booking.amount || 0) * Number(booking.seatsBooked || 1),
-        0
-      );
+        const revenue = routeBookings.reduce(
+          (total, booking) =>
+            total +
+            Number(booking.price || booking.amount || 0) *
+              Number(booking.seatsBooked || 1),
+          0
+        );
 
-      const completed = routeBookings.filter((item) => item.status === "completed").length;
+        const completed = routeBookings.filter(
+          (item) => item.status === "completed"
+        ).length;
 
-      const cancelled = routeBookings.filter(
-        (item) =>
-          item.status === "cancelled" ||
-          item.status === "rejected" ||
-          item.status === "no_show"
-      ).length;
+        const cancelled = routeBookings.filter(
+          (item) =>
+            item.status === "cancelled" ||
+            item.status === "rejected" ||
+            item.status === "no_show"
+        ).length;
 
-      const platformFee = revenue * 0.12;
-      const netRevenue = revenue - platformFee;
+        const platformFee = revenue * 0.12;
+        const netRevenue = revenue - platformFee;
 
-      const status: RevenueProfile["status"] =
-        cancelled > completed && routeBookings.length > 0
-          ? "leak"
-          : revenue >= 500
-          ? "strong"
-          : revenue >= 100
-          ? "growing"
-          : "watch";
+        const status: RevenueStatus =
+          cancelled > completed && routeBookings.length > 0
+            ? "leak"
+            : revenue >= 500
+            ? "strong"
+            : revenue >= 100
+            ? "growing"
+            : "watch";
 
-      const insight =
-        status === "strong"
-          ? "Strong revenue route. Keep promoting and recruit more drivers."
-          : status === "growing"
-          ? "Revenue is growing. This route may become profitable with more supply."
-          : status === "leak"
-          ? "Revenue leak detected. Cancellations are hurting this route."
-          : "Low revenue route. Monitor demand before spending marketing budget.";
+        const insight =
+          status === "strong"
+            ? "Strong revenue route. Keep promoting and recruit more drivers."
+            : status === "growing"
+            ? "Revenue is growing. This route may become profitable with more supply."
+            : status === "leak"
+            ? "Revenue leak detected. Cancellations are hurting this route."
+            : "Low revenue route. Monitor demand before spending marketing budget.";
 
-      return {
-        id: `route-${route.toLowerCase().replaceAll("/", "-")}`,
-        title: route,
-        type: "route",
-        revenue,
-        bookings: routeBookings.length,
-        completed,
-        cancelled,
-        payoutExposure: 0,
-        platformFee,
-        netRevenue,
-        status,
-        insight,
-      };
-    });
+        return {
+          id: `route-${route.toLowerCase().replaceAll("/", "-")}`,
+          title: route,
+          type: "route",
+          revenue,
+          bookings: routeBookings.length,
+          completed,
+          cancelled,
+          payoutExposure: 0,
+          platformFee,
+          netRevenue,
+          status,
+          insight,
+        };
+      }
+    );
 
     const driverMap = new Map<string, BookingItem[]>();
 
@@ -163,66 +167,72 @@ export default function AdminRevenueIntelligencePage() {
       driverMap.get(driver)?.push(booking);
     });
 
-    const driverProfiles = Array.from(driverMap.entries()).map(([driver, driverBookings]) => {
-      const revenue = driverBookings.reduce(
-        (total, booking) =>
-          total + Number(booking.price || booking.amount || 0) * Number(booking.seatsBooked || 1),
-        0
-      );
+    const driverProfiles: RevenueProfile[] = Array.from(driverMap.entries()).map(
+      ([driver, driverBookings]) => {
+        const revenue = driverBookings.reduce(
+          (total, booking) =>
+            total +
+            Number(booking.price || booking.amount || 0) *
+              Number(booking.seatsBooked || 1),
+          0
+        );
 
-      const completed = driverBookings.filter((item) => item.status === "completed").length;
+        const completed = driverBookings.filter(
+          (item) => item.status === "completed"
+        ).length;
 
-      const cancelled = driverBookings.filter(
-        (item) =>
-          item.status === "cancelled" ||
-          item.status === "rejected" ||
-          item.status === "no_show"
-      ).length;
+        const cancelled = driverBookings.filter(
+          (item) =>
+            item.status === "cancelled" ||
+            item.status === "rejected" ||
+            item.status === "no_show"
+        ).length;
 
-      const driverPayouts = payouts.filter(
-        (payout) => payout.driverEmail === driver || payout.email === driver
-      );
+        const driverPayouts = payouts.filter(
+          (payout) => payout.driverEmail === driver || payout.email === driver
+        );
 
-      const payoutExposure = driverPayouts
-        .filter((item) => item.status === "pending" || item.status === "approved")
-        .reduce((total, item) => total + Number(item.amount || 0), 0);
+        const payoutExposure = driverPayouts
+          .filter((item) => item.status === "pending" || item.status === "approved")
+          .reduce((total, item) => total + Number(item.amount || 0), 0);
 
-      const platformFee = revenue * 0.12;
-      const netRevenue = revenue - payoutExposure;
+        const platformFee = revenue * 0.12;
+        const netRevenue = revenue - payoutExposure;
 
-      const status: RevenueProfile["status"] =
-        payoutExposure > revenue && revenue > 0
-          ? "leak"
-          : revenue >= 500
-          ? "strong"
-          : revenue >= 100
-          ? "growing"
-          : "watch";
+        const status: RevenueStatus =
+          payoutExposure > revenue && revenue > 0
+            ? "leak"
+            : revenue >= 500
+            ? "strong"
+            : revenue >= 100
+            ? "growing"
+            : "watch";
 
-      const insight =
-        status === "strong"
-          ? "High value driver. Protect retention and monitor payouts."
-          : status === "growing"
-          ? "Driver revenue is growing. Consider incentives."
-          : status === "leak"
-          ? "Payout exposure is higher than revenue. Review before paying."
-          : "Low revenue driver profile.";
+        const insight =
+          status === "strong"
+            ? "High value driver. Protect retention and monitor payouts."
+            : status === "growing"
+            ? "Driver revenue is growing. Consider incentives."
+            : status === "leak"
+            ? "Payout exposure is higher than revenue. Review before paying."
+            : "Low revenue driver profile.";
 
-      return {
-        id: `driver-${driver.toLowerCase().replaceAll("/", "-")}`,
-        title: driver,
-        type: "driver",
-        revenue,
-        bookings: driverBookings.length,
-        completed,
-        cancelled,
-        payoutExposure,
-        platformFee,
-        netRevenue,
-        status,
-        insight,
-      };
-    });
+        return {
+          id: `driver-${driver.toLowerCase().replaceAll("/", "-")}`,
+          title: driver,
+          type: "driver",
+          revenue,
+          bookings: driverBookings.length,
+          completed,
+          cancelled,
+          payoutExposure,
+          platformFee,
+          netRevenue,
+          status,
+          insight,
+        };
+      }
+    );
 
     return [...routeProfiles, ...driverProfiles].sort(
       (a, b) => b.revenue + b.netRevenue - (a.revenue + a.netRevenue)
@@ -255,7 +265,9 @@ export default function AdminRevenueIntelligencePage() {
 
   const totalRevenue = bookings.reduce(
     (total, booking) =>
-      total + Number(booking.price || booking.amount || 0) * Number(booking.seatsBooked || 1),
+      total +
+      Number(booking.price || booking.amount || 0) *
+        Number(booking.seatsBooked || 1),
     0
   );
 
@@ -265,9 +277,7 @@ export default function AdminRevenueIntelligencePage() {
 
   const platformFees = totalRevenue * 0.12;
   const netPlatformRevenue = totalRevenue - pendingPayoutExposure;
-  const strong = revenueProfiles.filter((item) => item.status === "strong").length;
   const growing = revenueProfiles.filter((item) => item.status === "growing").length;
-  const watch = revenueProfiles.filter((item) => item.status === "watch").length;
   const leak = revenueProfiles.filter((item) => item.status === "leak").length;
 
   async function saveRevenueInsight(item: RevenueProfile) {
@@ -307,7 +317,7 @@ export default function AdminRevenueIntelligencePage() {
     }
   }
 
-  function statusLabel(status: RevenueProfile["status"]) {
+  function statusLabel(status: RevenueStatus) {
     if (status === "strong") return "Strong";
     if (status === "growing") return "Growing";
     if (status === "leak") return "Leak";
@@ -371,7 +381,7 @@ export default function AdminRevenueIntelligencePage() {
 
           <select
             value={filter}
-            onChange={(event) => setFilter(event.target.value as "all" | RevenueProfile["status"])}
+            onChange={(event) => setFilter(event.target.value as "all" | RevenueStatus)}
           >
             <option value="all">All revenue</option>
             <option value="strong">Strong</option>
@@ -477,17 +487,9 @@ export default function AdminRevenueIntelligencePage() {
                     Save Insight
                   </button>
 
-                  <Link href="/admin/payouts" className="linkButton">
-                    Payouts
-                  </Link>
-
-                  <Link href="/admin/revenue" className="linkButton">
-                    Revenue
-                  </Link>
-
-                  <Link href="/admin/route-intelligence" className="dangerButton">
-                    Routes
-                  </Link>
+                  <Link href="/admin/payouts" className="linkButton">Payouts</Link>
+                  <Link href="/admin/revenue" className="linkButton">Revenue</Link>
+                  <Link href="/admin/route-intelligence" className="dangerButton">Routes</Link>
                 </div>
               </>
             ) : (
