@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db, storage } from "../../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, updateProfile } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 
 type UserProfile = {
   name?: string;
@@ -28,20 +28,13 @@ export default function EditProfilePage() {
   const [message, setMessage] = useState("Loading profile...");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const initials = useMemo(() => {
-    const cleanName = name.trim();
-
-    if (cleanName) {
-      const parts = cleanName.split(" ").filter(Boolean);
-      const first = parts[0]?.[0] || "";
-      const second = parts[1]?.[0] || "";
-      return `${first}${second}`.toUpperCase() || "R";
-    }
-
-    if (userEmail) return userEmail[0].toUpperCase();
-
-    return "R";
+    const parts = name.trim().split(" ").filter(Boolean);
+    const first = parts[0]?.[0] || "";
+    const second = parts[1]?.[0] || "";
+    return `${first}${second}`.toUpperCase() || userEmail[0]?.toUpperCase() || "R";
   }, [name, userEmail]);
 
   useEffect(() => {
@@ -55,10 +48,8 @@ export default function EditProfilePage() {
       setUserEmail(user.email || "");
 
       try {
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
+        const userSnap = await getDoc(doc(db, "users", user.uid));
         const data = userSnap.data() as UserProfile | undefined;
-
         const savedPhoto = data?.photoURL || user.photoURL || "";
 
         setName(data?.name || user.displayName || "RoadLink User");
@@ -76,7 +67,7 @@ export default function EditProfilePage() {
     return () => unsubscribe();
   }, []);
 
-  async function uploadPhoto(file: File) {
+  function uploadPhoto(file: File) {
     if (!userId) {
       setMessage("Please sign in first.");
       return;
@@ -87,38 +78,63 @@ export default function EditProfilePage() {
       return;
     }
 
-    try {
-      setUploading(true);
-      setMessage("");
-
-      const localPreview = URL.createObjectURL(file);
-      setPreviewURL(localPreview);
-
-      const safeName = file.name.replaceAll(" ", "-").toLowerCase();
-      const filePath = `profile-photos/${userId}/${Date.now()}-${safeName}`;
-      const photoRef = ref(storage, filePath);
-
-      await uploadBytes(photoRef, file);
-
-      const url = await getDownloadURL(photoRef);
-      setPhotoURL(url);
-      setPreviewURL(url);
-
-      await setDoc(
-        doc(db, "users", userId),
-        {
-          photoURL: url,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-
-      setMessage("Photo uploaded successfully.");
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Upload failed.");
-    } finally {
-      setUploading(false);
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("Image is too large. Please choose an image under 5MB.");
+      return;
     }
+
+    setUploading(true);
+    setProgress(0);
+    setMessage("");
+
+    const localPreview = URL.createObjectURL(file);
+    setPreviewURL(localPreview);
+
+    const extension = file.name.split(".").pop() || "jpg";
+    const filePath = `profile-photos/${userId}/profile-${Date.now()}.${extension}`;
+    const photoRef = ref(storage, filePath);
+    const uploadTask = uploadBytesResumable(photoRef, file);
+
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        setProgress(percent);
+      },
+      (error) => {
+        setUploading(false);
+        setProgress(0);
+        setMessage(error.message || "Upload failed. Check Firebase Storage rules.");
+      },
+      async () => {
+        try {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+
+          setPhotoURL(url);
+          setPreviewURL(url);
+
+          await setDoc(
+            doc(db, "users", userId),
+            {
+              photoURL: url,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+
+          if (auth.currentUser) {
+            await updateProfile(auth.currentUser, { photoURL: url });
+          }
+
+          setMessage("Photo uploaded successfully.");
+        } catch (error: unknown) {
+          setMessage(error instanceof Error ? error.message : "Could not save uploaded photo.");
+        } finally {
+          setUploading(false);
+          setProgress(0);
+        }
+      }
+    );
   }
 
   async function saveProfile() {
@@ -144,6 +160,13 @@ export default function EditProfilePage() {
         },
         { merge: true }
       );
+
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: name.trim() || "RoadLink User",
+          photoURL: photoURL.trim() || null,
+        });
+      }
 
       setPreviewURL(photoURL.trim());
       setMessage("Profile saved successfully.");
@@ -182,7 +205,7 @@ export default function EditProfilePage() {
 
           <div className="photoActions">
             <label htmlFor="photoUpload" className="uploadButton">
-              {uploading ? "Uploading..." : "Choose Photo"}
+              {uploading ? `Uploading ${progress}%` : "Choose Photo"}
             </label>
 
             <input
@@ -194,6 +217,7 @@ export default function EditProfilePage() {
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) uploadPhoto(file);
+                event.target.value = "";
               }}
             />
 
@@ -211,9 +235,13 @@ export default function EditProfilePage() {
             </button>
           </div>
 
-          <p className="photoHint">
-            Use a clear square photo. JPG, PNG or WEBP recommended.
-          </p>
+          {uploading && (
+            <div className="progressBar">
+              <div style={{ width: `${progress}%` }} />
+            </div>
+          )}
+
+          <p className="photoHint">Use JPG, PNG or WEBP under 5MB.</p>
         </section>
 
         {message && <p className="message">{message}</p>}
@@ -241,7 +269,7 @@ export default function EditProfilePage() {
         />
 
         <button onClick={saveProfile} disabled={saving || uploading} className="saveButton">
-          {uploading ? "Uploading..." : saving ? "Saving..." : "Save Profile"}
+          {uploading ? `Uploading ${progress}%` : saving ? "Saving..." : "Save Profile"}
         </button>
       </section>
 
@@ -328,24 +356,24 @@ export default function EditProfilePage() {
           border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .avatarWrap,
-        .avatarImage,
-        .avatarFallback {
+        .avatarWrap {
           width: 158px;
           height: 158px;
           border-radius: 50%;
-        }
-
-        .avatarWrap {
           padding: 5px;
           background: rgba(34,197,94,0.13);
           border: 2px solid rgba(34,197,94,0.55);
           box-shadow: 0 18px 70px rgba(34,197,94,0.35);
         }
 
-        .avatarImage {
+        .avatarImage,
+        .avatarFallback {
           width: 100%;
           height: 100%;
+          border-radius: 50%;
+        }
+
+        .avatarImage {
           object-fit: cover;
           display: block;
           background: #020617;
@@ -355,13 +383,10 @@ export default function EditProfilePage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background:
-            radial-gradient(circle at top, rgba(255,255,255,0.18), transparent 35%),
-            linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #22c55e, #16a34a);
           color: white;
           font-size: 52px;
           font-weight: 900;
-          letter-spacing: -1px;
         }
 
         .photoActions {
@@ -394,12 +419,24 @@ export default function EditProfilePage() {
           display: none;
         }
 
+        .progressBar {
+          width: 100%;
+          height: 12px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.08);
+          overflow: hidden;
+        }
+
+        .progressBar div {
+          height: 100%;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
         .photoHint {
           margin: 0;
           color: #a1a1aa;
           font-size: 13px;
           text-align: center;
-          line-height: 1.4;
         }
 
         .message {
@@ -429,10 +466,6 @@ export default function EditProfilePage() {
         textarea {
           min-height: 120px;
           resize: vertical;
-        }
-
-        input[type="file"] {
-          padding: 14px;
         }
 
         .saveButton {
@@ -469,9 +502,7 @@ export default function EditProfilePage() {
             font-size: 42px;
           }
 
-          .avatarWrap,
-          .avatarImage,
-          .avatarFallback {
+          .avatarWrap {
             width: 142px;
             height: 142px;
           }
@@ -488,4 +519,4 @@ export default function EditProfilePage() {
       `}</style>
     </main>
   );
-}
+          }
