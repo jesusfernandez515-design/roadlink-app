@@ -9,6 +9,8 @@ type BasicItem = {
   id: string;
   status?: string;
   amount?: number;
+  price?: number;
+  seatsBooked?: number;
   priority?: string;
   driverVerified?: boolean;
   verified?: boolean;
@@ -72,17 +74,18 @@ export default function AdminPage() {
       (item) =>
         item.status === "active" ||
         item.status === "open" ||
-        item.status === "in_progress" ||
-        item.status === "full"
+        item.status === "full" ||
+        item.status === "in_progress"
     );
 
     const activeBookings = bookings.filter(
       (item) =>
         item.status === "pending" ||
         item.status === "reserved" ||
-        item.status === "confirmed" ||
-        item.status === "in_progress"
+        item.status === "confirmed"
     );
+
+    const completedBookings = bookings.filter((item) => item.status === "completed");
 
     const pendingPayouts = payouts.filter(
       (item) => item.status === "pending" || item.status === "approved"
@@ -107,9 +110,18 @@ export default function AdminPage() {
 
     const suspendedUsers = users.filter((item) => item.suspended);
 
+    const grossRevenue = bookings.reduce(
+      (total, booking) =>
+        total +
+        Number(booking.price || booking.amount || 0) *
+          Number(booking.seatsBooked || 1),
+      0
+    );
+
     return {
       activeRides,
       activeBookings,
+      completedBookings,
       pendingPayouts,
       pendingPayoutAmount,
       pendingVerifications,
@@ -118,74 +130,92 @@ export default function AdminPage() {
       openDisputes,
       verifiedDrivers,
       suspendedUsers,
+      grossRevenue,
     };
   }, [users, rides, bookings, payouts, verifications, reports, emergencies, disputes]);
 
   const platformScore = useMemo(() => {
     let score = 100;
 
-    if (metrics.activeSOS.length > 0) score -= 25;
-    if (metrics.openReports.length > 0) score -= Math.min(18, metrics.openReports.length * 4);
-    if (metrics.openDisputes.length > 0) score -= Math.min(14, metrics.openDisputes.length * 4);
-    if (metrics.suspendedUsers.length > 0) score -= Math.min(12, metrics.suspendedUsers.length * 3);
-    if (metrics.pendingVerifications.length > 5) score -= 6;
-    if (metrics.pendingPayouts.length > 5) score -= 6;
+    score += metrics.grossRevenue >= 1000 ? 8 : metrics.grossRevenue >= 250 ? 4 : 0;
+    score += metrics.completedBookings.length >= 10 ? 6 : metrics.completedBookings.length > 0 ? 3 : 0;
+    score += metrics.verifiedDrivers.length >= 5 ? 5 : metrics.verifiedDrivers.length > 0 ? 2 : 0;
 
-    return Math.max(score, 0);
+    score -= metrics.activeSOS.length * 25;
+    score -= metrics.openReports.length * 5;
+    score -= metrics.openDisputes.length * 5;
+    score -= metrics.suspendedUsers.length * 4;
+    score -= metrics.pendingVerifications.length > 10 ? 8 : 0;
+    score -= metrics.pendingPayouts.length > 10 ? 6 : 0;
+
+    return Math.max(Math.min(score, 100), 0);
   }, [metrics]);
 
   const modules: AdminModule[] = [
-    { href: "/admin/live", icon: "🟢", title: "Live Center", text: "Realtime users, rides, bookings and SOS activity." },
-    { href: "/admin/operations", icon: "📡", title: "Operations Center", text: "Command center for daily RoadLink operations." },
-    { href: "/admin/dispatch", icon: "🚦", title: "Dispatch Center", text: "Assign drivers, monitor trips, GPS, SOS and ride operations." },
-    { href: "/admin/live-trips", icon: "🛰️", title: "Live Trips Monitor", text: "Realtime monitoring of active trips, routes and passenger activity.", badge: metrics.activeRides.length },
-    { href: "/admin/map-center", icon: "🗺️", title: "Map Center", text: "Live ride map, SOS locations, drivers and passenger tracking.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
-    { href: "/admin/safety", icon: "🛡️", title: "Safety Center", text: "Safety overview, lockdown tools and risk queue.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
+    { href: "/admin/executive", icon: "👑", title: "Executive Command", text: "Master command center for RoadLink health, growth, revenue and safety." },
+    { href: "/admin/ceo-dashboard", icon: "🏛️", title: "CEO Dashboard", text: "Executive company health, KPIs and next actions." },
+    { href: "/admin/investor-board", icon: "💼", title: "Investor Board", text: "Investor-ready traction, valuation and revenue metrics." },
+    { href: "/admin/growth-intelligence", icon: "📈", title: "Growth Intelligence", text: "Acquisition, activation, retention and growth signals." },
+
+    { href: "/admin/market-intelligence", icon: "🌎", title: "Market Intelligence", text: "Routes, cities, states and expansion opportunities." },
+    { href: "/admin/revenue-intelligence", icon: "💰", title: "Revenue Intelligence", text: "Route revenue, driver revenue and financial leaks." },
+    { href: "/admin/profitability", icon: "📊", title: "Profitability", text: "Margins, costs, profit signals and payout exposure." },
+    { href: "/admin/financial-forecast", icon: "🏦", title: "Financial Forecast", text: "Monthly and yearly financial projections." },
+
+    { href: "/admin/safety-intelligence", icon: "🛡️", title: "Safety Intelligence", text: "Safety score, reports, SOS and risk signals.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
+    { href: "/admin/ai-risk", icon: "🤖", title: "AI Risk", text: "AI-powered risk scoring and safety warnings." },
+    { href: "/admin/trust-score", icon: "⭐", title: "Trust Score", text: "Trust scoring for users, drivers and passengers." },
     { href: "/admin/emergency", icon: "🚨", title: "Emergency Center", text: "Monitor active SOS alerts and GPS location.", badge: metrics.activeSOS.length, danger: metrics.activeSOS.length > 0 },
 
+    { href: "/admin/dispatch", icon: "📡", title: "Dispatch Center", text: "Assign drivers, monitor trips and respond to issues." },
+    { href: "/admin/live-trips", icon: "🛣️", title: "Live Trips", text: "Monitor trips in real time." },
+    { href: "/admin/fleet", icon: "🚘", title: "Fleet Tracking", text: "Track drivers, vehicles and live fleet activity." },
+    { href: "/admin/geofence", icon: "📍", title: "Geofence Center", text: "Monitor zones, locations and geofence intelligence." },
+
+    { href: "/admin/demand-heatmap", icon: "🔥", title: "Demand Heatmap", text: "Find high-demand routes and markets." },
+    { href: "/admin/route-intelligence", icon: "🧭", title: "Route Intelligence", text: "Analyze route performance and demand." },
+    { href: "/admin/driver-performance", icon: "🏆", title: "Driver Performance", text: "Rank drivers by safety, revenue and reliability." },
+    { href: "/admin/passenger-intelligence", icon: "🧠", title: "Passenger Intelligence", text: "Analyze passengers, spending and trust signals." },
+
+    { href: "/admin/live", icon: "🟢", title: "Live Center", text: "Realtime users, rides, bookings and SOS activity." },
+    { href: "/admin/operations", icon: "📡", title: "Operations Center", text: "Daily operations command center." },
+    { href: "/admin/activity", icon: "📶", title: "Activity Center", text: "Realtime activity timeline." },
+    { href: "/admin/system-health", icon: "🩺", title: "System Health", text: "Firebase, Stripe, APIs and service status." },
+
     { href: "/admin/users", icon: "👥", title: "Users", text: "Manage users, drivers and account status.", badge: metrics.suspendedUsers.length, danger: metrics.suspendedUsers.length > 0 },
-    { href: "/admin/user-intelligence", icon: "🧠", title: "User Intelligence", text: "Trust signals, reports, revenue and user activity." },
-    { href: "/admin/driver-risk", icon: "🚘", title: "Driver Risk", text: "Driver safety scoring using reports and ratings." },
-    { href: "/admin/fraud", icon: "🕵️", title: "Fraud Detection", text: "Detect suspicious accounts, disputes and payout risk." },
+    { href: "/admin/user-intelligence", icon: "🧠", title: "User Intelligence", text: "User trust, revenue, reports and activity." },
+    { href: "/admin/driver-risk", icon: "🚘", title: "Driver Risk", text: "Driver risk scoring and safety indicators." },
+    { href: "/admin/fraud", icon: "🕵️", title: "Fraud Detection", text: "Suspicious accounts, disputes and payout risk." },
 
     { href: "/admin/rides", icon: "🚗", title: "Rides", text: "Monitor active, completed and cancelled rides.", badge: metrics.activeRides.length },
     { href: "/admin/bookings", icon: "🎟️", title: "Bookings", text: "Review passenger bookings and reservations.", badge: metrics.activeBookings.length },
-    { href: "/admin/messages", icon: "💬", title: "Messages", text: "Review platform messaging and chat activity." },
-    { href: "/admin/reviews", icon: "⭐", title: "Reviews", text: "Ratings, user feedback and trust reputation." },
+    { href: "/admin/messages", icon: "💬", title: "Messages", text: "Platform messaging and chat activity." },
+    { href: "/admin/reviews", icon: "⭐", title: "Reviews", text: "Ratings, feedback and trust reputation." },
 
     { href: "/admin/verification-queue", icon: "🛡️", title: "Verification Queue", text: "Approve driver documents and applications.", badge: metrics.pendingVerifications.length },
-    { href: "/admin/verifications", icon: "✅", title: "Verifications", text: "Driver approval records and verification status." },
+    { href: "/admin/verifications", icon: "✅", title: "Verifications", text: "Verification records and approval status." },
     { href: "/admin/payouts", icon: "🏦", title: "Payouts", text: "Approve, reject and mark payouts as paid.", badge: metrics.pendingPayouts.length },
-    { href: "/admin/revenue", icon: "💰", title: "Revenue Center", text: "Revenue, fees, earnings and financial overview." },
+    { href: "/admin/payments", icon: "💳", title: "Payments", text: "Payment records and transaction activity." },
 
+    { href: "/admin/revenue", icon: "💵", title: "Revenue", text: "Revenue, fees, earnings and financial overview." },
+    { href: "/admin/stripe", icon: "💎", title: "Stripe", text: "Stripe settings, payments and checkout tools." },
     { href: "/admin/reports", icon: "⚠️", title: "Reports", text: "Safety reports and platform issues.", badge: metrics.openReports.length, danger: metrics.openReports.length > 0 },
     { href: "/admin/disputes", icon: "⚖️", title: "Disputes", text: "Handle disputes between drivers and passengers.", badge: metrics.openDisputes.length, danger: metrics.openDisputes.length > 0 },
-    { href: "/admin/support", icon: "🎧", title: "Support", text: "Support tickets, replies and user help desk." },
-    { href: "/admin/tickets", icon: "🎫", title: "Tickets Center", text: "Advanced support tickets, case tracking and admin replies." },
-    { href: "/admin/notifications", icon: "🔔", title: "Notifications", text: "Send announcements and user notifications." },
 
+    { href: "/admin/support", icon: "🎧", title: "Support", text: "Support tickets and user help desk." },
+    { href: "/admin/notifications", icon: "🔔", title: "Notifications", text: "Send announcements and user notifications." },
     { href: "/admin/analytics", icon: "📊", title: "Analytics", text: "Growth, users, bookings and platform metrics." },
     { href: "/admin/marketing", icon: "📣", title: "Marketing", text: "Campaigns, acquisition and growth tools." },
-    { href: "/admin/coupons", icon: "🎁", title: "Coupons", text: "Discount codes and promotion performance." },
-    { href: "/admin/investor", icon: "💼", title: "Investor Center", text: "Investor metrics and executive snapshots." },
 
-    { href: "/admin/platform-control", icon: "🎛️", title: "Platform Control", text: "Turn features on or off from one control panel." },
-    { href: "/admin/settings", icon: "⚙️", title: "Settings", text: "Platform fees, support info and security rules." },
+    { href: "/admin/coupons", icon: "🎁", title: "Coupons", text: "Discount codes and promotions." },
+    { href: "/admin/platform-control", icon: "🎛️", title: "Platform Control", text: "Turn features on or off from one panel." },
+    { href: "/admin/settings", icon: "⚙️", title: "Settings", text: "Fees, support info and security rules." },
     { href: "/admin/feature-flags", icon: "🚦", title: "Feature Flags", text: "Enable or disable experimental features." },
-    { href: "/admin/system-health", icon: "🩺", title: "System Health", text: "Firebase, Stripe, API and service status." },
 
     { href: "/admin/ai-command", icon: "🤖", title: "AI Command", text: "AI assistant tools for admin operations." },
-    { href: "/admin/activity", icon: "📡", title: "Activity Center", text: "Realtime platform activity timeline." },
+    { href: "/admin/map-center", icon: "🗺️", title: "Map Center", text: "Map tools and location intelligence." },
     { href: "/admin/audit-logs", icon: "🧾", title: "Audit Logs", text: "Admin actions, security events and changes." },
     { href: "/admin/launch", icon: "🚀", title: "Launch Center", text: "Readiness checklist for public launch." },
-
-    { href: "/admin/compliance", icon: "📋", title: "Compliance Center", text: "Driver documents, legal compliance and policy monitoring." },
-    { href: "/admin/trust-score", icon: "🏅", title: "Trust Score", text: "Platform trust ratings, driver reputation and safety metrics." },
-    { href: "/admin/growth", icon: "📈", title: "Growth Center", text: "User growth, retention, conversion and acquisition metrics." },
-    { href: "/admin/incident-center", icon: "🔥", title: "Incident Center", text: "Track critical incidents, investigations and emergency escalations.", danger: true },
-    { href: "/admin/geo-intelligence", icon: "🌎", title: "Geo Intelligence", text: "Regional demand, hotspots and ride density analytics." },
-    { href: "/admin/driver-performance", icon: "🏆", title: "Driver Performance", text: "Driver earnings, ratings, completion rates and quality scores." },
-    { href: "/admin/passenger-insights", icon: "👤", title: "Passenger Insights", text: "Passenger activity, loyalty, booking behavior and trust scores." },
   ];
 
   return (
@@ -194,18 +224,16 @@ export default function AdminPage() {
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Enterprise Admin</p>
-            <h1>
-              Command <span>Center</span>
-            </h1>
+            <h1>Command <span>Center</span></h1>
             <p className="subtitle">
-              Manage RoadLink users, rides, bookings, payouts, safety, fraud, support,
-              revenue, launch readiness and platform controls from one premium dashboard.
+              Manage RoadLink users, rides, bookings, revenue, safety, growth,
+              investors, dispatch, intelligence, operations and platform controls.
             </p>
           </div>
 
-          <div className={platformScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
+          <div className={platformScore < 75 ? "scoreOrb warningScore" : "scoreOrb"}>
             <strong>{platformScore}</strong>
-            <span>Score</span>
+            <span>Admin Score</span>
           </div>
         </section>
 
@@ -216,8 +244,8 @@ export default function AdminPage() {
           <Metric icon="🛡️" label="Drivers" value={String(metrics.verifiedDrivers.length)} />
           <Metric icon="🚘" label="Active Rides" value={String(metrics.activeRides.length)} />
           <Metric icon="🎟️" label="Active Bookings" value={String(metrics.activeBookings.length)} />
+          <Metric icon="💰" label="Gross Revenue" value={`$${Math.round(metrics.grossRevenue).toLocaleString()}`} />
           <Metric icon="🏦" label="Pending Payouts" value={String(metrics.pendingPayouts.length)} />
-          <Metric icon="💵" label="Payout Amount" value={`$${Math.round(metrics.pendingPayoutAmount)}`} />
           <Metric icon="⚠️" label="Reports" value={String(metrics.openReports.length)} danger={metrics.openReports.length > 0} />
           <Metric icon="🚨" label="Active SOS" value={String(metrics.activeSOS.length)} danger={metrics.activeSOS.length > 0} />
         </section>
@@ -256,7 +284,7 @@ export default function AdminPage() {
         }
 
         .container {
-          max-width: 1280px;
+          max-width: 1360px;
           margin: auto;
         }
 
@@ -307,7 +335,7 @@ export default function AdminPage() {
         }
 
         .subtitle {
-          max-width: 800px;
+          max-width: 850px;
           color: #a1a1aa;
           font-size: 18px;
           line-height: 1.5;
@@ -315,8 +343,8 @@ export default function AdminPage() {
         }
 
         .scoreOrb {
-          min-width: 96px;
-          height: 96px;
+          min-width: 104px;
+          height: 104px;
           border-radius: 50%;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
@@ -325,6 +353,7 @@ export default function AdminPage() {
           justify-content: center;
           flex-direction: column;
           text-align: center;
+          padding: 10px;
         }
 
         .warningScore {
@@ -334,7 +363,7 @@ export default function AdminPage() {
 
         .scoreOrb strong {
           color: #22c55e;
-          font-size: 30px;
+          font-size: 32px;
           font-weight: 900;
         }
 
@@ -344,7 +373,7 @@ export default function AdminPage() {
 
         .scoreOrb span {
           color: #a1a1aa;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 900;
         }
 
@@ -432,7 +461,7 @@ export default function AdminPage() {
 
         .adminCard {
           position: relative;
-          min-height: 205px;
+          min-height: 198px;
           border-radius: 28px;
           padding: 22px;
           color: white;
@@ -502,7 +531,7 @@ export default function AdminPage() {
           box-shadow: 0 0 18px rgba(239,68,68,0.75);
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1180px) {
           .stats,
           .adminGrid {
             grid-template-columns: repeat(2, 1fr);
@@ -585,4 +614,4 @@ function AdminCard({
       <p>{text}</p>
     </Link>
   );
-}
+      }
