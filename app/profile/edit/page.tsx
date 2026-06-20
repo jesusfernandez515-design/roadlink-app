@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { auth, db, storage } from "../../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
@@ -18,14 +18,31 @@ type UserProfile = {
 
 export default function EditProfilePage() {
   const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [city, setCity] = useState("");
   const [stateValue, setStateValue] = useState("");
   const [photoURL, setPhotoURL] = useState("");
+  const [previewURL, setPreviewURL] = useState("");
   const [message, setMessage] = useState("Loading profile...");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  const initials = useMemo(() => {
+    const cleanName = name.trim();
+
+    if (cleanName) {
+      const parts = cleanName.split(" ").filter(Boolean);
+      const first = parts[0]?.[0] || "";
+      const second = parts[1]?.[0] || "";
+      return `${first}${second}`.toUpperCase() || "R";
+    }
+
+    if (userEmail) return userEmail[0].toUpperCase();
+
+    return "R";
+  }, [name, userEmail]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -35,17 +52,21 @@ export default function EditProfilePage() {
       }
 
       setUserId(user.uid);
+      setUserEmail(user.email || "");
 
       try {
         const userRef = doc(db, "users", user.uid);
         const userSnap = await getDoc(userRef);
         const data = userSnap.data() as UserProfile | undefined;
 
+        const savedPhoto = data?.photoURL || user.photoURL || "";
+
         setName(data?.name || user.displayName || "RoadLink User");
         setBio(data?.bio || "");
         setCity(data?.city || "");
         setStateValue(data?.state || "");
-        setPhotoURL(data?.photoURL || user.photoURL || "");
+        setPhotoURL(savedPhoto);
+        setPreviewURL(savedPhoto);
         setMessage("");
       } catch (error: unknown) {
         setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -61,17 +82,27 @@ export default function EditProfilePage() {
       return;
     }
 
+    if (!file.type.startsWith("image/")) {
+      setMessage("Please choose a valid image file.");
+      return;
+    }
+
     try {
       setUploading(true);
       setMessage("");
 
-      const filePath = `profile-photos/${userId}/${Date.now()}-${file.name}`;
+      const localPreview = URL.createObjectURL(file);
+      setPreviewURL(localPreview);
+
+      const safeName = file.name.replaceAll(" ", "-").toLowerCase();
+      const filePath = `profile-photos/${userId}/${Date.now()}-${safeName}`;
       const photoRef = ref(storage, filePath);
 
       await uploadBytes(photoRef, file);
 
       const url = await getDownloadURL(photoRef);
       setPhotoURL(url);
+      setPreviewURL(url);
 
       await setDoc(
         doc(db, "users", userId),
@@ -104,6 +135,7 @@ export default function EditProfilePage() {
         doc(db, "users", userId),
         {
           name: name.trim() || "RoadLink User",
+          email: userEmail,
           bio: bio.trim(),
           city: city.trim(),
           state: stateValue.trim(),
@@ -113,6 +145,7 @@ export default function EditProfilePage() {
         { merge: true }
       );
 
+      setPreviewURL(photoURL.trim());
       setMessage("Profile saved successfully.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
@@ -133,11 +166,55 @@ export default function EditProfilePage() {
         <h1>Identity & <span>Photo</span></h1>
         <p className="subtitle">Update your public RoadLink profile information.</p>
 
-        {photoURL ? (
-          <img src={photoURL} alt="Profile" className="avatarImage" />
-        ) : (
-          <div className="avatar">J</div>
-        )}
+        <section className="photoPanel">
+          <div className="avatarWrap">
+            {previewURL ? (
+              <img
+                src={previewURL}
+                alt="Profile photo"
+                className="avatarImage"
+                onError={() => setPreviewURL("")}
+              />
+            ) : (
+              <div className="avatarFallback">{initials}</div>
+            )}
+          </div>
+
+          <div className="photoActions">
+            <label htmlFor="photoUpload" className="uploadButton">
+              {uploading ? "Uploading..." : "Choose Photo"}
+            </label>
+
+            <input
+              id="photoUpload"
+              className="hiddenFile"
+              type="file"
+              accept="image/*"
+              disabled={uploading || saving}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) uploadPhoto(file);
+              }}
+            />
+
+            <button
+              type="button"
+              className="removeButton"
+              onClick={() => {
+                setPhotoURL("");
+                setPreviewURL("");
+                setMessage("Photo removed. Save profile to confirm.");
+              }}
+              disabled={uploading || saving}
+            >
+              Remove
+            </button>
+          </div>
+
+          <p className="photoHint">
+            Use a clear square photo. JPG, PNG or WEBP recommended.
+          </p>
+        </section>
 
         {message && <p className="message">{message}</p>}
 
@@ -153,18 +230,15 @@ export default function EditProfilePage() {
         <label>State</label>
         <input value={stateValue} onChange={(event) => setStateValue(event.target.value)} />
 
-        <label>Upload Photo</label>
+        <label>Photo URL</label>
         <input
-          type="file"
-          accept="image/*"
+          value={photoURL}
+          placeholder="https://..."
           onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) uploadPhoto(file);
+            setPhotoURL(event.target.value);
+            setPreviewURL(event.target.value);
           }}
         />
-
-        <label>Photo URL</label>
-        <input value={photoURL} onChange={(event) => setPhotoURL(event.target.value)} />
 
         <button onClick={saveProfile} disabled={saving || uploading} className="saveButton">
           {uploading ? "Uploading..." : saving ? "Saving..." : "Save Profile"}
@@ -181,7 +255,7 @@ export default function EditProfilePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 20px;
-          padding-bottom: 110px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
@@ -193,6 +267,7 @@ export default function EditProfilePage() {
           border-radius: 34px;
           padding: 28px;
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          overflow: hidden;
         }
 
         .topNav {
@@ -222,47 +297,115 @@ export default function EditProfilePage() {
         }
 
         h1 {
-          font-size: 44px;
-          line-height: 1;
-          margin: 0 0 12px;
+          font-size: 54px;
+          line-height: 0.95;
+          margin: 0 0 14px;
+          letter-spacing: -1px;
         }
 
         h1 span {
           color: #22c55e;
+          display: block;
         }
 
         .subtitle {
           color: #a1a1aa;
-          margin-bottom: 24px;
+          margin: 0 0 24px;
+          font-size: 18px;
+          line-height: 1.45;
         }
 
-        .avatar,
-        .avatarImage {
-          width: 130px;
-          height: 130px;
+        .photoPanel {
+          display: grid;
+          justify-items: center;
+          gap: 16px;
+          padding: 24px;
+          margin: 0 0 24px;
+          border-radius: 28px;
+          background:
+            radial-gradient(circle, rgba(34,197,94,0.18), transparent 55%),
+            rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .avatarWrap,
+        .avatarImage,
+        .avatarFallback {
+          width: 158px;
+          height: 158px;
           border-radius: 50%;
-          margin: 0 auto 24px;
-          border: 2px solid rgba(34,197,94,0.5);
-          box-shadow: 0 18px 60px rgba(34,197,94,0.35);
         }
 
-        .avatar {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+        .avatarWrap {
+          padding: 5px;
+          background: rgba(34,197,94,0.13);
+          border: 2px solid rgba(34,197,94,0.55);
+          box-shadow: 0 18px 70px rgba(34,197,94,0.35);
+        }
+
+        .avatarImage {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+          background: #020617;
+        }
+
+        .avatarFallback {
           display: flex;
           align-items: center;
           justify-content: center;
+          background:
+            radial-gradient(circle at top, rgba(255,255,255,0.18), transparent 35%),
+            linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
           font-size: 52px;
           font-weight: 900;
+          letter-spacing: -1px;
         }
 
-        .avatarImage {
-          object-fit: cover;
-          display: block;
+        .photoActions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          justify-content: center;
+        }
+
+        .uploadButton,
+        .removeButton {
+          padding: 12px 18px;
+          border-radius: 999px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .uploadButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+        }
+
+        .removeButton {
+          border: 1px solid rgba(239,68,68,0.35);
+          background: rgba(239,68,68,0.12);
+          color: #fca5a5;
+        }
+
+        .hiddenFile {
+          display: none;
+        }
+
+        .photoHint {
+          margin: 0;
+          color: #a1a1aa;
+          font-size: 13px;
+          text-align: center;
+          line-height: 1.4;
         }
 
         .message {
           color: #22c55e;
           font-weight: 900;
+          margin: 0 0 16px;
         }
 
         label {
@@ -288,6 +431,10 @@ export default function EditProfilePage() {
           resize: vertical;
         }
 
+        input[type="file"] {
+          padding: 14px;
+        }
+
         .saveButton {
           width: 100%;
           margin-top: 24px;
@@ -301,9 +448,42 @@ export default function EditProfilePage() {
           cursor: pointer;
         }
 
-        .saveButton:disabled {
+        .saveButton:disabled,
+        .removeButton:disabled {
           opacity: 0.6;
           cursor: not-allowed;
+        }
+
+        @media (max-width: 640px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 140px;
+          }
+
+          .card {
+            padding: 24px;
+            border-radius: 30px;
+          }
+
+          h1 {
+            font-size: 42px;
+          }
+
+          .avatarWrap,
+          .avatarImage,
+          .avatarFallback {
+            width: 142px;
+            height: 142px;
+          }
+
+          .avatarFallback {
+            font-size: 46px;
+          }
+
+          .miniButton {
+            flex: 1;
+            text-align: center;
+          }
         }
       `}</style>
     </main>
