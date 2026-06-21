@@ -592,4 +592,4 @@ function Metric({
       </strong>
     </div>
   );
-          }
+}
