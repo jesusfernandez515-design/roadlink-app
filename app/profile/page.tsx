@@ -24,8 +24,8 @@ type UserProfile = {
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile>({});
-  const [avatar, setAvatar] = useState("R");
   const [message, setMessage] = useState("Loading profile...");
+  const [photoBroken, setPhotoBroken] = useState(false);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
@@ -39,8 +39,6 @@ export default function ProfilePage() {
       const userEmail = user.email || "";
       const fallbackName = user.displayName || "RoadLink User";
       const fallbackPhoto = user.photoURL || "";
-
-      setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
 
       const userRef = doc(db, "users", user.uid);
 
@@ -71,11 +69,14 @@ export default function ProfilePage() {
             { merge: true }
           );
         } else {
+          const existingData = existingUser.data() as UserProfile | undefined;
+
           await setDoc(
             userRef,
             {
               email: userEmail,
               emailVerified: Boolean(user.emailVerified),
+              photoURL: existingData?.photoURL || fallbackPhoto || "",
               updatedAt: new Date().toISOString(),
             },
             { merge: true }
@@ -89,12 +90,15 @@ export default function ProfilePage() {
         userRef,
         (snapshot) => {
           const data = snapshot.data() as UserProfile | undefined;
+          const savedPhoto = data?.photoURL || fallbackPhoto || "";
+
+          setPhotoBroken(false);
 
           setProfile({
             name: data?.name || fallbackName,
             email: data?.email || userEmail,
             role: data?.role || "member",
-            photoURL: data?.photoURL || fallbackPhoto,
+            photoURL: savedPhoto,
             emailVerified: Boolean(user.emailVerified || data?.emailVerified),
             verified: Boolean(data?.verified),
             driverVerified: Boolean(data?.driverVerified),
@@ -121,6 +125,13 @@ export default function ProfilePage() {
   const displayName = profile.name || "RoadLink User";
   const displayEmail = profile.email || "No email found";
   const displayPhoto = profile.photoURL || "";
+
+  const initials = useMemo(() => {
+    const parts = displayName.trim().split(" ").filter(Boolean);
+    const first = parts[0]?.[0] || "";
+    const second = parts[1]?.[0] || "";
+    return `${first}${second}`.toUpperCase() || displayEmail[0]?.toUpperCase() || "R";
+  }, [displayName, displayEmail]);
 
   const driverVerified =
     profile.driverVerified === true ||
@@ -155,11 +166,18 @@ export default function ProfilePage() {
     <main className="page">
       <section className="hero">
         <div className="heroTop">
-          {displayPhoto ? (
-            <img src={displayPhoto} alt={displayName} className="avatarImage" />
-          ) : (
-            <div className="avatar">{avatar}</div>
-          )}
+          <div className="avatarShell">
+            {displayPhoto && !photoBroken ? (
+              <img
+                src={displayPhoto}
+                alt={displayName}
+                className="avatarImage"
+                onError={() => setPhotoBroken(true)}
+              />
+            ) : (
+              <div className="avatar">{initials}</div>
+            )}
+          </div>
 
           <div className="heroText">
             <p className="eyebrow">RoadLink Account</p>
@@ -245,7 +263,7 @@ export default function ProfilePage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 16px;
-          padding-bottom: 110px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
         }
 
@@ -278,18 +296,28 @@ export default function ProfilePage() {
 
         .heroTop {
           display: grid;
-          grid-template-columns: 72px 1fr;
+          grid-template-columns: 88px 1fr;
           gap: 14px;
           align-items: center;
         }
 
-        .avatar,
-        .avatarImage {
-          width: 72px;
-          height: 72px;
+        .avatarShell {
+          width: 88px;
+          height: 88px;
           border-radius: 50%;
+          padding: 4px;
           border: 2px solid rgba(34,197,94,0.5);
           box-shadow: 0 12px 40px rgba(34,197,94,0.25);
+          background: rgba(34,197,94,0.12);
+          overflow: hidden;
+          flex-shrink: 0;
+        }
+
+        .avatar,
+        .avatarImage {
+          width: 100%;
+          height: 100%;
+          border-radius: 50%;
         }
 
         .avatar {
@@ -297,12 +325,16 @@ export default function ProfilePage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 32px;
+          font-size: 28px;
           font-weight: 900;
+          text-align: center;
+          line-height: 1;
         }
 
         .avatarImage {
           object-fit: cover;
+          display: block;
+          background: #020617;
         }
 
         .heroText {
@@ -518,7 +550,7 @@ export default function ProfilePage() {
         @media (min-width: 780px) {
           .page {
             padding: 24px;
-            padding-bottom: 120px;
+            padding-bottom: 140px;
           }
 
           .hero {
@@ -526,14 +558,17 @@ export default function ProfilePage() {
           }
 
           .heroTop {
-            grid-template-columns: 110px 1fr;
+            grid-template-columns: 120px 1fr;
             gap: 20px;
           }
 
-          .avatar,
-          .avatarImage {
-            width: 110px;
-            height: 110px;
+          .avatarShell {
+            width: 120px;
+            height: 120px;
+          }
+
+          .avatar {
+            font-size: 34px;
           }
 
           h1 {
