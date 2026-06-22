@@ -2,288 +2,188 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type UserItem = {
-  id: string;
-  name?: string;
-  email?: string;
-  online?: boolean;
-  lastSeen?: string;
-  driverVerified?: boolean;
-  suspended?: boolean;
-};
-
-type RideItem = {
+type Ride = {
   id: string;
   from?: string;
   to?: string;
+  date?: string;
+  time?: string;
+  price?: number;
+  seats?: number;
   status?: string;
   driverId?: string;
   driverEmail?: string;
-  date?: string;
-  time?: string;
-  seats?: number;
-  price?: number;
-  latitude?: number;
-  longitude?: number;
+  vehicle?: string;
   createdAt?: string;
 };
 
-type BookingItem = {
+type Booking = {
   id: string;
   rideId?: string;
-  status?: string;
   passengerId?: string;
   passengerEmail?: string;
   driverId?: string;
   driverEmail?: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  time?: string;
+  status?: string;
+  paymentStatus?: string;
   seatsBooked?: number;
+  amount?: number;
+  price?: number;
   createdAt?: string;
 };
 
-type LiveLocation = {
+type Driver = {
   id: string;
-  userId?: string;
-  userEmail?: string;
-  type?: string;
-  rideId?: string;
-  latitude?: number;
-  longitude?: number;
+  name?: string;
+  email?: string;
+  role?: string;
   status?: string;
-  updatedAt?: string;
-  createdAt?: string;
+  online?: boolean;
+  driverVerified?: boolean;
+  verified?: boolean;
+  vehicle?: string;
+  city?: string;
+  state?: string;
+  lastSeen?: string;
 };
 
-type EmergencyAlert = {
-  id: string;
-  userId?: string;
-  userEmail?: string;
-  rideId?: string;
-  status?: string;
-  priority?: string;
-  latitude?: number | null;
-  longitude?: number | null;
-  createdAt?: string;
-};
-
-type DispatchRide = {
-  id: string;
-  ride: RideItem;
-  bookings: BookingItem[];
-  driver?: UserItem;
-  driverLocation?: LiveLocation;
-  sosAlerts: EmergencyAlert[];
-  passengers: number;
-  dispatchStatus: "ready" | "needs_driver" | "in_progress" | "sos" | "completed" | "cancelled";
-  priority: "low" | "medium" | "high" | "critical";
-  reason: string;
-};
-
-export default function AdminDispatchPage() {
-  const [users, setUsers] = useState<UserItem[]>([]);
-  const [rides, setRides] = useState<RideItem[]>([]);
-  const [bookings, setBookings] = useState<BookingItem[]>([]);
-  const [locations, setLocations] = useState<LiveLocation[]>([]);
-  const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
-  const [selected, setSelected] = useState<DispatchRide | null>(null);
-  const [filter, setFilter] = useState<"all" | "ready" | "needs_driver" | "in_progress" | "sos">("all");
+export default function AdminDispatchCenterPage() {
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [message, setMessage] = useState("Loading dispatch center...");
-  const [loadingId, setLoadingId] = useState("");
+  const [processingId, setProcessingId] = useState("");
 
   useEffect(() => {
-    const listen = (name: string, setter: (items: any[]) => void) =>
+    const listen = <T,>(name: string, setter: (items: T[]) => void) =>
       onSnapshot(
         query(collection(db, name)),
         (snapshot) => {
-          setter(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+          setter(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[]);
           setMessage("");
         },
-        () => setter([])
+        () => {
+          setter([]);
+          setMessage("");
+        }
       );
 
-    const unsubUsers = listen("users", setUsers);
-    const unsubRides = listen("rides", setRides);
-    const unsubBookings = listen("bookings", setBookings);
-    const unsubLocations = listen("liveLocations", setLocations);
-    const unsubAlerts = listen("emergencyAlerts", setAlerts);
+    const unsubRides = listen<Ride>("rides", setRides);
+    const unsubBookings = listen<Booking>("bookings", setBookings);
+    const unsubUsers = listen<Driver>("users", setDrivers);
 
     return () => {
-      unsubUsers();
       unsubRides();
       unsubBookings();
-      unsubLocations();
-      unsubAlerts();
+      unsubUsers();
     };
   }, []);
 
-  const dispatch = useMemo(() => {
-    const onlineDrivers = users.filter((user) => {
-      if (!user.driverVerified || user.suspended) return false;
-      if (user.online) return true;
-      if (!user.lastSeen) return false;
+  const data = useMemo(() => {
+    const availableDrivers = drivers.filter(
+      (item) =>
+        item.online ||
+        item.driverVerified ||
+        item.verified ||
+        item.role === "driver" ||
+        item.role === "admin_driver"
+    );
 
-      const lastSeen = new Date(user.lastSeen).getTime();
-      if (Number.isNaN(lastSeen)) return false;
+    const pendingRides = rides.filter(
+      (item) => !item.status || item.status === "open" || item.status === "pending"
+    );
 
-      return Date.now() - lastSeen <= 15 * 60 * 1000;
-    });
+    const activeRides = rides.filter((item) =>
+      ["confirmed", "active", "started", "in_progress"].includes(item.status || "")
+    );
 
-    const driverLocations = locations.filter((item) => item.type === "driver");
-    const passengerLocations = locations.filter((item) => item.type === "passenger");
+    const completedRides = rides.filter((item) => item.status === "completed");
 
-    const dispatchRides: DispatchRide[] = rides
-      .map((ride) => {
-        const rideBookings = bookings.filter((booking) => booking.rideId === ride.id);
+    const pendingBookings = bookings.filter(
+      (item) => !item.status || item.status === "pending" || item.status === "reserved"
+    );
 
-        const activeBookings = rideBookings.filter(
-          (booking) =>
-            booking.status === "pending" ||
-            booking.status === "reserved" ||
-            booking.status === "confirmed" ||
-            booking.status === "in_progress"
-        );
+    const paidBookings = bookings.filter(
+      (item) => item.paymentStatus === "paid" || item.status === "paid"
+    );
 
-        const driver = users.find(
-          (user) => user.id === ride.driverId || user.email === ride.driverEmail
-        );
+    const dispatchRevenue = bookings.reduce(
+      (total, item) =>
+        total +
+        Number(item.amount || item.price || 0) *
+          Number(item.seatsBooked || 1),
+      0
+    );
 
-        const driverLocation = driverLocations.find(
-          (item) =>
-            item.rideId === ride.id ||
-            item.userId === ride.driverId ||
-            item.userEmail === ride.driverEmail
-        );
-
-        const sosAlerts = alerts.filter(
-          (alert) =>
-            alert.status === "active" &&
-            (alert.rideId === ride.id ||
-              alert.userId === ride.driverId ||
-              alert.userEmail === ride.driverEmail ||
-              activeBookings.some(
-                (booking) =>
-                  booking.passengerId === alert.userId ||
-                  booking.passengerEmail === alert.userEmail
-              ))
-        );
-
-        const passengers = activeBookings.reduce(
-          (total, item) => total + Number(item.seatsBooked || 1),
-          0
-        );
-
-        let dispatchStatus: DispatchRide["dispatchStatus"] = "ready";
-        let priority: DispatchRide["priority"] = "low";
-        const reasons: string[] = [];
-
-        if (sosAlerts.length > 0) {
-          dispatchStatus = "sos";
-          priority = "critical";
-          reasons.push(`${sosAlerts.length} active SOS alert(s)`);
-        } else if (ride.status === "completed") {
-          dispatchStatus = "completed";
-          priority = "low";
-          reasons.push("trip completed");
-        } else if (ride.status === "cancelled") {
-          dispatchStatus = "cancelled";
-          priority = "medium";
-          reasons.push("trip cancelled");
-        } else if (ride.status === "in_progress") {
-          dispatchStatus = "in_progress";
-          priority = driverLocation ? "low" : "high";
-          reasons.push(driverLocation ? "trip in progress" : "driver GPS missing");
-        } else if (!ride.driverId && !ride.driverEmail) {
-          dispatchStatus = "needs_driver";
-          priority = "high";
-          reasons.push("ride has no assigned driver");
-        } else if (!driver?.driverVerified) {
-          dispatchStatus = "needs_driver";
-          priority = "high";
-          reasons.push("assigned driver is not verified");
-        } else {
-          reasons.push("ready for dispatch");
-        }
-
-        return {
-          id: ride.id,
-          ride,
-          bookings: activeBookings,
-          driver,
-          driverLocation,
-          sosAlerts,
-          passengers,
-          dispatchStatus,
-          priority,
-          reason: reasons.join(", "),
-        };
-      })
-      .filter((item) => {
-        return (
-          item.ride.status === "active" ||
-          item.ride.status === "open" ||
-          item.ride.status === "in_progress" ||
-          item.ride.status === "completed" ||
-          item.dispatchStatus === "sos" ||
-          item.bookings.length > 0
-        );
-      })
-      .sort((a, b) => {
-        const order = { critical: 4, high: 3, medium: 2, low: 1 };
-        return order[b.priority] - order[a.priority];
-      });
+    const dispatchScore = Math.max(
+      Math.min(
+        availableDrivers.length * 8 +
+          activeRides.length * 12 +
+          paidBookings.length * 10 +
+          pendingBookings.length * 4 -
+          pendingRides.length * 2,
+        100
+      ),
+      0
+    );
 
     return {
-      onlineDrivers,
-      driverLocations,
-      passengerLocations,
-      dispatchRides,
-      availableDrivers: onlineDrivers.filter(
-        (driver) =>
-          !dispatchRides.some(
-            (ride) =>
-              ride.dispatchStatus === "in_progress" &&
-              (ride.ride.driverId === driver.id || ride.ride.driverEmail === driver.email)
-          )
-      ),
+      availableDrivers,
+      pendingRides,
+      activeRides,
+      completedRides,
+      pendingBookings,
+      paidBookings,
+      dispatchRevenue,
+      dispatchScore,
     };
-  }, [users, rides, bookings, locations, alerts]);
+  }, [drivers, rides, bookings]);
 
-  const filteredRides = useMemo(() => {
-    if (filter === "all") return dispatch.dispatchRides;
-    return dispatch.dispatchRides.filter((item) => item.dispatchStatus === filter);
-  }, [dispatch.dispatchRides, filter]);
-
-  useEffect(() => {
-    setSelected((current) => {
-      if (filteredRides.length === 0) return null;
-      if (!current) return filteredRides[0];
-      return filteredRides.find((item) => item.id === current.id) || filteredRides[0];
-    });
-  }, [filteredRides]);
-
-  const needsDriver = dispatch.dispatchRides.filter((item) => item.dispatchStatus === "needs_driver");
-  const inProgress = dispatch.dispatchRides.filter((item) => item.dispatchStatus === "in_progress");
-  const sosRides = dispatch.dispatchRides.filter((item) => item.dispatchStatus === "sos");
-  const highPriority = dispatch.dispatchRides.filter(
-    (item) => item.priority === "high" || item.priority === "critical"
-  );
-
-  const dispatchScore = Math.max(
-    100 - sosRides.length * 25 - needsDriver.length * 12 - highPriority.length * 8,
-    0
-  );
-
-  async function updateRideStatus(item: DispatchRide, status: string) {
+  async function updateRideStatus(ride: Ride, status: string) {
     try {
-      setLoadingId(item.id);
-      setMessage("");
+      setProcessingId(ride.id);
+      const now = new Date().toISOString();
 
+      await updateDoc(doc(db, "rides", ride.id), {
+        status,
+        updatedAt: now,
+      });
+
+      await setDoc(
+        doc(db, "auditLogs", `dispatch-ride-${ride.id}-${Date.now()}`),
+        {
+          action: "Dispatch Ride Status Updated",
+          targetId: ride.id,
+          targetType: "ride",
+          details: `${ride.from || "Origin"} to ${ride.to || "Destination"} changed to ${status}`,
+          severity: status === "completed" ? "success" : status === "cancelled" ? "warning" : "info",
+          createdAt: now,
+        },
+        { merge: true }
+      );
+
+      setMessage("Ride status updated.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not update ride.");
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  async function updateBookingStatus(booking: Booking, status: string) {
+    try {
+      setProcessingId(booking.id);
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "rides", item.id),
+        doc(db, "bookings", booking.id),
         {
           status,
           updatedAt: now,
@@ -291,56 +191,101 @@ export default function AdminDispatchPage() {
         { merge: true }
       );
 
+      if (booking.passengerId || booking.passengerEmail) {
+        await setDoc(
+          doc(db, "notifications", `dispatch-booking-${booking.id}-${Date.now()}`),
+          {
+            userId: booking.passengerId || "",
+            email: booking.passengerEmail || "",
+            title: "Booking updated",
+            message: `Your booking status is now ${status}.`,
+            type: "dispatch",
+            read: false,
+            bookingId: booking.id,
+            rideId: booking.rideId || "",
+            createdAt: now,
+          },
+          { merge: true }
+        );
+      }
+
       await setDoc(
-        doc(db, "auditLogs", `dispatch-${item.id}-${Date.now()}`),
+        doc(db, "auditLogs", `dispatch-booking-${booking.id}-${Date.now()}`),
         {
-          userId: item.ride.driverId || "",
-          userEmail: item.ride.driverEmail || "",
-          action: `Dispatch updated ride to ${status}`,
-          targetId: item.id,
-          targetType: "ride",
-          details: item.reason,
-          severity: status === "cancelled" ? "warning" : "info",
+          action: "Dispatch Booking Status Updated",
+          targetId: booking.id,
+          targetType: "booking",
+          details: `Booking changed to ${status}`,
+          severity: status === "completed" ? "success" : status === "cancelled" ? "warning" : "info",
           createdAt: now,
         },
         { merge: true }
       );
 
-      setMessage("Dispatch action completed.");
+      setMessage("Booking status updated.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not update dispatch.");
+      setMessage(error instanceof Error ? error.message : "Could not update booking.");
     } finally {
-      setLoadingId("");
+      setProcessingId("");
     }
   }
 
-  async function assignDriver(item: DispatchRide, driver: UserItem) {
+  async function assignDriver(ride: Ride, driver: Driver) {
     try {
-      setLoadingId(item.id);
-      setMessage("");
-
+      setProcessingId(`${ride.id}-${driver.id}`);
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "rides", item.id),
+        doc(db, "rides", ride.id),
         {
           driverId: driver.id,
           driverEmail: driver.email || "",
-          status: item.ride.status || "active",
+          status: "confirmed",
+          dispatchAssignedAt: now,
           updatedAt: now,
         },
         { merge: true }
       );
 
+      const relatedBookings = bookings.filter((item) => item.rideId === ride.id);
+
+      await Promise.all(
+        relatedBookings.map((booking) =>
+          setDoc(
+            doc(db, "bookings", booking.id),
+            {
+              driverId: driver.id,
+              driverEmail: driver.email || "",
+              status: booking.status === "paid" ? "paid" : "confirmed",
+              updatedAt: now,
+            },
+            { merge: true }
+          )
+        )
+      );
+
       await setDoc(
-        doc(db, "auditLogs", `dispatch-assign-${item.id}-${Date.now()}`),
+        doc(db, "notifications", `dispatch-driver-${ride.id}-${Date.now()}`),
         {
           userId: driver.id,
-          userEmail: driver.email || "",
-          action: "Driver Assigned From Dispatch Center",
-          targetId: item.id,
+          email: driver.email || "",
+          title: "New dispatch assignment",
+          message: `You were assigned to ${ride.from || "Origin"} → ${ride.to || "Destination"}.`,
+          type: "dispatch",
+          read: false,
+          rideId: ride.id,
+          createdAt: now,
+        },
+        { merge: true }
+      );
+
+      await setDoc(
+        doc(db, "auditLogs", `dispatch-assign-${ride.id}-${Date.now()}`),
+        {
+          action: "Driver Assigned",
+          targetId: ride.id,
           targetType: "ride",
-          details: `${driver.email || driver.id} assigned to ride ${item.id}`,
+          details: `${driver.email || "Driver"} assigned to ride ${ride.id}`,
           severity: "success",
           createdAt: now,
         },
@@ -351,59 +296,34 @@ export default function AdminDispatchPage() {
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not assign driver.");
     } finally {
-      setLoadingId("");
+      setProcessingId("");
     }
   }
 
-  function shortText(value?: string, max = 42) {
-    if (!value) return "Not available";
-    if (value.length <= max) return value;
-    return `${value.slice(0, max)}...`;
+  function money(value: number) {
+    return `$${Math.round(value).toLocaleString()}`;
   }
 
-  function timeAgo(value?: string) {
-    if (!value) return "Recently";
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "Recently";
-
-    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-
-    if (seconds < 60) return "Just now";
-
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes} min ago`;
-
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} hr ago`;
-
-    const days = Math.floor(hours / 24);
-    return `${days} day${days === 1 ? "" : "s"} ago`;
+  function bookingTotal(booking: Booking) {
+    return Number(booking.amount || booking.price || 0) * Number(booking.seatsBooked || 1);
   }
 
-  function statusLabel(value: string) {
-    if (value === "needs_driver") return "Needs Driver";
-    if (value === "in_progress") return "In Progress";
-    if (value === "sos") return "SOS";
-    if (value === "completed") return "Completed";
-    if (value === "cancelled") return "Cancelled";
-    return "Ready";
+  function statusLabel(status?: string) {
+    if (status === "in_progress") return "In Progress";
+    if (status === "payment_pending") return "Payment Pending";
+    if (status === "completed") return "Completed";
+    if (status === "cancelled") return "Cancelled";
+    if (status === "confirmed") return "Confirmed";
+    if (status === "active") return "Active";
+    if (status === "paid") return "Paid";
+    return status || "Pending";
   }
 
-  function mapUrl(item: DispatchRide) {
-    const location = item.driverLocation;
-
-    if (!location?.latitude || !location?.longitude) return "";
-
-    return `https://maps.google.com/maps?q=${location.latitude},${location.longitude}&z=13&output=embed`;
-  }
-
-  function openMapUrl(item: DispatchRide) {
-    const location = item.driverLocation;
-
-    if (!location?.latitude || !location?.longitude) return "";
-
-    return `https://maps.google.com/?q=${location.latitude},${location.longitude}`;
+  function statusClass(status?: string) {
+    if (status === "completed" || status === "paid") return "good";
+    if (status === "cancelled" || status === "rejected") return "bad";
+    if (status === "confirmed" || status === "active" || status === "in_progress") return "active";
+    return "pending";
   }
 
   return (
@@ -411,9 +331,10 @@ export default function AdminDispatchPage() {
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin</Link>
-          <Link href="/admin/map-center" className="miniButton">Map</Link>
+          <Link href="/admin/live-map" className="miniButton">Live Map</Link>
           <Link href="/admin/live-trips" className="miniButton">Live Trips</Link>
-          <Link href="/admin/emergency" className="miniButton dangerLink">SOS</Link>
+          <Link href="/admin/emergency" className="miniButton">Emergency</Link>
+          <Link href="/admin/safety" className="miniButton">Safety</Link>
         </div>
 
         <section className="hero">
@@ -421,12 +342,13 @@ export default function AdminDispatchPage() {
             <p className="eyebrow">RoadLink Operations</p>
             <h1>Dispatch <span>Center</span></h1>
             <p className="subtitle">
-              Assign drivers, monitor live trips, identify rides without drivers, track GPS and respond to SOS incidents.
+              Assign drivers, manage active rides, control booking states, monitor dispatch revenue,
+              coordinate operations and handle real-time ride movement.
             </p>
           </div>
 
-          <div className={dispatchScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
-            <strong>{dispatchScore}</strong>
+          <div className={data.dispatchScore >= 60 ? "scoreOrb" : "scoreOrb warningScore"}>
+            <strong>{data.dispatchScore}</strong>
             <span>Dispatch Score</span>
           </div>
         </section>
@@ -434,192 +356,170 @@ export default function AdminDispatchPage() {
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚘" label="Online Drivers" value={String(dispatch.onlineDrivers.length)} />
-          <Metric icon="✅" label="Available" value={String(dispatch.availableDrivers.length)} />
-          <Metric icon="🛣️" label="Trips" value={String(dispatch.dispatchRides.length)} />
-          <Metric icon="⚡" label="In Progress" value={String(inProgress.length)} />
-          <Metric icon="⚠️" label="Needs Driver" value={String(needsDriver.length)} danger={needsDriver.length > 0} />
-          <Metric icon="🚨" label="SOS Trips" value={String(sosRides.length)} danger={sosRides.length > 0} />
+          <Metric icon="🚗" label="Available Drivers" value={String(data.availableDrivers.length)} />
+          <Metric icon="🟡" label="Pending Rides" value={String(data.pendingRides.length)} />
+          <Metric icon="🛣️" label="Active Rides" value={String(data.activeRides.length)} />
+          <Metric icon="🎟️" label="Pending Bookings" value={String(data.pendingBookings.length)} />
+          <Metric icon="💳" label="Paid Bookings" value={String(data.paidBookings.length)} />
+          <Metric icon="🏁" label="Completed Rides" value={String(data.completedRides.length)} />
+          <Metric icon="💵" label="Dispatch Revenue" value={money(data.dispatchRevenue)} />
+          <Metric icon="⚡" label="Mode" value="Realtime" />
         </section>
 
-        <section className="filters">
-          {(["all", "ready", "needs_driver", "in_progress", "sos"] as const).map((item) => (
-            <button
-              key={item}
-              onClick={() => setFilter(item)}
-              className={filter === item ? "activeFilter" : ""}
-            >
-              {item === "all" ? "All" : statusLabel(item)}
-            </button>
-          ))}
-        </section>
+        <section className="grid">
+          <section className="panel">
+            <p className="eyebrow">Driver Supply</p>
+            <h2>Available Drivers</h2>
 
-        <section className="adminGrid">
-          <section className="queueCard">
-            <p className="eyebrow">Dispatch Queue</p>
-            <h2>Ride Operations</h2>
-
-            {filteredRides.length === 0 ? (
+            {data.availableDrivers.length === 0 ? (
               <div className="empty">
-                <h3>No dispatch items</h3>
-                <p>No rides match this filter.</p>
+                <h3>No drivers available</h3>
+                <p>Verified or online drivers will appear here.</p>
               </div>
             ) : (
-              <div className="dispatchList">
-                {filteredRides.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelected(item)}
-                    className={selected?.id === item.id ? "dispatchRow activeDispatch" : "dispatchRow"}
-                  >
-                    <div className={`dispatchIcon ${item.priority}`}>
-                      {item.dispatchStatus === "sos"
-                        ? "🚨"
-                        : item.dispatchStatus === "needs_driver"
-                        ? "⚠️"
-                        : "🛣️"}
+              <div className="list">
+                {data.availableDrivers.slice(0, 8).map((driver) => (
+                  <section key={driver.id} className="miniCard">
+                    <div>
+                      <strong>{driver.name || driver.email || "Driver"}</strong>
+                      <span>{driver.vehicle || `${driver.city || "No city"} ${driver.state || ""}`}</span>
                     </div>
-
-                    <div className="dispatchInfo">
-                      <strong>{shortText(`${item.ride.from || "Origin"} → ${item.ride.to || "Destination"}`)}</strong>
-                      <span>{shortText(item.ride.driverEmail || "No driver assigned")}</span>
-                      <small>{item.passengers} passenger(s) • {item.reason}</small>
-                    </div>
-
-                    <em className={`status ${item.priority}`}>
-                      {statusLabel(item.dispatchStatus)}
-                    </em>
-                  </button>
+                    <span className={`pill ${driver.online ? "good" : "pending"}`}>
+                      {driver.online ? "Online" : "Ready"}
+                    </span>
+                  </section>
                 ))}
               </div>
             )}
           </section>
 
-          <section className="detailsCard">
-            {selected ? (
-              <>
-                <div className="sectionHeader">
-                  <div>
-                    <p className="eyebrow">Selected Dispatch</p>
-                    <h2>{shortText(`${selected.ride.from || "Origin"} → ${selected.ride.to || "Destination"}`, 54)}</h2>
-                    <p className="email">{selected.ride.driverEmail || "No driver assigned"}</p>
-                  </div>
+          <section className="panel">
+            <p className="eyebrow">Booking Queue</p>
+            <h2>Pending Bookings</h2>
 
-                  <span className={`statusPill ${selected.priority}`}>
-                    {statusLabel(selected.dispatchStatus)}
-                  </span>
-                </div>
-
-                <div className="summaryBox">
-                  <span>Dispatch Summary</span>
-                  <strong>{selected.reason}</strong>
-                </div>
-
-                {mapUrl(selected) ? (
-                  <div className="mapBox">
-                    <iframe
-                      src={mapUrl(selected)}
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                    />
-                  </div>
-                ) : (
-                  <div className="empty">
-                    <h3>No driver GPS</h3>
-                    <p>No live driver location available for this ride.</p>
-                  </div>
-                )}
-
-                {openMapUrl(selected) && (
-                  <a href={openMapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
-                    Open Driver Location
-                  </a>
-                )}
-
-                <div className="infoGrid">
-                  <Info label="Ride ID" value={selected.id} />
-                  <Info label="Ride Status" value={selected.ride.status || "open"} />
-                  <Info label="Driver Email" value={selected.ride.driverEmail || "Not assigned"} />
-                  <Info label="Passengers" value={String(selected.passengers)} />
-                  <Info label="Bookings" value={String(selected.bookings.length)} />
-                  <Info label="SOS Alerts" value={String(selected.sosAlerts.length)} />
-                  <Info label="Driver GPS" value={selected.driverLocation ? "Available" : "Missing"} />
-                  <Info label="Created" value={timeAgo(selected.ride.createdAt)} />
-                </div>
-
-                <section className="assignBox">
-                  <p className="eyebrow">Assign Driver</p>
-                  <h2>Available Drivers</h2>
-
-                  {dispatch.availableDrivers.length === 0 ? (
-                    <div className="empty">
-                      <h3>No available drivers</h3>
-                      <p>No online verified drivers are available right now.</p>
-                    </div>
-                  ) : (
-                    <div className="driverList">
-                      {dispatch.availableDrivers.slice(0, 8).map((driver) => (
-                        <button
-                          key={driver.id}
-                          onClick={() => assignDriver(selected, driver)}
-                          disabled={loadingId === selected.id}
-                          className="driverRow"
-                        >
-                          <strong>{shortText(driver.name || driver.email || "Driver")}</strong>
-                          <span>{driver.email || driver.id}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                {selected.sosAlerts.length > 0 && (
-                  <section className="sosBox">
-                    <p className="eyebrow">Emergency</p>
-                    <h2>Active SOS</h2>
-
-                    {selected.sosAlerts.map((alert) => (
-                      <Link href="/admin/emergency" key={alert.id} className="sosRow">
-                        <strong>{alert.userEmail || "SOS Alert"}</strong>
-                        <span>{alert.priority || "critical"} • {timeAgo(alert.createdAt)}</span>
-                      </Link>
-                    ))}
-                  </section>
-                )}
-
-                <div className="actionRow">
-                  <button
-                    className="progressButton"
-                    onClick={() => updateRideStatus(selected, "in_progress")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Start Trip
-                  </button>
-
-                  <button
-                    className="completeButton"
-                    onClick={() => updateRideStatus(selected, "completed")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Complete
-                  </button>
-
-                  <button
-                    className="cancelButton"
-                    onClick={() => updateRideStatus(selected, "cancelled")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : (
+            {data.pendingBookings.length === 0 ? (
               <div className="empty">
-                <h3>Select a ride</h3>
-                <p>Choose a ride to dispatch or monitor.</p>
+                <h3>No pending bookings</h3>
+                <p>New reservations will appear here for dispatch review.</p>
+              </div>
+            ) : (
+              <div className="list">
+                {data.pendingBookings.slice(0, 8).map((booking) => (
+                  <section key={booking.id} className="miniCard">
+                    <div>
+                      <strong>{booking.from || "Origin"} → {booking.to || "Destination"}</strong>
+                      <span>{booking.passengerEmail || "No passenger"} • {money(bookingTotal(booking))}</span>
+                    </div>
+                    <span className={`pill ${statusClass(booking.status)}`}>
+                      {statusLabel(booking.status)}
+                    </span>
+                  </section>
+                ))}
               </div>
             )}
           </section>
+        </section>
+
+        <section className="panel">
+          <p className="eyebrow">Ride Dispatch</p>
+          <h2>Ride Operations</h2>
+
+          {rides.length === 0 ? (
+            <div className="empty">
+              <h3>No rides found</h3>
+              <p>Published rides will appear here for dispatch control.</p>
+            </div>
+          ) : (
+            <div className="rideGrid">
+              {rides.map((ride) => (
+                <section key={ride.id} className="rideCard">
+                  <div className="cardTop">
+                    <div>
+                      <h3>{ride.from || "Origin"} → {ride.to || "Destination"}</h3>
+                      <p>{ride.date || "No date"} • {ride.time || "No time"} • {ride.vehicle || "No vehicle"}</p>
+                    </div>
+
+                    <span className={`pill ${statusClass(ride.status)}`}>
+                      {statusLabel(ride.status)}
+                    </span>
+                  </div>
+
+                  <div className="infoGrid">
+                    <Info label="Driver" value={ride.driverEmail || "Not assigned"} />
+                    <Info label="Seats" value={String(ride.seats || 0)} />
+                    <Info label="Price" value={money(Number(ride.price || 0))} />
+                    <Info label="Ride ID" value={ride.id} />
+                  </div>
+
+                  <div className="actions">
+                    <button onClick={() => updateRideStatus(ride, "confirmed")} disabled={processingId === ride.id}>Confirm</button>
+                    <button onClick={() => updateRideStatus(ride, "in_progress")} disabled={processingId === ride.id}>Start</button>
+                    <button onClick={() => updateRideStatus(ride, "completed")} disabled={processingId === ride.id}>Complete</button>
+                    <button className="dangerButton" onClick={() => updateRideStatus(ride, "cancelled")} disabled={processingId === ride.id}>Cancel</button>
+                  </div>
+
+                  <div className="assignBox">
+                    <p className="assignTitle">Assign Driver</p>
+                    <div className="assignList">
+                      {data.availableDrivers.slice(0, 4).map((driver) => (
+                        <button
+                          key={driver.id}
+                          onClick={() => assignDriver(ride, driver)}
+                          disabled={processingId === `${ride.id}-${driver.id}`}
+                          className="assignButton"
+                        >
+                          {driver.email || driver.name || "Driver"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <p className="eyebrow">Booking Control</p>
+          <h2>Reservation Operations</h2>
+
+          {bookings.length === 0 ? (
+            <div className="empty">
+              <h3>No bookings found</h3>
+              <p>Passenger reservations will appear here.</p>
+            </div>
+          ) : (
+            <div className="rideGrid">
+              {bookings.map((booking) => (
+                <section key={booking.id} className="rideCard">
+                  <div className="cardTop">
+                    <div>
+                      <h3>{booking.from || "Origin"} → {booking.to || "Destination"}</h3>
+                      <p>{booking.passengerEmail || "No passenger"} • {money(bookingTotal(booking))}</p>
+                    </div>
+
+                    <span className={`pill ${statusClass(booking.status)}`}>
+                      {statusLabel(booking.status)}
+                    </span>
+                  </div>
+
+                  <div className="infoGrid">
+                    <Info label="Driver" value={booking.driverEmail || "Not assigned"} />
+                    <Info label="Payment" value={booking.paymentStatus || "Not paid"} />
+                    <Info label="Seats" value={String(booking.seatsBooked || 1)} />
+                    <Info label="Booking ID" value={booking.id} />
+                  </div>
+
+                  <div className="actions">
+                    <button onClick={() => updateBookingStatus(booking, "confirmed")} disabled={processingId === booking.id}>Confirm</button>
+                    <button onClick={() => updateBookingStatus(booking, "paid")} disabled={processingId === booking.id}>Paid</button>
+                    <button onClick={() => updateBookingStatus(booking, "completed")} disabled={processingId === booking.id}>Complete</button>
+                    <button className="dangerButton" onClick={() => updateBookingStatus(booking, "cancelled")} disabled={processingId === booking.id}>Cancel</button>
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </section>
       </section>
 
@@ -628,17 +528,17 @@ export default function AdminDispatchPage() {
 
         .page {
           min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(59,130,246,0.2), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(34,197,94,0.13), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
           padding-bottom: 140px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(59,130,246,0.16), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container { max-width: 1280px; margin: auto; }
+        .container { max-width: 1450px; margin: auto; }
 
         .topNav {
           display: flex;
@@ -657,16 +557,11 @@ export default function AdminDispatchPage() {
           font-weight: 900;
         }
 
-        .dangerLink {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.12);
-          border-color: rgba(239,68,68,0.35);
-        }
-
         .hero,
         .metric,
-        .queueCard,
-        .detailsCard {
+        .panel,
+        .miniCard,
+        .rideCard {
           background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -710,17 +605,22 @@ export default function AdminDispatchPage() {
         }
 
         .subtitle,
-        .email,
         .empty p,
-        .summaryBox strong {
+        .rideCard p,
+        .miniCard span {
           color: #a1a1aa;
           line-height: 1.5;
-          overflow-wrap: anywhere;
+        }
+
+        .message {
+          color: #22c55e;
+          font-weight: 900;
+          margin: 16px 0;
         }
 
         .scoreOrb {
-          min-width: 96px;
-          height: 96px;
+          min-width: 112px;
+          height: 112px;
           border-radius: 50%;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
@@ -738,41 +638,28 @@ export default function AdminDispatchPage() {
 
         .scoreOrb strong {
           color: #22c55e;
-          font-size: 30px;
+          font-size: 32px;
           font-weight: 900;
         }
 
-        .warningScore strong {
-          color: #fca5a5;
-        }
+        .warningScore strong { color: #fca5a5; }
 
         .scoreOrb span {
           color: #a1a1aa;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 900;
-        }
-
-        .message {
-          color: #22c55e;
-          font-weight: 900;
-          margin: 16px 0;
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(6, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
-          margin-bottom: 18px;
+          margin-bottom: 24px;
         }
 
         .metric {
           border-radius: 24px;
           padding: 18px;
-        }
-
-        .dangerMetric {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.2);
         }
 
         .metricIcon {
@@ -787,10 +674,6 @@ export default function AdminDispatchPage() {
           margin-bottom: 12px;
         }
 
-        .dangerMetric .metricIcon {
-          background: rgba(239,68,68,0.16);
-        }
-
         .metricLabel {
           display: block;
           color: #a1a1aa;
@@ -800,220 +683,113 @@ export default function AdminDispatchPage() {
         }
 
         .metricValue {
-          font-size: 24px;
-          font-weight: 900;
-        }
-
-        .dangerMetric .metricValue {
-          color: #ef4444;
-        }
-
-        .filters {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-
-        .filters button {
-          padding: 10px 15px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          font-weight: 900;
-          cursor: pointer;
-        }
-
-        .filters .activeFilter {
           color: #22c55e;
-          background: rgba(34,197,94,0.12);
-          border-color: rgba(34,197,94,0.35);
+          font-size: 22px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
         }
 
-        .adminGrid {
+        .grid {
           display: grid;
-          grid-template-columns: 0.95fr 1.45fr;
+          grid-template-columns: repeat(2, 1fr);
           gap: 24px;
+          margin-bottom: 24px;
         }
 
-        .queueCard,
-        .detailsCard {
+        .panel {
           border-radius: 30px;
           padding: 28px;
-          overflow: hidden;
+          margin-bottom: 24px;
         }
 
-        .dispatchList {
+        .list {
           display: grid;
           gap: 12px;
-          max-height: 760px;
-          overflow: auto;
-          padding-right: 4px;
         }
 
-        .dispatchRow {
-          width: 100%;
-          display: grid;
-          grid-template-columns: 52px 1fr auto;
-          gap: 12px;
-          align-items: center;
-          padding: 14px;
+        .miniCard {
           border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          cursor: pointer;
-          text-align: left;
-        }
-
-        .activeDispatch {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.1);
-        }
-
-        .dispatchIcon {
-          width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          border: 1px solid rgba(34,197,94,0.25);
+          padding: 16px;
           display: flex;
+          justify-content: space-between;
+          gap: 12px;
           align-items: center;
-          justify-content: center;
-          font-size: 24px;
+          box-shadow: none;
         }
 
-        .dispatchIcon.high,
-        .dispatchIcon.critical {
-          background: rgba(239,68,68,0.13);
-          border-color: rgba(239,68,68,0.35);
-        }
-
-        .dispatchIcon.medium {
-          background: rgba(250,204,21,0.13);
-          border-color: rgba(250,204,21,0.35);
-        }
-
-        .dispatchInfo { min-width: 0; }
-
-        .dispatchInfo strong,
-        .dispatchInfo span,
-        .dispatchInfo small {
+        .miniCard strong,
+        .miniCard span {
           display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          overflow-wrap: anywhere;
         }
 
-        .dispatchInfo span,
-        .dispatchInfo small {
-          color: #a1a1aa;
-          margin-top: 4px;
+        .rideGrid {
+          display: grid;
+          gap: 16px;
         }
 
-        .status,
-        .statusPill {
+        .rideCard {
+          border-radius: 24px;
+          padding: 22px;
+          box-shadow: none;
+        }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .rideCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
+        }
+
+        .rideCard p {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .pill {
+          padding: 8px 12px;
           border-radius: 999px;
-          padding: 8px 11px;
-          font-style: normal;
-          font-weight: 900;
           font-size: 12px;
+          font-weight: 900;
           white-space: nowrap;
         }
 
-        .status.critical,
-        .statusPill.critical {
-          color: #fecaca;
-          background: rgba(185,28,28,0.25);
-          border: 1px solid rgba(239,68,68,0.45);
+        .pill.good {
+          color: #22c55e;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .status.high,
-        .statusPill.high {
+        .pill.active {
+          color: #60a5fa;
+          background: rgba(59,130,246,0.12);
+          border: 1px solid rgba(59,130,246,0.35);
+        }
+
+        .pill.pending {
+          color: #facc15;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
+        }
+
+        .pill.bad {
           color: #fca5a5;
           background: rgba(239,68,68,0.12);
           border: 1px solid rgba(239,68,68,0.35);
         }
 
-        .status.medium,
-        .statusPill.medium {
-          color: #fde68a;
-          background: rgba(250,204,21,0.12);
-          border: 1px solid rgba(250,204,21,0.35);
-        }
-
-        .status.low,
-        .statusPill.low {
-          color: #22c55e;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-        }
-
-        .sectionHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 20px;
-        }
-
-        .summaryBox,
-        .assignBox,
-        .sosBox {
-          padding: 20px;
-          border-radius: 22px;
-          background: rgba(34,197,94,0.1);
-          border: 1px solid rgba(34,197,94,0.35);
-          margin-bottom: 18px;
-        }
-
-        .summaryBox span {
-          display: block;
-          color: #22c55e;
-          font-weight: 900;
-          margin-bottom: 8px;
-        }
-
-        .summaryBox strong {
-          display: block;
-          font-size: 18px;
-        }
-
-        .mapBox {
-          width: 100%;
-          height: 320px;
-          border-radius: 22px;
-          overflow: hidden;
-          margin-bottom: 14px;
-          border: 1px solid rgba(59,130,246,0.35);
-          background: rgba(59,130,246,0.08);
-        }
-
-        .mapBox iframe {
-          width: 100%;
-          height: 100%;
-          border: 0;
-        }
-
-        .mapButton {
-          display: flex;
-          justify-content: center;
-          padding: 14px;
-          border-radius: 999px;
-          color: #93c5fd;
-          text-decoration: none;
-          background: rgba(59,130,246,0.13);
-          border: 1px solid rgba(59,130,246,0.35);
-          font-weight: 900;
-          margin-bottom: 18px;
-        }
-
         .infoGrid {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
-          margin-bottom: 18px;
+          margin-bottom: 16px;
         }
 
         .infoBox {
@@ -1036,89 +812,46 @@ export default function AdminDispatchPage() {
           overflow-wrap: anywhere;
         }
 
-        .driverList {
-          display: grid;
-          gap: 9px;
-        }
-
-        .driverRow {
-          width: 100%;
-          padding: 13px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.1);
-          background: rgba(255,255,255,0.05);
-          color: white;
-          text-align: left;
-          cursor: pointer;
-        }
-
-        .driverRow strong,
-        .driverRow span {
-          display: block;
-          overflow-wrap: anywhere;
-        }
-
-        .driverRow span {
-          color: #a1a1aa;
-          margin-top: 4px;
-          font-size: 12px;
-        }
-
-        .sosBox {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.2);
-        }
-
-        .sosRow {
-          display: block;
-          padding: 13px;
-          border-radius: 16px;
-          color: white;
-          text-decoration: none;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(239,68,68,0.25);
-          margin-top: 10px;
-        }
-
-        .sosRow span {
-          display: block;
-          color: #fca5a5;
-          margin-top: 5px;
-          font-size: 13px;
-        }
-
-        .actionRow {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
+        .actions,
+        .assignList {
+          display: flex;
+          flex-wrap: wrap;
           gap: 10px;
         }
 
-        .progressButton,
-        .completeButton,
-        .cancelButton {
-          padding: 15px;
+        .actions button,
+        .assignButton {
+          padding: 12px 16px;
           border-radius: 999px;
           border: none;
-          color: white;
           font-weight: 900;
+          color: white;
           cursor: pointer;
+          background: rgba(59,130,246,0.14);
+          border: 1px solid rgba(59,130,246,0.35);
         }
 
-        .progressButton {
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        .actions .dangerButton {
+          background: rgba(239,68,68,0.14);
+          border-color: rgba(239,68,68,0.35);
+          color: #fca5a5;
         }
 
-        .completeButton {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+        .assignBox {
+          margin-top: 18px;
+          padding-top: 16px;
+          border-top: 1px solid rgba(255,255,255,0.1);
         }
 
-        .cancelButton {
-          background: linear-gradient(135deg, #ef4444, #991b1b);
+        .assignTitle {
+          color: #22c55e !important;
+          font-weight: 900;
+          margin-bottom: 10px !important;
         }
 
-        button:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
+        .assignButton {
+          background: rgba(34,197,94,0.12);
+          border-color: rgba(34,197,94,0.35);
         }
 
         .empty {
@@ -1126,7 +859,6 @@ export default function AdminDispatchPage() {
           border-radius: 22px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
-          margin-bottom: 16px;
         }
 
         .empty h3 {
@@ -1134,25 +866,32 @@ export default function AdminDispatchPage() {
           font-size: 22px;
         }
 
-        @media (max-width: 1100px) {
-          .stats {
-            grid-template-columns: repeat(3, 1fr);
-          }
+        button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
-          .adminGrid {
-            grid-template-columns: 1fr;
+        @media (max-width: 1180px) {
+          .stats,
+          .infoGrid,
+          .grid {
+            grid-template-columns: repeat(2, 1fr);
           }
         }
 
-        @media (max-width: 720px) {
+        @media (max-width: 780px) {
           .page {
             padding: 16px;
             padding-bottom: 140px;
           }
 
-          .hero {
+          .hero,
+          .cardTop {
             flex-direction: column;
             align-items: flex-start;
+          }
+
+          .hero {
             padding: 28px;
           }
 
@@ -1162,30 +901,8 @@ export default function AdminDispatchPage() {
 
           .stats,
           .infoGrid,
-          .actionRow {
+          .grid {
             grid-template-columns: 1fr;
-          }
-
-          .dispatchRow {
-            grid-template-columns: 46px 1fr;
-          }
-
-          .dispatchRow .status {
-            grid-column: 1 / -1;
-            width: fit-content;
-          }
-
-          .dispatchIcon {
-            width: 46px;
-            height: 46px;
-          }
-
-          .sectionHeader {
-            flex-direction: column;
-          }
-
-          .mapBox {
-            height: 260px;
           }
         }
       `}</style>
@@ -1197,15 +914,13 @@ function Metric({
   icon,
   label,
   value,
-  danger,
 }: {
   icon: string;
   label: string;
   value: string;
-  danger?: boolean;
 }) {
   return (
-    <div className={danger ? "metric dangerMetric" : "metric"}>
+    <div className="metric">
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
       <div className="metricValue">{value}</div>
