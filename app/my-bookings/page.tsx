@@ -1,657 +1,876 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { auth, db } from "../../lib/firebase";
+import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
+  addDoc,
   collection,
   doc,
-  getDoc,
-  getDocs,
+  onSnapshot,
   query,
   updateDoc,
   where,
 } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 
 type Booking = {
   id: string;
-  rideId: string;
-  from: string;
-  to: string;
-  date: string;
-  time: string;
-  price?: number;
-  driverId?: string;
-  driverEmail?: string;
+  rideId?: string;
   passengerId?: string;
   passengerEmail?: string;
-  status: string;
-  distanceText?: string;
-  durationText?: string;
-  distanceMiles?: number;
-  durationMinutes?: number;
-  mapUrl?: string;
+  driverId?: string;
+  driverEmail?: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  time?: string;
+  price?: number;
+  amount?: number;
+  seatsBooked?: number;
+  status?: string;
+  paymentStatus?: string;
+  paymentId?: string;
+  createdAt?: string;
 };
 
+type PaymentStatus = "pending" | "paid" | "failed" | "cancelled";
+
 export default function MyBookingsPage() {
+  const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [message, setMessage] = useState("Loading bookings...");
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [loadingId, setLoadingId] = useState("");
-
-  async function loadBookings(userId: string) {
-    const q = query(
-      collection(db, "bookings"),
-      where("passengerId", "==", userId)
-    );
-
-    const snapshot = await getDocs(q);
-
-    const bookingData = snapshot.docs
-      .map((document) => ({
-        id: document.id,
-        ...document.data(),
-      }))
-      .filter(
-        (booking: any) =>
-          booking.status === "reserved" ||
-          booking.status === "confirmed" ||
-          booking.status === "completed"
-      ) as Booking[];
-
-    setBookings(bookingData);
-    setMessage(bookingData.length ? "" : "You have no bookings yet.");
-  }
-
-  async function cancelReservation(booking: Booking) {
-    try {
-      setLoadingId(booking.id);
-      setMessage("");
-
-      await updateDoc(doc(db, "bookings", booking.id), {
-        status: "cancelled",
-        updatedAt: new Date().toISOString(),
-      });
-
-      if (booking.rideId) {
-        const rideRef = doc(db, "rides", booking.rideId);
-        const rideSnap = await getDoc(rideRef);
-
-        if (rideSnap.exists()) {
-          const rideData = rideSnap.data();
-          const currentSeats = Number(rideData.seats || 0);
-
-          await updateDoc(rideRef, {
-            seats: currentSeats + 1,
-            status: "active",
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      }
-
-      setBookings((current) => current.filter((item) => item.id !== booking.id));
-      setMessage("Reservation cancelled successfully.");
-
-      if (currentUserId) {
-        await loadBookings(currentUserId);
-      }
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    } finally {
-      setLoadingId("");
-    }
-  }
+  const [message, setMessage] = useState("Loading your bookings...");
+  const [payingId, setPayingId] = useState("");
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeBookings: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        setBookings([]);
-        setCurrentUserId("");
         setMessage("Please sign in to view your bookings.");
+        setBookings([]);
         return;
       }
 
-      setCurrentUserId(user.uid);
+      setUserId(user.uid);
+      setUserEmail(user.email || "");
 
-      try {
-        await loadBookings(user.uid);
-      } catch (error: unknown) {
-        setMessage(error instanceof Error ? error.message : "Something went wrong.");
-      }
+      const bookingsQuery = query(
+        collection(db, "bookings"),
+        where("passengerId", "==", user.uid)
+      );
+
+      unsubscribeBookings = onSnapshot(
+        bookingsQuery,
+        (snapshot) => {
+          const data = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as Booking[];
+
+          setBookings(
+            data.sort(
+              (a, b) =>
+                new Date(b.createdAt || "").getTime() -
+                new Date(a.createdAt || "").getTime()
+            )
+          );
+
+          setMessage("");
+        },
+        (error) => setMessage(error.message)
+      );
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeBookings) unsubscribeBookings();
+    };
   }, []);
 
-  const activeBookings = bookings.filter(
-    (booking) => booking.status === "reserved" || booking.status === "confirmed"
-  );
-
-  const completedBookings = bookings.filter(
-    (booking) => booking.status === "completed"
-  );
-
-  const totalSpent = bookings.reduce(
-    (total, booking) => total + Number(booking.price || 0),
-    0
-  );
-
-  function formatMoney(value?: number) {
-    return `$${Number(value || 0).toFixed(2)}`;
-  }
-
-  function statusClass(status: string) {
-    if (status === "completed") return "chip completed";
-    if (status === "confirmed") return "chip confirmed";
-    if (status === "reserved") return "chip active";
-    return "chip";
-  }
-
-  function BookingCard({ booking }: { booking: Booking }) {
-    const canCancel =
-      booking.status === "reserved" || booking.status === "confirmed";
-
-    const canRate = booking.status === "completed";
-
-    return (
-      <div className="bookingCard">
-        <div className="routeHeader">
-          <div>
-            <p className="eyebrow">
-              {booking.status === "completed" ? "Completed Trip" : "Reserved Trip"}
-            </p>
-
-            <h2>
-              {booking.from || "Origin"} <span>→</span> {booking.to || "Destination"}
-            </h2>
-          </div>
-
-          <div className="priceBox">
-            <small>PRICE</small>
-            <strong>{formatMoney(booking.price)}</strong>
-          </div>
-        </div>
-
-        <div className="chips">
-          <div className="chip">📅 {booking.date || "N/A"}</div>
-          <div className="chip">🕒 {booking.time || "N/A"}</div>
-          <div className={statusClass(booking.status)}>● {booking.status}</div>
-        </div>
-
-        <div className="miniGrid">
-          <Mini label="Driver" value={booking.driverEmail || "RoadLink Driver"} />
-          <Mini label="Distance" value={booking.distanceText || "N/A"} />
-          <Mini label="Duration" value={booking.durationText || "N/A"} />
-        </div>
-
-        <div className="cardButtons">
-          <Link
-            href={`/ride-details?rideId=${booking.rideId}`}
-            className="outlineButton"
-          >
-            Ride Details
-          </Link>
-
-          {booking.mapUrl ? (
-            <a
-              href={booking.mapUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="outlineButton mapButton"
-            >
-              Google Maps
-            </a>
-          ) : (
-            <Link href="/find-ride" className="outlineButton">
-              Find More
-            </Link>
-          )}
-
-          {canRate && (
-            <Link
-              href={`/rate-driver?rideId=${booking.rideId}${
-                booking.driverId ? `&driverId=${booking.driverId}` : ""
-              }`}
-              className="rateButton"
-            >
-              Rate Driver
-            </Link>
-          )}
-        </div>
-
-        {canCancel && (
-          <button
-            className="cancelButton"
-            onClick={() => cancelReservation(booking)}
-            disabled={loadingId === booking.id}
-          >
-            {loadingId === booking.id ? "Cancelling..." : "Cancel Reservation"}
-          </button>
-        )}
-      </div>
+  const metrics = useMemo(() => {
+    const active = bookings.filter((item) =>
+      ["reserved", "confirmed", "payment_pending", "paid"].includes(item.status || "")
     );
+
+    const completed = bookings.filter((item) => item.status === "completed");
+
+    const cancelled = bookings.filter((item) =>
+      ["cancelled", "rejected"].includes(item.status || "")
+    );
+
+    const pendingPayment = bookings.filter(
+      (item) =>
+        item.status === "payment_pending" ||
+        item.paymentStatus === "pending"
+    );
+
+    const paid = bookings.filter(
+      (item) => item.paymentStatus === "paid" || item.status === "paid"
+    );
+
+    const totalValue = bookings.reduce(
+      (total, item) => total + bookingTotal(item),
+      0
+    );
+
+    return {
+      active,
+      completed,
+      cancelled,
+      pendingPayment,
+      paid,
+      totalValue,
+    };
+  }, [bookings]);
+
+  async function startPayment(booking: Booking) {
+    if (!userId) {
+      setMessage("Please sign in first.");
+      return;
+    }
+
+    if (!booking.id) return;
+
+    try {
+      setPayingId(booking.id);
+      setMessage("");
+
+      const now = new Date().toISOString();
+      const total = bookingTotal(booking);
+      const platformFee = Math.round(total * 0.12 * 100) / 100;
+      const driverAmount = Math.max(total - platformFee, 0);
+
+      const paymentRef = await addDoc(collection(db, "payments"), {
+        bookingId: booking.id,
+        rideId: booking.rideId || "",
+        passengerId: userId,
+        passengerEmail: userEmail || booking.passengerEmail || "",
+        driverId: booking.driverId || "",
+        driverEmail: booking.driverEmail || "",
+        amount: total,
+        platformFee,
+        driverAmount,
+        currency: "USD",
+        provider: "manual_stripe_ready",
+        status: "pending" as PaymentStatus,
+        type: "booking_payment",
+        description: `RoadLink booking payment from ${booking.from || "Origin"} to ${booking.to || "Destination"}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await updateDoc(doc(db, "bookings", booking.id), {
+        status: "payment_pending",
+        paymentStatus: "pending",
+        paymentId: paymentRef.id,
+        amount: total,
+        platformFee,
+        driverAmount,
+        updatedAt: now,
+      });
+
+      if (booking.rideId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: booking.driverId || "",
+          email: booking.driverEmail || "",
+          title: "Payment pending",
+          message: `${userEmail || "Passenger"} started payment for a booking.`,
+          type: "payment",
+          read: false,
+          bookingId: booking.id,
+          rideId: booking.rideId,
+          createdAt: now,
+        });
+      }
+
+      await addDoc(collection(db, "auditLogs"), {
+        action: "Booking Payment Started",
+        targetId: booking.id,
+        targetType: "booking",
+        details: `Payment pending for ${money(total)}`,
+        severity: "info",
+        createdAt: now,
+      });
+
+      setMessage("Payment started. Stripe checkout can be connected next.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not start payment.");
+    } finally {
+      setPayingId("");
+    }
+  }
+
+  async function markAsPaid(booking: Booking) {
+    if (!booking.id) return;
+
+    try {
+      setPayingId(booking.id);
+      setMessage("");
+
+      const now = new Date().toISOString();
+      const total = bookingTotal(booking);
+      const platformFee = Math.round(total * 0.12 * 100) / 100;
+      const driverAmount = Math.max(total - platformFee, 0);
+
+      let paymentId = booking.paymentId || "";
+
+      if (!paymentId) {
+        const paymentRef = await addDoc(collection(db, "payments"), {
+          bookingId: booking.id,
+          rideId: booking.rideId || "",
+          passengerId: userId,
+          passengerEmail: userEmail || booking.passengerEmail || "",
+          driverId: booking.driverId || "",
+          driverEmail: booking.driverEmail || "",
+          amount: total,
+          platformFee,
+          driverAmount,
+          currency: "USD",
+          provider: "manual_admin_ready",
+          status: "paid" as PaymentStatus,
+          type: "booking_payment",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        paymentId = paymentRef.id;
+      } else {
+        await updateDoc(doc(db, "payments", paymentId), {
+          status: "paid",
+          paidAt: now,
+          updatedAt: now,
+        });
+      }
+
+      await updateDoc(doc(db, "bookings", booking.id), {
+        status: "paid",
+        paymentStatus: "paid",
+        paymentId,
+        amount: total,
+        platformFee,
+        driverAmount,
+        paidAt: now,
+        updatedAt: now,
+      });
+
+      await addDoc(collection(db, "walletTransactions"), {
+        bookingId: booking.id,
+        rideId: booking.rideId || "",
+        driverId: booking.driverId || "",
+        driverEmail: booking.driverEmail || "",
+        passengerId: userId,
+        passengerEmail: userEmail || booking.passengerEmail || "",
+        amount: driverAmount,
+        platformFee,
+        grossAmount: total,
+        type: "ride_payment",
+        status: "pending_payout",
+        description: `Ride payment from ${booking.from || "Origin"} to ${booking.to || "Destination"}`,
+        createdAt: now,
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: booking.driverId || "",
+        email: booking.driverEmail || "",
+        title: "Booking paid",
+        message: `A passenger paid ${money(total)}. Driver balance updated.`,
+        type: "payment",
+        read: false,
+        bookingId: booking.id,
+        rideId: booking.rideId || "",
+        createdAt: now,
+      });
+
+      await addDoc(collection(db, "auditLogs"), {
+        action: "Booking Payment Completed",
+        targetId: booking.id,
+        targetType: "booking",
+        details: `Payment completed for ${money(total)}`,
+        severity: "success",
+        createdAt: now,
+      });
+
+      setMessage("Payment marked as paid and driver wallet updated.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not complete payment.");
+    } finally {
+      setPayingId("");
+    }
+  }
+
+  async function cancelBooking(booking: Booking) {
+    if (!booking.id) return;
+
+    try {
+      const now = new Date().toISOString();
+
+      await updateDoc(doc(db, "bookings", booking.id), {
+        status: "cancelled",
+        updatedAt: now,
+      });
+
+      await addDoc(collection(db, "notifications"), {
+        userId: booking.driverId || "",
+        email: booking.driverEmail || "",
+        title: "Booking cancelled",
+        message: `${userEmail || "Passenger"} cancelled a booking.`,
+        type: "booking",
+        read: false,
+        bookingId: booking.id,
+        rideId: booking.rideId || "",
+        createdAt: now,
+      });
+
+      setMessage("Booking cancelled.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not cancel booking.");
+    }
+  }
+
+  function bookingTotal(booking: Booking) {
+    return (
+      Number(booking.amount || booking.price || 0) *
+      Number(booking.seatsBooked || 1)
+    );
+  }
+
+  function money(value: number) {
+    return `$${Math.round(value).toLocaleString()}`;
+  }
+
+  function statusLabel(status?: string, paymentStatus?: string) {
+    if (paymentStatus === "paid") return "Paid";
+    if (paymentStatus === "pending") return "Payment Pending";
+    if (status === "payment_pending") return "Payment Pending";
+    if (status === "confirmed") return "Confirmed";
+    if (status === "completed") return "Completed";
+    if (status === "cancelled") return "Cancelled";
+    if (status === "rejected") return "Rejected";
+    if (status === "paid") return "Paid";
+    return status || "Reserved";
+  }
+
+  function statusClass(status?: string, paymentStatus?: string) {
+    if (paymentStatus === "paid" || status === "paid") return "paid";
+    if (paymentStatus === "pending" || status === "payment_pending") return "pending";
+    if (status === "cancelled" || status === "rejected") return "bad";
+    if (status === "completed") return "done";
+    return "active";
   }
 
   return (
     <main className="page">
-      <section className="hero">
-        <div className="topActions">
-          <Link href="/dashboard" className="miniButton">
-            Dashboard
-          </Link>
-
-          <Link href="/find-ride" className="miniButton">
-            Find Ride
-          </Link>
-
-          <Link href="/offer-ride" className="miniButton">
-            Offer Ride
-          </Link>
-
-          <Link href="/profile" className="miniButton">
-            Profile
-          </Link>
+      <section className="container">
+        <div className="topNav">
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/find-ride" className="miniButton">Find Ride</Link>
+          <Link href="/wallet" className="miniButton">Wallet</Link>
+          <Link href="/profile" className="miniButton">Profile</Link>
         </div>
 
-        <div className="logo">
-          Road<span>Link</span>
-        </div>
-
-        <h1>
-          My <span>Bookings</span>
-        </h1>
-
-        <p className="subtitle">
-          Manage your reservations, view trip details, and rate completed drivers.
-        </p>
-      </section>
-
-      <section className="stats">
-        <Metric icon="🎟️" label="Active" value={String(activeBookings.length)} />
-        <Metric icon="✅" label="Completed" value={String(completedBookings.length)} />
-        <Metric icon="💵" label="Total Value" value={formatMoney(totalSpent)} />
-      </section>
-
-      <section className="results">
-        {message && (
-          <div className="messageBox">
-            <p className="message">{message}</p>
-
-            {message.toLowerCase().includes("sign in") && (
-              <Link href="/login" className="loginButton">
-                Sign In
-              </Link>
-            )}
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Passenger</p>
+            <h1>My <span>Bookings</span></h1>
+            <p className="subtitle">
+              Manage your reservations, payment status, booking history, receipts and trip progress.
+            </p>
           </div>
-        )}
 
-        {activeBookings.length > 0 && (
-          <>
-            <h2 className="sectionTitle">Active Bookings</h2>
-            {activeBookings.map((booking) => (
-              <BookingCard key={booking.id} booking={booking} />
-            ))}
-          </>
-        )}
+          <div className="scoreOrb">
+            <strong>{bookings.length}</strong>
+            <span>Total Bookings</span>
+          </div>
+        </section>
 
-        {completedBookings.length > 0 && (
-          <>
-            <h2 className="sectionTitle">Completed Trips</h2>
-            {completedBookings.map((booking) => (
-              <BookingCard key={booking.id} booking={booking} />
-            ))}
-          </>
-        )}
+        {message && <p className="message">{message}</p>}
+
+        <section className="stats">
+          <Metric icon="🎟️" label="Bookings" value={String(bookings.length)} />
+          <Metric icon="✅" label="Active" value={String(metrics.active.length)} />
+          <Metric icon="💳" label="Pending Payment" value={String(metrics.pendingPayment.length)} />
+          <Metric icon="💰" label="Paid" value={String(metrics.paid.length)} />
+          <Metric icon="🏁" label="Completed" value={String(metrics.completed.length)} />
+          <Metric icon="❌" label="Cancelled" value={String(metrics.cancelled.length)} />
+          <Metric icon="📊" label="Total Value" value={money(metrics.totalValue)} />
+          <Metric icon="👤" label="Passenger" value={userEmail || "Signed out"} />
+        </section>
+
+        <section className="bookingsPanel">
+          <div className="sectionTop">
+            <div>
+              <p className="eyebrow">Reservations</p>
+              <h2>Booking Center</h2>
+            </div>
+          </div>
+
+          {bookings.length === 0 ? (
+            <section className="empty">
+              <h3>No bookings yet</h3>
+              <p>Find a ride and reserve your seat to start traveling with RoadLink.</p>
+              <Link href="/find-ride" className="emptyButton">Find a Ride</Link>
+            </section>
+          ) : (
+            <div className="bookingGrid">
+              {bookings.map((booking) => {
+                const total = bookingTotal(booking);
+                const platformFee = Math.round(total * 0.12 * 100) / 100;
+                const driverAmount = Math.max(total - platformFee, 0);
+                const isPaid =
+                  booking.paymentStatus === "paid" || booking.status === "paid";
+                const isCancelled =
+                  booking.status === "cancelled" || booking.status === "rejected";
+
+                return (
+                  <section key={booking.id} className="bookingCard">
+                    <div className="cardTop">
+                      <div>
+                        <h3>{booking.from || "Origin"} → {booking.to || "Destination"}</h3>
+                        <p>{booking.date || "Date pending"} • {booking.time || "Time pending"}</p>
+                      </div>
+
+                      <span className={`pill ${statusClass(booking.status, booking.paymentStatus)}`}>
+                        {statusLabel(booking.status, booking.paymentStatus)}
+                      </span>
+                    </div>
+
+                    <div className="routeBox">
+                      <div>
+                        <span>From</span>
+                        <strong>{booking.from || "Not available"}</strong>
+                      </div>
+                      <div>
+                        <span>To</span>
+                        <strong>{booking.to || "Not available"}</strong>
+                      </div>
+                    </div>
+
+                    <div className="infoGrid">
+                      <Info label="Seats" value={String(booking.seatsBooked || 1)} />
+                      <Info label="Trip Total" value={money(total)} />
+                      <Info label="Platform Fee" value={money(platformFee)} />
+                      <Info label="Driver Amount" value={money(driverAmount)} />
+                      <Info label="Driver" value={booking.driverEmail || "Not assigned"} />
+                      <Info label="Payment ID" value={booking.paymentId || "Not created"} />
+                    </div>
+
+                    <div className="actions">
+                      {!isPaid && !isCancelled && (
+                        <button
+                          className="payButton"
+                          onClick={() => startPayment(booking)}
+                          disabled={payingId === booking.id}
+                        >
+                          {payingId === booking.id ? "Processing..." : "Pay Now"}
+                        </button>
+                      )}
+
+                      {!isPaid && !isCancelled && (
+                        <button
+                          className="paidButton"
+                          onClick={() => markAsPaid(booking)}
+                          disabled={payingId === booking.id}
+                        >
+                          Mark Paid
+                        </button>
+                      )}
+
+                      {!isCancelled && booking.status !== "completed" && (
+                        <button
+                          className="dangerButton"
+                          onClick={() => cancelBooking(booking)}
+                          disabled={payingId === booking.id}
+                        >
+                          Cancel
+                        </button>
+                      )}
+
+                      {booking.rideId && (
+                        <Link href={`/chat?rideId=${booking.rideId}`} className="linkButton">
+                          Message Driver
+                        </Link>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 24px;
+          padding: 20px;
+          padding-bottom: 130px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(59,130,246,0.12), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .hero,
-        .stats,
-        .results {
-          max-width: 860px;
-          margin-left: auto;
-          margin-right: auto;
+        .container {
+          max-width: 1180px;
+          margin: auto;
         }
 
-        .hero,
-        .bookingCard,
-        .metric,
-        .messageBox {
-          background: rgba(8, 13, 25, 0.88);
+        .topNav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+
+        .miniButton,
+        .linkButton,
+        .emptyButton {
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+          border-radius: 999px;
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
+          background: rgba(255,255,255,0.05);
+        }
+
+        .miniButton {
+          padding: 10px 15px;
+        }
+
+        .hero,
+        .metric,
+        .bookingsPanel,
+        .bookingCard,
+        .empty {
+          background: rgba(8,13,25,0.92);
+          border: 1px solid rgba(255,255,255,0.12);
+          box-shadow: 0 22px 70px rgba(0,0,0,0.5);
+          backdrop-filter: blur(16px);
         }
 
         .hero {
           border-radius: 32px;
-          padding: 30px;
-          margin-bottom: 22px;
-        }
-
-        .topActions {
+          padding: 28px;
           display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 30px;
-        }
-
-        .miniButton {
-          display: inline-flex;
+          justify-content: space-between;
           align-items: center;
-          justify-content: center;
-          padding: 11px 18px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          text-decoration: none;
-          font-weight: 900;
-        }
-
-        .logo {
-          font-size: 36px;
-          font-weight: 900;
-          margin-bottom: 28px;
-        }
-
-        .logo span,
-        h1 span,
-        h2 span,
-        .active,
-        .eyebrow,
-        .priceBox strong,
-        .metricValue,
-        .sectionTitle {
-          color: #22c55e;
-        }
-
-        h1 {
-          font-size: 58px;
-          line-height: 1;
-          margin: 0 0 16px;
-          letter-spacing: -1px;
-        }
-
-        .subtitle {
-          color: #a1a1aa;
-          font-size: 20px;
-          line-height: 1.5;
-          margin: 0;
-        }
-
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 14px;
-          margin-bottom: 24px;
-        }
-
-        .metric {
-          border-radius: 24px;
-          padding: 22px;
-        }
-
-        .metricIcon {
-          width: 44px;
-          height: 44px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 24px;
-          margin-bottom: 14px;
-        }
-
-        .metricLabel {
-          display: block;
-          color: #a1a1aa;
-          font-size: 13px;
-          font-weight: 900;
-          margin-bottom: 8px;
-        }
-
-        .metricValue {
-          font-size: 28px;
-          font-weight: 900;
-        }
-
-        .sectionTitle {
-          font-size: 28px;
-          margin: 28px 0 14px;
-        }
-
-        .messageBox {
-          border-radius: 24px;
-          padding: 24px;
-          text-align: center;
-          margin-bottom: 24px;
-        }
-
-        .message {
-          color: #22c55e;
-          font-size: 19px;
-          font-weight: 900;
-          margin: 0;
-        }
-
-        .loginButton {
-          display: block;
-          margin-top: 18px;
-          padding: 16px;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          text-align: center;
-          text-decoration: none;
-          font-weight: 900;
-        }
-
-        .bookingCard {
-          border-radius: 30px;
-          padding: 24px;
-          margin-bottom: 18px;
-        }
-
-        .routeHeader {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 18px;
-          align-items: start;
+          gap: 20px;
           margin-bottom: 18px;
         }
 
         .eyebrow {
           margin: 0 0 8px;
-          font-size: 13px;
+          color: #22c55e;
+          font-size: 12px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
+        h1 {
+          font-size: 52px;
+          line-height: 1;
+          margin: 0 0 12px;
+        }
+
+        h1 span,
+        h2,
+        .metricValue {
+          color: #22c55e;
+        }
+
         h2 {
-          font-size: 30px;
-          line-height: 1.15;
           margin: 0;
+          font-size: 30px;
         }
 
-        .priceBox {
-          min-width: 105px;
-          padding: 15px;
-          border-radius: 20px;
-          background: rgba(34,197,94,0.1);
+        .subtitle,
+        .bookingCard p,
+        .empty p {
+          color: #a1a1aa;
+          line-height: 1.5;
+        }
+
+        .scoreOrb {
+          min-width: 104px;
+          height: 104px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
-          text-align: center;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-direction: column;
         }
 
-        .priceBox small {
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 34px;
+          font-weight: 900;
+        }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 10px;
+          font-weight: 900;
+        }
+
+        .message {
+          color: #22c55e;
+          font-weight: 900;
+          margin: 14px 0;
+        }
+
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .metric {
+          border-radius: 22px;
+          padding: 16px;
+        }
+
+        .metricIcon {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 10px;
+          font-size: 21px;
+        }
+
+        .metricLabel {
           display: block;
           color: #a1a1aa;
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 900;
           margin-bottom: 6px;
         }
 
-        .priceBox strong {
-          font-size: 28px;
-          font-weight: 900;
-        }
-
-        .chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 16px;
-        }
-
-        .chip {
-          padding: 10px 14px;
-          border-radius: 14px;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: #e5e7eb;
-          font-weight: 800;
-          text-transform: capitalize;
-        }
-
-        .confirmed {
-          color: #38bdf8;
-          border-color: rgba(56,189,248,0.35);
-        }
-
-        .completed {
-          color: #a78bfa;
-          border-color: rgba(167,139,250,0.35);
-        }
-
-        .miniGrid {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-
-        .miniInfo {
-          padding: 13px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.035);
-          border: 1px solid rgba(255,255,255,0.08);
-        }
-
-        .miniInfo small {
+        .metricValue {
           display: block;
-          color: #a1a1aa;
-          font-size: 11px;
+          font-size: 20px;
           font-weight: 900;
-          text-transform: uppercase;
-          margin-bottom: 5px;
-        }
-
-        .miniInfo strong {
-          display: block;
-          color: #e5e7eb;
           overflow-wrap: anywhere;
         }
 
-        .cardButtons {
+        .bookingsPanel {
+          border-radius: 30px;
+          padding: 24px;
+        }
+
+        .sectionTop {
+          margin-bottom: 18px;
+        }
+
+        .bookingGrid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+        }
+
+        .bookingCard {
+          border-radius: 24px;
+          padding: 20px;
+          box-shadow: none;
+        }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
           gap: 12px;
-          margin-top: 12px;
+          align-items: flex-start;
+          margin-bottom: 16px;
         }
 
-        .outlineButton,
-        .rateButton {
-          display: block;
-          width: 100%;
-          padding: 15px;
+        .bookingCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
+        }
+
+        .bookingCard p {
+          margin: 0;
+        }
+
+        .pill {
+          padding: 8px 11px;
           border-radius: 999px;
-          color: white;
-          text-align: center;
-          text-decoration: none;
-          font-size: 15px;
+          font-size: 12px;
           font-weight: 900;
+          white-space: nowrap;
         }
 
-        .outlineButton {
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
-        .mapButton {
+        .pill.active {
           color: #22c55e;
-          border-color: rgba(34,197,94,0.35);
-          background: rgba(34,197,94,0.08);
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .rateButton {
-          grid-column: 1 / -1;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          border: none;
+        .pill.pending {
+          color: #facc15;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
         }
 
-        .cancelButton {
-          width: 100%;
-          padding: 16px;
-          margin-top: 14px;
-          border: none;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #ef4444, #b91c1c);
-          color: white;
+        .pill.paid,
+        .pill.done {
+          color: #60a5fa;
+          background: rgba(59,130,246,0.12);
+          border: 1px solid rgba(59,130,246,0.35);
+        }
+
+        .pill.bad {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
+        }
+
+        .routeBox {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .routeBox div,
+        .infoBox {
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .routeBox span,
+        .infoBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
           font-weight: 900;
-          font-size: 16px;
-          cursor: pointer;
+          margin-bottom: 6px;
         }
 
-        .cancelButton:disabled {
-          opacity: 0.55;
+        .routeBox strong,
+        .infoBox strong {
+          display: block;
+          overflow-wrap: anywhere;
+        }
+
+        .infoGrid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+
+        .actions button,
+        .linkButton,
+        .emptyButton {
+          padding: 12px 16px;
+          cursor: pointer;
+          border-radius: 999px;
+          font-weight: 900;
+        }
+
+        .actions button {
+          border: none;
+          color: white;
+        }
+
+        .payButton {
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .paidButton {
+          background: rgba(59,130,246,0.18);
+          border: 1px solid rgba(59,130,246,0.35) !important;
+        }
+
+        .dangerButton {
+          color: #fca5a5 !important;
+          background: rgba(239,68,68,0.14);
+          border: 1px solid rgba(239,68,68,0.35) !important;
+        }
+
+        .linkButton {
+          display: inline-flex;
+          align-items: center;
+          background: rgba(255,255,255,0.05);
+        }
+
+        .empty {
+          padding: 24px;
+          border-radius: 24px;
+        }
+
+        .empty h3 {
+          margin: 0 0 8px;
+          font-size: 24px;
+        }
+
+        .emptyButton {
+          display: inline-block;
+          margin-top: 12px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        button:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 980px) {
+          .stats,
+          .infoGrid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+
+        @media (max-width: 680px) {
           .page {
             padding: 16px;
+            padding-bottom: 130px;
           }
 
-          .hero,
-          .bookingCard {
-            padding: 22px;
-            border-radius: 28px;
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 24px;
           }
 
           h1 {
-            font-size: 48px;
-          }
-
-          h2 {
-            font-size: 28px;
+            font-size: 42px;
           }
 
           .stats,
-          .routeHeader,
-          .cardButtons,
-          .miniGrid {
+          .routeBox,
+          .infoGrid {
             grid-template-columns: 1fr;
           }
 
-          .priceBox {
-            text-align: left;
+          .bookingsPanel {
+            padding: 18px;
+          }
+
+          .cardTop {
+            flex-direction: column;
           }
         }
       `}</style>
@@ -677,11 +896,11 @@ function Metric({
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="miniInfo">
-      <small>{label}</small>
-      <strong>{value}</strong>
+    <div className="infoBox">
+      <span>{label}</span>
+      <strong>{value || "Not available"}</strong>
     </div>
   );
-}
+          }
