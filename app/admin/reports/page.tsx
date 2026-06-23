@@ -2,46 +2,35 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type ReportStatus = "open" | "reviewing" | "resolved" | "dismissed" | "escalated";
-type ReportPriority = "low" | "medium" | "high" | "urgent";
+type ReportStatus = "open" | "reviewing" | "resolved" | "closed";
+type ReportSeverity = "low" | "medium" | "high" | "critical";
 
 type ReportItem = {
   id: string;
   reporterId?: string;
   reporterEmail?: string;
   targetUserId?: string;
-  targetUserEmail?: string;
+  reportedEmail?: string;
   rideId?: string;
   bookingId?: string;
-  chatId?: string;
   type?: string;
-  reason?: string;
-  details?: string;
+  category?: string;
   status?: ReportStatus;
-  priority?: ReportPriority;
+  severity?: ReportSeverity;
+  message?: string;
+  adminNotes?: string;
   createdAt?: string;
   updatedAt?: string;
   resolvedAt?: string;
 };
 
-export default function AdminReportsPage() {
+export default function AdminReportsCenterPage() {
   const [reports, setReports] = useState<ReportItem[]>([]);
-  const [selected, setSelected] = useState<ReportItem | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [message, setMessage] = useState("Loading reports...");
-  const [loadingId, setLoadingId] = useState("");
+  const [message, setMessage] = useState("Loading reports center...");
+  const [processingId, setProcessingId] = useState("");
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -52,18 +41,13 @@ export default function AdminReportsPage() {
           ...item.data(),
         })) as ReportItem[];
 
-        data.sort((a, b) =>
-          String(b.createdAt || b.updatedAt || "").localeCompare(
-            String(a.createdAt || a.updatedAt || "")
+        setReports(
+          data.sort(
+            (a, b) =>
+              new Date(b.createdAt || "").getTime() -
+              new Date(a.createdAt || "").getTime()
           )
         );
-
-        setReports(data);
-
-        setSelected((current) => {
-          if (!current) return data[0] || null;
-          return data.find((item) => item.id === current.id) || data[0] || null;
-        });
 
         setMessage("");
       },
@@ -73,182 +57,149 @@ export default function AdminReportsPage() {
     return () => unsubscribe();
   }, []);
 
-  const filteredReports = useMemo(() => {
-    const text = search.toLowerCase().trim();
+  const metrics = useMemo(() => {
+    const open = reports.filter((item) => !item.status || item.status === "open");
+    const reviewing = reports.filter((item) => item.status === "reviewing");
+    const resolved = reports.filter((item) => item.status === "resolved");
+    const closed = reports.filter((item) => item.status === "closed");
+    const high = reports.filter((item) => item.severity === "high");
+    const critical = reports.filter((item) => item.severity === "critical");
 
-    return reports.filter((report) => {
-      const status = report.status || "open";
+    const activeRisk = open.length + reviewing.length + high.length + critical.length * 2;
 
-      const matchesStatus = statusFilter === "all" || status === statusFilter;
+    const reportHealthScore = Math.max(
+      Math.min(
+        100 - activeRisk * 7 + resolved.length * 3 + closed.length,
+        100
+      ),
+      0
+    );
 
-      const matchesSearch =
-        !text ||
-        report.reporterEmail?.toLowerCase().includes(text) ||
-        report.targetUserEmail?.toLowerCase().includes(text) ||
-        report.reason?.toLowerCase().includes(text) ||
-        report.details?.toLowerCase().includes(text) ||
-        report.type?.toLowerCase().includes(text) ||
-        report.rideId?.toLowerCase().includes(text) ||
-        report.bookingId?.toLowerCase().includes(text) ||
-        report.chatId?.toLowerCase().includes(text) ||
-        report.id.toLowerCase().includes(text);
+    return {
+      open,
+      reviewing,
+      resolved,
+      closed,
+      high,
+      critical,
+      activeRisk,
+      reportHealthScore,
+    };
+  }, [reports]);
 
-      return matchesStatus && matchesSearch;
-    });
-  }, [reports, search, statusFilter]);
-
-  const openCount = reports.filter((item) => !item.status || item.status === "open").length;
-  const reviewingCount = reports.filter((item) => item.status === "reviewing").length;
-  const resolvedCount = reports.filter((item) => item.status === "resolved").length;
-  const escalatedCount = reports.filter((item) => item.status === "escalated").length;
-  const urgentCount = reports.filter((item) => item.priority === "urgent").length;
-
-  async function updateReport(report: ReportItem, status: ReportStatus) {
+  async function updateReport(report: ReportItem, status: ReportStatus, severity?: ReportSeverity) {
     try {
-      setLoadingId(report.id);
-      setMessage("");
-
-      const now = new Date().toISOString();
-
-      await updateDoc(doc(db, "reports", report.id), {
-        status,
-        updatedAt: now,
-        resolvedAt: status === "resolved" || status === "dismissed" ? now : "",
-      });
-
-      await addDoc(collection(db, "auditLogs"), {
-        userId: report.targetUserId || report.reporterId || "system",
-        userEmail: report.targetUserEmail || report.reporterEmail || "system",
-        action: `Report ${status}`,
-        targetId: report.id,
-        targetType: "report",
-        details: report.reason || report.details || "Report status updated",
-        severity:
-          status === "escalated"
-            ? "warning"
-            : status === "resolved"
-            ? "success"
-            : "info",
-        createdAt: now,
-      });
-
-      if (report.reporterId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: report.reporterId,
-          type: "report",
-          title: "Report Update",
-          message: `Your report was marked as ${status}.`,
-          read: false,
-          createdAt: now,
-          actionUrl: "/notifications",
-        });
-      }
-
-      setMessage(`Report marked as ${status}.`);
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not update report.");
-    } finally {
-      setLoadingId("");
-    }
-  }
-
-  async function suspendUser(report: ReportItem) {
-    if (!report.targetUserId) {
-      setMessage("No target user found for this report.");
-      return;
-    }
-
-    const confirmSuspend = window.confirm("Suspend this user?");
-
-    if (!confirmSuspend) return;
-
-    try {
-      setLoadingId(report.id);
-      setMessage("");
-
+      setProcessingId(report.id);
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "users", report.targetUserId),
+        doc(db, "reports", report.id),
         {
-          suspended: true,
+          status,
+          severity: severity || report.severity || "medium",
           updatedAt: now,
+          ...(status === "resolved" || status === "closed" ? { resolvedAt: now } : {}),
         },
         { merge: true }
       );
 
-      await updateDoc(doc(db, "reports", report.id), {
-        status: "resolved",
-        updatedAt: now,
-        resolvedAt: now,
-      });
+      if (report.reporterId || report.reporterEmail) {
+        await setDoc(
+          doc(db, "notifications", `report-${report.id}-${Date.now()}`),
+          {
+            userId: report.reporterId || "",
+            email: report.reporterEmail || "",
+            title:
+              status === "resolved"
+                ? "Report resolved"
+                : status === "reviewing"
+                ? "Report under review"
+                : "Report updated",
+            message:
+              status === "resolved"
+                ? "Your report was reviewed and marked as resolved."
+                : status === "reviewing"
+                ? "RoadLink Trust & Safety is reviewing your report."
+                : `Your report status changed to ${status}.`,
+            type: "report",
+            read: false,
+            reportId: report.id,
+            rideId: report.rideId || "",
+            bookingId: report.bookingId || "",
+            createdAt: now,
+          },
+          { merge: true }
+        );
+      }
 
-      await addDoc(collection(db, "auditLogs"), {
-        userId: report.targetUserId,
-        userEmail: report.targetUserEmail || "No email",
-        action: "User Suspended From Reports Center",
-        targetId: report.targetUserId,
-        targetType: "user",
-        details: report.reason || report.details || "Suspended after report review",
-        severity: "danger",
-        createdAt: now,
-      });
+      await setDoc(
+        doc(db, "auditLogs", `report-${report.id}-${Date.now()}`),
+        {
+          action: "Report Updated",
+          targetId: report.id,
+          targetType: "report",
+          details: `${report.type || report.category || "Report"} changed to ${status}`,
+          severity: status === "resolved" ? "success" : severity === "critical" ? "critical" : "info",
+          createdAt: now,
+        },
+        { merge: true }
+      );
 
-      await addDoc(collection(db, "notifications"), {
-        userId: report.targetUserId,
-        type: "account",
-        title: "Account Suspended",
-        message: "Your RoadLink account has been suspended after an admin review.",
-        read: false,
-        createdAt: now,
-        actionUrl: "/profile",
-      });
+      if (severity === "critical" && report.targetUserId) {
+        await setDoc(
+          doc(db, "fraudSignals", `report-risk-${report.id}-${Date.now()}`),
+          {
+            userId: report.targetUserId,
+            email: report.reportedEmail || "",
+            status: "open",
+            riskLevel: "critical",
+            fraudScore: 90,
+            reason: `Critical report: ${report.message || report.type || "User report"}`,
+            source: "reports_center",
+            reportId: report.id,
+            createdAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
 
-      setMessage("User suspended and report resolved.");
+      setMessage("Report updated.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not suspend user.");
+      setMessage(error instanceof Error ? error.message : "Could not update report.");
     } finally {
-      setLoadingId("");
+      setProcessingId("");
     }
+  }
+
+  function statusClass(status?: ReportStatus, severity?: ReportSeverity) {
+    if (status === "resolved" || status === "closed") return "good";
+    if (severity === "critical" || severity === "high") return "bad";
+    if (status === "reviewing") return "active";
+    return "pending";
   }
 
   function statusLabel(status?: ReportStatus) {
     if (status === "reviewing") return "Reviewing";
     if (status === "resolved") return "Resolved";
-    if (status === "dismissed") return "Dismissed";
-    if (status === "escalated") return "Escalated";
+    if (status === "closed") return "Closed";
     return "Open";
   }
 
-  function priorityLabel(priority?: ReportPriority) {
-    if (priority === "urgent") return "Urgent";
-    if (priority === "high") return "High";
-    if (priority === "low") return "Low";
+  function severityLabel(severity?: ReportSeverity) {
+    if (severity === "critical") return "Critical";
+    if (severity === "high") return "High";
+    if (severity === "low") return "Low";
     return "Medium";
   }
 
-  function dateText(value?: string) {
+  function formatDate(value?: string) {
     if (!value) return "Not available";
-
     try {
       return new Date(value).toLocaleString();
     } catch {
-      return "Not available";
+      return value;
     }
-  }
-
-  function riskScore(report: ReportItem) {
-    let score = 20;
-
-    if (report.priority === "urgent") score += 50;
-    if (report.priority === "high") score += 35;
-    if (report.type === "fraud") score += 25;
-    if (report.type === "safety") score += 30;
-    if (report.type === "harassment") score += 25;
-    if (report.rideId) score += 10;
-    if (report.bookingId) score += 10;
-
-    return Math.min(score, 100);
   }
 
   return (
@@ -256,183 +207,152 @@ export default function AdminReportsPage() {
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin</Link>
+          <Link href="/admin/safety" className="miniButton">Trust & Safety</Link>
           <Link href="/admin/fraud" className="miniButton">Fraud</Link>
-          <Link href="/admin/driver-risk" className="miniButton">Driver Risk</Link>
-          <Link href="/admin/support" className="miniButton">Support</Link>
-          <Link href="/admin/operations" className="miniButton">Operations</Link>
+          <Link href="/admin/emergency" className="miniButton">Emergency</Link>
+          <Link href="/admin/audit-logs" className="miniButton">Audit Logs</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Safety</p>
+            <p className="eyebrow">RoadLink Trust Operations</p>
             <h1>Reports <span>Center</span></h1>
             <p className="subtitle">
-              Review user reports, investigate safety issues, escalate fraud cases,
-              suspend unsafe accounts, and keep RoadLink protected.
+              Review user reports, safety complaints, ride incidents, fraud reports,
+              severity levels, notifications and audit history.
             </p>
           </div>
 
-          <div className={urgentCount > 0 ? "scoreOrb warningScore" : "scoreOrb"}>
-            <strong>{urgentCount}</strong>
-            <span>Urgent</span>
+          <div className={metrics.reportHealthScore >= 70 ? "scoreOrb" : "scoreOrb warningScore"}>
+            <strong>{metrics.reportHealthScore}</strong>
+            <span>Report Health</span>
           </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚨" label="Total Reports" value={String(reports.length)} />
-          <Metric icon="📌" label="Open" value={String(openCount)} danger={openCount > 0} />
-          <Metric icon="🔎" label="Reviewing" value={String(reviewingCount)} />
-          <Metric icon="⚠️" label="Escalated" value={String(escalatedCount)} danger={escalatedCount > 0} />
-          <Metric icon="✅" label="Resolved" value={String(resolvedCount)} />
-          <Metric icon="🔥" label="Urgent" value={String(urgentCount)} danger={urgentCount > 0} />
+          <Metric icon="📋" label="Total Reports" value={String(reports.length)} />
+          <Metric icon="🟡" label="Open" value={String(metrics.open.length)} />
+          <Metric icon="👀" label="Reviewing" value={String(metrics.reviewing.length)} />
+          <Metric icon="✅" label="Resolved" value={String(metrics.resolved.length)} />
+          <Metric icon="📦" label="Closed" value={String(metrics.closed.length)} />
+          <Metric icon="⚠️" label="High" value={String(metrics.high.length)} />
+          <Metric icon="🚨" label="Critical" value={String(metrics.critical.length)} />
+          <Metric icon="🔥" label="Active Risk" value={String(metrics.activeRisk)} />
         </section>
 
-        <section className="filters">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by email, reason, report ID, ride ID, booking ID..."
-          />
+        <section className="grid">
+          <section className="panel">
+            <p className="eyebrow">Report Risk</p>
+            <h2>Priority Queue</h2>
 
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="all">All statuses</option>
-            <option value="open">Open</option>
-            <option value="reviewing">Reviewing</option>
-            <option value="escalated">Escalated</option>
-            <option value="resolved">Resolved</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
+            <div className="riskList">
+              <Risk label="Open Reports" value={metrics.open.length} />
+              <Risk label="Under Review" value={metrics.reviewing.length} />
+              <Risk label="High Severity" value={metrics.high.length} />
+              <Risk label="Critical Severity" value={metrics.critical.length} />
+              <Risk label="Resolved Reports" value={metrics.resolved.length} />
+            </div>
+          </section>
+
+          <section className="panel">
+            <p className="eyebrow">Connected Centers</p>
+            <h2>Safety Workflow</h2>
+
+            <div className="linkGrid">
+              <Link href="/admin/safety" className="actionLink">Trust & Safety</Link>
+              <Link href="/admin/fraud" className="actionLink">Fraud Detection</Link>
+              <Link href="/admin/emergency" className="actionLink">Emergency Command</Link>
+              <Link href="/admin/users" className="actionLink">Users</Link>
+              <Link href="/admin/dispatch" className="actionLink">Dispatch</Link>
+              <Link href="/admin/audit-logs" className="actionLink">Audit Logs</Link>
+            </div>
+          </section>
         </section>
 
-        <section className="adminGrid">
-          <div className="reportsCard">
-            <p className="eyebrow">Reports</p>
-            <h2>Report Queue</h2>
+        <section className="panel">
+          <p className="eyebrow">Incident Review</p>
+          <h2>Reports Timeline</h2>
 
-            {filteredReports.length === 0 ? (
-              <div className="empty">
-                <h3>No reports found</h3>
-                <p>User reports will appear here.</p>
-              </div>
-            ) : (
-              <div className="reportList">
-                {filteredReports.map((report) => (
-                  <button
-                    key={report.id}
-                    className={selected?.id === report.id ? "reportRow activeReport" : "reportRow"}
-                    onClick={() => setSelected(report)}
-                  >
-                    <div className="reportIcon">🚨</div>
-
-                    <div className="reportInfo">
-                      <strong>{report.reason || report.type || "User Report"}</strong>
-                      <span>{report.reporterEmail || "Reporter not available"}</span>
-                      <small>{report.targetUserEmail || "Target not available"}</small>
+          {reports.length === 0 ? (
+            <div className="empty">
+              <h3>No reports yet</h3>
+              <p>User reports, ride complaints, safety issues and fraud complaints will appear here.</p>
+            </div>
+          ) : (
+            <div className="cardGrid">
+              {reports.map((report) => (
+                <section key={report.id} className={`itemCard ${statusClass(report.status, report.severity)}`}>
+                  <div className="cardTop">
+                    <div>
+                      <h3>{report.type || report.category || "User Report"}</h3>
+                      <p>{report.message || "No message provided"}</p>
                     </div>
 
-                    <em className={`status ${report.status || "open"}`}>
-                      {statusLabel(report.status)}
-                    </em>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="detailsCard">
-            {selected ? (
-              <>
-                <div className="sectionHeader">
-                  <div>
-                    <p className="eyebrow">Selected Report</p>
-                    <h2>{selected.reason || selected.type || "Report Details"}</h2>
-                    <p className="email">{selected.reporterEmail || "No reporter email"}</p>
+                    <span className={`pill ${statusClass(report.status, report.severity)}`}>
+                      {statusLabel(report.status)} • {severityLabel(report.severity)}
+                    </span>
                   </div>
 
-                  <span className={`statusPill ${selected.status || "open"}`}>
-                    {statusLabel(selected.status)}
-                  </span>
-                </div>
+                  <div className="infoGrid">
+                    <Info label="Reporter" value={report.reporterEmail || "Not available"} />
+                    <Info label="Reported" value={report.reportedEmail || "Not available"} />
+                    <Info label="Target User ID" value={report.targetUserId || "Not linked"} />
+                    <Info label="Ride ID" value={report.rideId || "Not linked"} />
+                    <Info label="Booking ID" value={report.bookingId || "Not linked"} />
+                    <Info label="Status" value={statusLabel(report.status)} />
+                    <Info label="Severity" value={severityLabel(report.severity)} />
+                    <Info label="Created" value={formatDate(report.createdAt)} />
+                    <Info label="Updated" value={formatDate(report.updatedAt)} />
+                    <Info label="Resolved" value={formatDate(report.resolvedAt)} />
+                    <Info label="Admin Notes" value={report.adminNotes || "No notes"} />
+                    <Info label="Report ID" value={report.id} />
+                  </div>
 
-                <div className="riskBox">
-                  <span>Risk Score</span>
-                  <strong>{riskScore(selected)}/100</strong>
-                </div>
+                  <div className="actions">
+                    <button
+                      onClick={() => updateReport(report, "reviewing", report.severity)}
+                      disabled={processingId === report.id}
+                    >
+                      Review
+                    </button>
 
-                <div className="infoGrid">
-                  <Info label="Report ID" value={selected.id} />
-                  <Info label="Type" value={selected.type || "Not available"} />
-                  <Info label="Priority" value={priorityLabel(selected.priority)} />
-                  <Info label="Status" value={statusLabel(selected.status)} />
-                  <Info label="Reporter Email" value={selected.reporterEmail || "Not available"} />
-                  <Info label="Target Email" value={selected.targetUserEmail || "Not available"} />
-                  <Info label="Ride ID" value={selected.rideId || "Not available"} />
-                  <Info label="Booking ID" value={selected.bookingId || "Not available"} />
-                  <Info label="Chat ID" value={selected.chatId || "Not available"} />
-                  <Info label="Created" value={dateText(selected.createdAt)} />
-                  <Info label="Updated" value={dateText(selected.updatedAt)} />
-                  <Info label="Resolved" value={dateText(selected.resolvedAt)} />
-                </div>
+                    <button
+                      onClick={() => updateReport(report, report.status || "open", "high")}
+                      disabled={processingId === report.id}
+                    >
+                      High
+                    </button>
 
-                <div className="detailsBox">
-                  <strong>Report Details</strong>
-                  <p>{selected.details || "No extra details provided."}</p>
-                </div>
+                    <button
+                      className="dangerButton"
+                      onClick={() => updateReport(report, report.status || "open", "critical")}
+                      disabled={processingId === report.id}
+                    >
+                      Critical
+                    </button>
 
-                <div className="actionRow">
-                  <button
-                    className="reviewButton"
-                    onClick={() => updateReport(selected, "reviewing")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Reviewing
-                  </button>
+                    <button
+                      className="goodButton"
+                      onClick={() => updateReport(report, "resolved", report.severity)}
+                      disabled={processingId === report.id}
+                    >
+                      Resolve
+                    </button>
 
-                  <button
-                    className="escalateButton"
-                    onClick={() => updateReport(selected, "escalated")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Escalate
-                  </button>
-
-                  <button
-                    className="resolveButton"
-                    onClick={() => updateReport(selected, "resolved")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Resolve
-                  </button>
-
-                  <button
-                    className="dismissButton"
-                    onClick={() => updateReport(selected, "dismissed")}
-                    disabled={loadingId === selected.id}
-                  >
-                    Dismiss
-                  </button>
-
-                  <button
-                    className="suspendButton"
-                    onClick={() => suspendUser(selected)}
-                    disabled={loadingId === selected.id}
-                  >
-                    Suspend User
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="empty">
-                <h3>Select a report</h3>
-                <p>Choose a report to review details.</p>
-              </div>
-            )}
-          </div>
+                    <button
+                      className="neutralButton"
+                      onClick={() => updateReport(report, "closed", report.severity)}
+                      disabled={processingId === report.id}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </section>
       </section>
 
@@ -441,17 +361,17 @@ export default function AdminReportsPage() {
 
         .page {
           min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(34,197,94,0.13), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
           padding-bottom: 140px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.14), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container { max-width: 1180px; margin: auto; }
+        .container { max-width: 1450px; margin: auto; }
 
         .topNav {
           display: flex;
@@ -460,7 +380,8 @@ export default function AdminReportsPage() {
           margin-bottom: 24px;
         }
 
-        .miniButton {
+        .miniButton,
+        .actionLink {
           padding: 11px 18px;
           border-radius: 999px;
           background: rgba(255,255,255,0.04);
@@ -472,9 +393,8 @@ export default function AdminReportsPage() {
 
         .hero,
         .metric,
-        .filters,
-        .reportsCard,
-        .detailsCard {
+        .panel,
+        .itemCard {
           background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -500,22 +420,39 @@ export default function AdminReportsPage() {
           text-transform: uppercase;
         }
 
-        h1 { font-size: 58px; line-height: 1; margin: 0 0 16px; }
-        h1 span, h2, .metricValue, .riskBox strong { color: #22c55e; }
-        h2 { font-size: 32px; margin: 0 0 14px; }
+        h1 {
+          font-size: 58px;
+          line-height: 1;
+          margin: 0 0 16px;
+        }
+
+        h1 span,
+        h2,
+        .metricValue {
+          color: #22c55e;
+        }
+
+        h2 {
+          font-size: 30px;
+          margin: 0 0 14px;
+        }
 
         .subtitle,
-        .email,
         .empty p,
-        .detailsBox p {
+        .itemCard p {
           color: #a1a1aa;
           line-height: 1.5;
-          overflow-wrap: anywhere;
+        }
+
+        .message {
+          color: #22c55e;
+          font-weight: 900;
+          margin: 16px 0;
         }
 
         .scoreOrb {
-          min-width: 92px;
-          height: 92px;
+          min-width: 112px;
+          height: 112px;
           border-radius: 50%;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
@@ -533,7 +470,7 @@ export default function AdminReportsPage() {
 
         .scoreOrb strong {
           color: #22c55e;
-          font-size: 30px;
+          font-size: 32px;
           font-weight: 900;
         }
 
@@ -545,13 +482,11 @@ export default function AdminReportsPage() {
           font-weight: 900;
         }
 
-        .message { color: #22c55e; font-weight: 900; margin: 16px 0; }
-
         .stats {
           display: grid;
-          grid-template-columns: repeat(6, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
-          margin-bottom: 18px;
+          margin-bottom: 24px;
         }
 
         .metric {
@@ -559,16 +494,11 @@ export default function AdminReportsPage() {
           padding: 18px;
         }
 
-        .dangerMetric {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.2);
-        }
-
         .metricIcon {
           width: 42px;
           height: 42px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
+          background: rgba(239,68,68,0.14);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -584,179 +514,135 @@ export default function AdminReportsPage() {
           margin-bottom: 8px;
         }
 
-        .metricValue { font-size: 24px; font-weight: 900; }
+        .metricValue {
+          color: #22c55e;
+          font-size: 22px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
 
-        .filters {
+        .grid {
           display: grid;
-          grid-template-columns: 1fr 220px;
-          gap: 12px;
-          border-radius: 24px;
-          padding: 18px;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 24px;
           margin-bottom: 24px;
         }
 
-        input,
-        select {
-          width: 100%;
-          padding: 15px;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.05);
-          color: white;
-          font-size: 16px;
-          outline: none;
-        }
-
-        select option { color: black; }
-
-        .adminGrid {
-          display: grid;
-          grid-template-columns: 0.95fr 1.4fr;
-          gap: 24px;
-        }
-
-        .reportsCard,
-        .detailsCard {
+        .panel {
           border-radius: 30px;
           padding: 28px;
+          margin-bottom: 24px;
         }
 
-        .reportList { display: grid; gap: 12px; }
-
-        .reportRow {
-          width: 100%;
+        .riskList,
+        .linkGrid {
           display: grid;
-          grid-template-columns: 52px 1fr auto;
           gap: 12px;
-          align-items: center;
+        }
+
+        .riskBox {
           padding: 14px;
           border-radius: 18px;
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          cursor: pointer;
-          text-align: left;
         }
 
-        .activeReport {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.1);
-        }
-
-        .reportIcon {
-          width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          background: rgba(239,68,68,0.13);
-          border: 1px solid rgba(239,68,68,0.25);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 24px;
-        }
-
-        .reportInfo { min-width: 0; }
-
-        .reportInfo strong,
-        .reportInfo span,
-        .reportInfo small {
-          display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .reportInfo span,
-        .reportInfo small {
+        .riskBox span {
           color: #a1a1aa;
-          margin-top: 4px;
-        }
-
-        .status,
-        .statusPill {
-          border-radius: 999px;
-          padding: 8px 11px;
-          font-style: normal;
           font-weight: 900;
+        }
+
+        .riskBox strong {
+          color: #22c55e;
+          font-size: 22px;
+        }
+
+        .actionLink {
+          display: block;
+          text-align: center;
+        }
+
+        .cardGrid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .itemCard {
+          border-radius: 24px;
+          padding: 22px;
+          box-shadow: none;
+        }
+
+        .itemCard.bad {
+          border-color: rgba(239,68,68,0.35);
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.12), transparent 42%),
+            rgba(8,13,25,0.92);
+        }
+
+        .itemCard.active {
+          border-color: rgba(59,130,246,0.35);
+        }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .itemCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
+        }
+
+        .itemCard p {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .pill {
+          padding: 8px 12px;
+          border-radius: 999px;
           font-size: 12px;
+          font-weight: 900;
           white-space: nowrap;
-          text-transform: capitalize;
         }
 
-        .status.open,
-        .statusPill.open {
-          color: #fde68a;
-          background: rgba(250,204,21,0.12);
-          border: 1px solid rgba(250,204,21,0.35);
-        }
-
-        .status.reviewing,
-        .statusPill.reviewing {
-          color: #93c5fd;
-          background: rgba(59,130,246,0.12);
-          border: 1px solid rgba(59,130,246,0.35);
-        }
-
-        .status.escalated,
-        .statusPill.escalated {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
-        }
-
-        .status.resolved,
-        .statusPill.resolved {
+        .pill.good {
           color: #22c55e;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .status.dismissed,
-        .statusPill.dismissed {
-          color: #a1a1aa;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
+        .pill.active {
+          color: #60a5fa;
+          background: rgba(59,130,246,0.12);
+          border: 1px solid rgba(59,130,246,0.35);
         }
 
-        .sectionHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 20px;
+        .pill.pending {
+          color: #facc15;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
         }
 
-        .riskBox,
-        .detailsBox {
-          padding: 22px;
-          border-radius: 22px;
-          background: rgba(34,197,94,0.1);
-          border: 1px solid rgba(34,197,94,0.35);
-          margin-bottom: 20px;
-        }
-
-        .riskBox span {
-          display: block;
-          color: #a1a1aa;
-          font-weight: 900;
-          margin-bottom: 8px;
-        }
-
-        .riskBox strong {
-          font-size: 46px;
-          font-weight: 900;
-        }
-
-        .detailsBox strong {
-          display: block;
-          margin-bottom: 8px;
+        .pill.bad {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
         }
 
         .infoGrid {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
-          margin-bottom: 20px;
+          margin-bottom: 16px;
         }
 
         .infoBox {
@@ -775,41 +661,45 @@ export default function AdminReportsPage() {
         }
 
         .infoBox strong {
+          display: block;
           overflow-wrap: anywhere;
         }
 
-        .actionRow {
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
+        .actions {
+          display: flex;
+          flex-wrap: wrap;
           gap: 10px;
         }
 
-        .reviewButton,
-        .escalateButton,
-        .resolveButton,
-        .dismissButton,
-        .suspendButton {
-          padding: 15px;
+        .actions button {
+          padding: 12px 16px;
           border-radius: 999px;
           border: none;
-          color: white;
           font-weight: 900;
+          color: white;
           cursor: pointer;
+          background: rgba(59,130,246,0.14);
+          border: 1px solid rgba(59,130,246,0.35);
         }
 
-        .reviewButton { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
-        .escalateButton { background: linear-gradient(135deg, #f97316, #c2410c); }
-        .resolveButton { background: linear-gradient(135deg, #22c55e, #16a34a); }
-        .dismissButton { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); }
-        .suspendButton { background: linear-gradient(135deg, #ef4444, #991b1b); }
+        .actions .goodButton {
+          background: rgba(34,197,94,0.14);
+          border-color: rgba(34,197,94,0.35);
+        }
 
-        button:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
+        .actions .dangerButton {
+          background: rgba(239,68,68,0.14);
+          border-color: rgba(239,68,68,0.35);
+          color: #fca5a5;
+        }
+
+        .actions .neutralButton {
+          background: rgba(255,255,255,0.06);
+          border-color: rgba(255,255,255,0.14);
         }
 
         .empty {
-          padding: 26px;
+          padding: 24px;
           border-radius: 22px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
@@ -817,48 +707,47 @@ export default function AdminReportsPage() {
 
         .empty h3 {
           margin: 0 0 8px;
-          font-size: 24px;
+          font-size: 22px;
         }
 
-        @media (max-width: 1100px) {
-          .stats { grid-template-columns: repeat(3, 1fr); }
-          .adminGrid { grid-template-columns: 1fr; }
-          .actionRow { grid-template-columns: repeat(2, 1fr); }
+        button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
-        @media (max-width: 720px) {
-          .page { padding: 16px; padding-bottom: 140px; }
+        @media (max-width: 1180px) {
+          .stats,
+          .infoGrid,
+          .grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
 
-          .hero {
+        @media (max-width: 780px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 140px;
+          }
+
+          .hero,
+          .cardTop {
             flex-direction: column;
             align-items: flex-start;
+          }
+
+          .hero {
             padding: 28px;
           }
 
-          h1 { font-size: 44px; }
+          h1 {
+            font-size: 44px;
+          }
 
           .stats,
-          .filters,
           .infoGrid,
-          .actionRow {
+          .grid {
             grid-template-columns: 1fr;
           }
-
-          .reportRow {
-            grid-template-columns: 46px 1fr;
-          }
-
-          .reportRow .status {
-            grid-column: 1 / -1;
-            width: fit-content;
-          }
-
-          .reportIcon {
-            width: 46px;
-            height: 46px;
-          }
-
-          .sectionHeader { flex-direction: column; }
         }
       `}</style>
     </main>
@@ -869,19 +758,26 @@ function Metric({
   icon,
   label,
   value,
-  danger,
 }: {
   icon: string;
   label: string;
   value: string;
-  danger?: boolean;
 }) {
   return (
-    <div className={danger ? "metric dangerMetric" : "metric"}>
+    <div className="metric">
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
       <div className="metricValue">{value}</div>
     </div>
+  );
+}
+
+function Risk({ label, value }: { label: string; value: number }) {
+  return (
+    <section className="riskBox">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </section>
   );
 }
 
