@@ -5,315 +5,346 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type RiskLevel = "low" | "medium" | "high" | "critical";
-
 type UserItem = {
   id: string;
   email?: string;
   name?: string;
+  role?: string;
+  status?: string;
   suspended?: boolean;
+  verified?: boolean;
   driverVerified?: boolean;
-  fraudRiskLevel?: RiskLevel;
-  driverRiskLevel?: RiskLevel;
+  verificationStatus?: string;
+  trustScore?: number;
+  safetyScore?: number;
+  reportsCount?: number;
+  fraudScore?: number;
+  createdAt?: string;
 };
 
 type ReportItem = {
   id: string;
   reporterEmail?: string;
+  reportedEmail?: string;
   targetUserId?: string;
-  targetUserEmail?: string;
-  reason?: string;
-  priority?: string;
+  type?: string;
+  category?: string;
   status?: string;
+  severity?: string;
+  message?: string;
   createdAt?: string;
 };
 
-type EmergencyItem = {
+type SOSEvent = {
   id: string;
+  email?: string;
   userId?: string;
-  userEmail?: string;
   status?: string;
-  priority?: string;
-  latitude?: number;
-  longitude?: number;
+  severity?: string;
+  message?: string;
   createdAt?: string;
 };
 
-type DisputeItem = {
+type VerificationItem = {
   id: string;
-  userEmail?: string;
-  driverEmail?: string;
-  passengerEmail?: string;
-  priority?: string;
+  email?: string;
+  userId?: string;
   status?: string;
+  verificationStatus?: string;
+  type?: string;
   createdAt?: string;
 };
 
-type SafetyCase = {
+type FraudItem = {
   id: string;
-  type: "sos" | "report" | "dispute" | "user";
-  title: string;
-  subtitle: string;
-  priority: RiskLevel;
-  status: string;
-  createdAt: string;
-  href: string;
+  email?: string;
+  userId?: string;
+  status?: string;
+  riskLevel?: string;
+  fraudScore?: number;
+  reason?: string;
+  createdAt?: string;
 };
 
-export default function AdminSafetyPage() {
+export default function AdminTrustSafetyCenterPage() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
-  const [emergencies, setEmergencies] = useState<EmergencyItem[]>([]);
-  const [disputes, setDisputes] = useState<DisputeItem[]>([]);
-  const [message, setMessage] = useState("Loading safety center...");
-  const [saving, setSaving] = useState(false);
+  const [sosEvents, setSosEvents] = useState<SOSEvent[]>([]);
+  const [verifications, setVerifications] = useState<VerificationItem[]>([]);
+  const [fraudSignals, setFraudSignals] = useState<FraudItem[]>([]);
+  const [message, setMessage] = useState("Loading Trust & Safety center...");
+  const [processingId, setProcessingId] = useState("");
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(
-      query(collection(db, "users")),
-      (snapshot) => {
-        setUsers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as UserItem[]);
-        setMessage("");
-      },
-      (error) => setMessage(error.message)
-    );
+    const listen = <T,>(name: string, setter: (items: T[]) => void) =>
+      onSnapshot(
+        query(collection(db, name)),
+        (snapshot) => {
+          setter(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as T[]);
+          setMessage("");
+        },
+        () => {
+          setter([]);
+          setMessage("");
+        }
+      );
 
-    const unsubReports = onSnapshot(
-      query(collection(db, "reports")),
-      (snapshot) => {
-        setReports(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as ReportItem[]);
-      },
-      () => setReports([])
-    );
-
-    const unsubEmergencies = onSnapshot(
-      query(collection(db, "emergencyAlerts")),
-      (snapshot) => {
-        setEmergencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as EmergencyItem[]);
-      },
-      () => setEmergencies([])
-    );
-
-    const unsubDisputes = onSnapshot(
-      query(collection(db, "disputes")),
-      (snapshot) => {
-        setDisputes(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as DisputeItem[]);
-      },
-      () => setDisputes([])
-    );
+    const unsubUsers = listen<UserItem>("users", setUsers);
+    const unsubReports = listen<ReportItem>("reports", setReports);
+    const unsubSOS = listen<SOSEvent>("sosEvents", setSosEvents);
+    const unsubVerifications = listen<VerificationItem>("driverVerifications", setVerifications);
+    const unsubFraud = listen<FraudItem>("fraudSignals", setFraudSignals);
 
     return () => {
       unsubUsers();
       unsubReports();
-      unsubEmergencies();
-      unsubDisputes();
+      unsubSOS();
+      unsubVerifications();
+      unsubFraud();
     };
   }, []);
 
-  const safety = useMemo(() => {
-    const activeSOS = emergencies.filter((item) => item.status === "active");
-    const criticalSOS = activeSOS.filter((item) => item.priority === "critical" || !item.priority);
+  const metrics = useMemo(() => {
+    const suspendedUsers = users.filter((item) => item.suspended || item.status === "suspended");
+    const verifiedDrivers = users.filter((item) => item.driverVerified || item.verified || item.verificationStatus === "approved");
 
     const openReports = reports.filter((item) => !item.status || item.status === "open");
-    const urgentReports = openReports.filter(
-      (item) => item.priority === "urgent" || item.priority === "critical"
+    const criticalReports = reports.filter((item) => item.severity === "critical" || item.severity === "high");
+    const resolvedReports = reports.filter((item) => item.status === "resolved" || item.status === "closed");
+
+    const activeSOS = sosEvents.filter((item) => !item.status || item.status === "open" || item.status === "active");
+    const criticalSOS = sosEvents.filter((item) => item.severity === "critical" || item.severity === "high");
+
+    const pendingVerifications = verifications.filter(
+      (item) => !item.status || item.status === "pending" || item.verificationStatus === "pending"
     );
 
-    const openDisputes = disputes.filter((item) => !item.status || item.status === "open");
-    const urgentDisputes = openDisputes.filter(
-      (item) => item.priority === "urgent" || item.priority === "critical"
+    const approvedVerifications = verifications.filter(
+      (item) => item.status === "approved" || item.verificationStatus === "approved"
     );
 
-    const suspendedUsers = users.filter((item) => item.suspended);
-    const riskyUsers = users.filter(
-      (item) =>
-        item.fraudRiskLevel === "high" ||
-        item.fraudRiskLevel === "critical" ||
-        item.driverRiskLevel === "high" ||
-        item.driverRiskLevel === "critical"
+    const highFraud = fraudSignals.filter(
+      (item) => item.riskLevel === "high" || item.riskLevel === "critical" || Number(item.fraudScore || 0) >= 70
     );
 
-    let safetyScore = 100;
+    const openFraud = fraudSignals.filter((item) => !item.status || item.status === "open" || item.status === "review");
 
-    safetyScore -= criticalSOS.length * 25;
-    safetyScore -= activeSOS.length * 15;
-    safetyScore -= urgentReports.length * 8;
-    safetyScore -= urgentDisputes.length * 8;
-    safetyScore -= riskyUsers.length * 4;
-    safetyScore -= suspendedUsers.length * 2;
+    const averageTrust =
+      users.length > 0
+        ? Math.round(
+            users.reduce(
+              (total, item) => total + Number(item.trustScore || item.safetyScore || 65),
+              0
+            ) / users.length
+          )
+        : 0;
 
-    safetyScore = Math.max(safetyScore, 0);
-
-    const cases: SafetyCase[] = [
-      ...activeSOS.map(
-        (item): SafetyCase => ({
-          id: `sos-${item.id}`,
-          type: "sos",
-          title: item.userEmail || "Active SOS Alert",
-          subtitle: item.latitude && item.longitude ? "Location available" : "Location missing",
-          priority: "critical",
-          status: item.status || "active",
-          createdAt: item.createdAt || "",
-          href: "/admin/emergency",
-        })
+    const safetyScore = Math.max(
+      Math.min(
+        100 +
+          verifiedDrivers.length * 2 +
+          approvedVerifications.length * 2 +
+          resolvedReports.length -
+          suspendedUsers.length * 8 -
+          openReports.length * 6 -
+          criticalReports.length * 8 -
+          activeSOS.length * 12 -
+          criticalSOS.length * 15 -
+          highFraud.length * 12 -
+          pendingVerifications.length * 2,
+        100
       ),
-      ...openReports.map(
-        (item): SafetyCase => ({
-          id: `report-${item.id}`,
-          type: "report",
-          title: item.reason || "Safety Report",
-          subtitle: item.targetUserEmail || item.reporterEmail || "User report",
-          priority: normalizePriority(item.priority),
-          status: item.status || "open",
-          createdAt: item.createdAt || "",
-          href: "/admin/reports",
-        })
-      ),
-      ...openDisputes.map(
-        (item): SafetyCase => ({
-          id: `dispute-${item.id}`,
-          type: "dispute",
-          title: "Open Dispute",
-          subtitle: item.userEmail || item.driverEmail || item.passengerEmail || "Dispute case",
-          priority: normalizePriority(item.priority),
-          status: item.status || "open",
-          createdAt: item.createdAt || "",
-          href: "/admin/disputes",
-        })
-      ),
-      ...riskyUsers.map(
-        (item): SafetyCase => ({
-          id: `user-${item.id}`,
-          type: "user",
-          title: item.name || "Risk User",
-          subtitle: item.email || item.id,
-          priority:
-            item.fraudRiskLevel === "critical" || item.driverRiskLevel === "critical"
-              ? "critical"
-              : "high",
-          status: item.suspended ? "suspended" : "review",
-          createdAt: "",
-          href: "/admin/user-intelligence",
-        })
-      ),
-    ];
+      0
+    );
 
     return {
+      suspendedUsers,
+      verifiedDrivers,
+      openReports,
+      criticalReports,
+      resolvedReports,
       activeSOS,
       criticalSOS,
-      openReports,
-      urgentReports,
-      openDisputes,
-      urgentDisputes,
-      suspendedUsers,
-      riskyUsers,
+      pendingVerifications,
+      approvedVerifications,
+      highFraud,
+      openFraud,
+      averageTrust,
       safetyScore,
-      cases: cases.sort(
-        (a, b) =>
-          priorityWeight(b.priority) - priorityWeight(a.priority) ||
-          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-      ),
     };
-  }, [users, reports, emergencies, disputes]);
+  }, [users, reports, sosEvents, verifications, fraudSignals]);
 
-  async function activateEmergencyMode() {
-    const confirmed = window.confirm("Activate emergency mode for RoadLink?");
-    if (!confirmed) return;
-
+  async function suspendUser(user: UserItem) {
     try {
-      setSaving(true);
-      setMessage("");
-
+      setProcessingId(user.id);
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "platformSettings", "main"),
+        doc(db, "users", user.id),
         {
-          emergencyMode: true,
-          allowBookings: false,
-          allowNewRides: false,
-          allowPayouts: false,
-          platformNotice: "RoadLink is temporarily under safety review.",
+          suspended: true,
+          status: "suspended",
+          safetyStatus: "suspended",
           updatedAt: now,
         },
         { merge: true }
       );
 
       await setDoc(
-        doc(db, "auditLogs", `safety-emergency-${Date.now()}`),
+        doc(db, "auditLogs", `safety-suspend-${user.id}-${Date.now()}`),
         {
-          userId: "admin",
-          userEmail: "admin@getroadlink.com",
-          action: "Emergency Mode Activated",
-          targetId: "platformSettings/main",
-          targetType: "platformSettings",
-          details: "Safety Center activated emergency restrictions.",
-          severity: "danger",
+          action: "User Suspended",
+          targetId: user.id,
+          targetType: "user",
+          details: `${user.email || "User"} suspended by Trust & Safety.`,
+          severity: "warning",
           createdAt: now,
         },
         { merge: true }
       );
 
-      setMessage("Emergency mode activated.");
+      setMessage("User suspended.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not activate emergency mode.");
+      setMessage(error instanceof Error ? error.message : "Could not suspend user.");
     } finally {
-      setSaving(false);
+      setProcessingId("");
     }
   }
 
-  async function restoreNormalMode() {
-    const confirmed = window.confirm("Restore normal RoadLink safety operations?");
-    if (!confirmed) return;
-
+  async function restoreUser(user: UserItem) {
     try {
-      setSaving(true);
-      setMessage("");
-
+      setProcessingId(user.id);
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "platformSettings", "main"),
+        doc(db, "users", user.id),
         {
-          emergencyMode: false,
-          allowBookings: true,
-          allowNewRides: true,
-          allowPayouts: true,
-          platformNotice: "",
+          suspended: false,
+          status: "active",
+          safetyStatus: "clear",
           updatedAt: now,
         },
         { merge: true }
       );
 
       await setDoc(
-        doc(db, "auditLogs", `safety-normal-${Date.now()}`),
+        doc(db, "auditLogs", `safety-restore-${user.id}-${Date.now()}`),
         {
-          userId: "admin",
-          userEmail: "admin@getroadlink.com",
-          action: "Normal Mode Restored",
-          targetId: "platformSettings/main",
-          targetType: "platformSettings",
-          details: "Safety Center restored normal platform operations.",
+          action: "User Restored",
+          targetId: user.id,
+          targetType: "user",
+          details: `${user.email || "User"} restored by Trust & Safety.`,
           severity: "success",
           createdAt: now,
         },
         { merge: true }
       );
 
-      setMessage("Normal operations restored.");
+      setMessage("User restored.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not restore normal mode.");
+      setMessage(error instanceof Error ? error.message : "Could not restore user.");
     } finally {
-      setSaving(false);
+      setProcessingId("");
     }
   }
 
-  function statusText() {
-    if (safety.criticalSOS.length > 0) return "Critical";
-    if (safety.safetyScore >= 90) return "Safe";
-    if (safety.safetyScore >= 75) return "Watch";
-    if (safety.safetyScore >= 60) return "Review";
-    return "Danger";
+  async function updateReport(report: ReportItem, status: string) {
+    try {
+      setProcessingId(report.id);
+      const now = new Date().toISOString();
+
+      await setDoc(
+        doc(db, "reports", report.id),
+        {
+          status,
+          updatedAt: now,
+          ...(status === "resolved" || status === "closed" ? { resolvedAt: now } : {}),
+        },
+        { merge: true }
+      );
+
+      await setDoc(
+        doc(db, "auditLogs", `safety-report-${report.id}-${Date.now()}`),
+        {
+          action: "Safety Report Updated",
+          targetId: report.id,
+          targetType: "report",
+          details: `Report changed to ${status}`,
+          severity: status === "resolved" ? "success" : "info",
+          createdAt: now,
+        },
+        { merge: true }
+      );
+
+      setMessage("Report updated.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not update report.");
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  async function updateVerification(item: VerificationItem, status: string) {
+    try {
+      setProcessingId(item.id);
+      const now = new Date().toISOString();
+
+      await setDoc(
+        doc(db, "driverVerifications", item.id),
+        {
+          status,
+          verificationStatus: status,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      if (item.userId) {
+        await setDoc(
+          doc(db, "users", item.userId),
+          {
+            driverVerified: status === "approved",
+            verificationStatus: status,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
+
+      await setDoc(
+        doc(db, "auditLogs", `safety-verification-${item.id}-${Date.now()}`),
+        {
+          action: "Driver Verification Updated",
+          targetId: item.id,
+          targetType: "driverVerification",
+          details: `Verification changed to ${status}`,
+          severity: status === "approved" ? "success" : status === "rejected" ? "warning" : "info",
+          createdAt: now,
+        },
+        { merge: true }
+      );
+
+      setMessage("Verification updated.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not update verification.");
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  function statusClass(status?: string, severity?: string) {
+    if (status === "resolved" || status === "closed" || status === "approved" || status === "active") return "good";
+    if (status === "suspended" || status === "rejected" || severity === "critical" || severity === "high") return "bad";
+    return "pending";
+  }
+
+  function formatDate(value?: string) {
+    if (!value) return "Not available";
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return value;
+    }
   }
 
   return (
@@ -321,114 +352,203 @@ export default function AdminSafetyPage() {
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin</Link>
-          <Link href="/admin/emergency" className="miniButton dangerLink">SOS</Link>
-          <Link href="/admin/reports" className="miniButton">Reports</Link>
+          <Link href="/admin/emergency" className="miniButton">Emergency</Link>
           <Link href="/admin/fraud" className="miniButton">Fraud</Link>
-          <Link href="/admin/platform-control" className="miniButton">Platform Control</Link>
+          <Link href="/admin/reports" className="miniButton">Reports</Link>
+          <Link href="/admin/verification-queue" className="miniButton">Verification Queue</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Safety</p>
-            <h1>Safety <span>Center</span></h1>
+            <p className="eyebrow">RoadLink Trust & Safety</p>
+            <h1>Trust & <span>Safety</span></h1>
             <p className="subtitle">
-              Monitor emergency alerts, reports, disputes, risky users, suspended users and safety operations.
+              Monitor SOS, reports, suspended users, driver verification, fraud signals,
+              incidents, safety scores and platform protection.
             </p>
           </div>
 
-          <div className={safety.safetyScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
-            <strong>{safety.safetyScore}</strong>
-            <span>{statusText()}</span>
+          <div className={metrics.safetyScore >= 70 ? "scoreOrb" : "scoreOrb warningScore"}>
+            <strong>{metrics.safetyScore}</strong>
+            <span>Safety Score</span>
           </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
-        <section className={safety.criticalSOS.length > 0 ? "statusCard dangerStatus" : "statusCard"}>
-          <div className="liveDot"></div>
-          <div>
-            <strong>{statusText()}</strong>
-            <span>
-              {safety.criticalSOS.length > 0
-                ? "Critical emergency alerts require immediate action."
-                : "Safety monitoring is active."}
-            </span>
-          </div>
-        </section>
-
         <section className="stats">
-          <Metric icon="🚨" label="Active SOS" value={String(safety.activeSOS.length)} danger={safety.activeSOS.length > 0} />
-          <Metric icon="🔥" label="Critical SOS" value={String(safety.criticalSOS.length)} danger={safety.criticalSOS.length > 0} />
-          <Metric icon="⚠️" label="Open Reports" value={String(safety.openReports.length)} danger={safety.openReports.length > 0} />
-          <Metric icon="⚖️" label="Open Disputes" value={String(safety.openDisputes.length)} danger={safety.openDisputes.length > 0} />
-          <Metric icon="🕵️" label="Risky Users" value={String(safety.riskyUsers.length)} danger={safety.riskyUsers.length > 0} />
-          <Metric icon="⛔" label="Suspended" value={String(safety.suspendedUsers.length)} danger={safety.suspendedUsers.length > 0} />
+          <Metric icon="🛡️" label="Average Trust" value={`${metrics.averageTrust}/100`} />
+          <Metric icon="🚫" label="Suspended Users" value={String(metrics.suspendedUsers.length)} />
+          <Metric icon="✅" label="Verified Drivers" value={String(metrics.verifiedDrivers.length)} />
+          <Metric icon="📋" label="Open Reports" value={String(metrics.openReports.length)} />
+          <Metric icon="🚨" label="Active SOS" value={String(metrics.activeSOS.length)} />
+          <Metric icon="⚠️" label="Critical Incidents" value={String(metrics.criticalReports.length + metrics.criticalSOS.length)} />
+          <Metric icon="🔎" label="Pending Verifications" value={String(metrics.pendingVerifications.length)} />
+          <Metric icon="🧠" label="Fraud Signals" value={String(metrics.highFraud.length)} />
         </section>
 
-        <section className="actionCard">
-          <div>
-            <p className="eyebrow">Emergency Controls</p>
-            <h2>Safety Lockdown</h2>
-            <p>Emergency mode pauses bookings, new rides and payouts while keeping safety review active.</p>
-          </div>
+        <section className="grid">
+          <section className="panel">
+            <p className="eyebrow">Safety Risk</p>
+            <h2>High Priority Signals</h2>
 
-          <div className="actionButtons">
-            <button className="dangerButton" onClick={activateEmergencyMode} disabled={saving}>
-              Activate Emergency Mode
-            </button>
-            <button className="safeButton" onClick={restoreNormalMode} disabled={saving}>
-              Restore Normal Mode
-            </button>
-          </div>
+            <div className="riskList">
+              <Risk label="Open Reports" value={metrics.openReports.length} />
+              <Risk label="Active SOS" value={metrics.activeSOS.length} />
+              <Risk label="High Fraud" value={metrics.highFraud.length} />
+              <Risk label="Suspensions" value={metrics.suspendedUsers.length} />
+              <Risk label="Pending Verification" value={metrics.pendingVerifications.length} />
+            </div>
+          </section>
+
+          <section className="panel">
+            <p className="eyebrow">Safety Actions</p>
+            <h2>Operations Links</h2>
+
+            <div className="linkGrid">
+              <Link href="/admin/emergency" className="actionLink">Emergency Command</Link>
+              <Link href="/admin/fraud" className="actionLink">Fraud Detection</Link>
+              <Link href="/admin/reports" className="actionLink">Reports Center</Link>
+              <Link href="/admin/verification-queue" className="actionLink">Verification Queue</Link>
+              <Link href="/admin/live-map" className="actionLink">Live Map</Link>
+              <Link href="/admin/dispatch" className="actionLink">Dispatch</Link>
+            </div>
+          </section>
         </section>
 
-        <section className="gridTwo">
-          <Panel title="Priority Safety Queue" eyebrow="Realtime Cases" icon="📡" danger={safety.cases.some((item) => item.priority === "critical" || item.priority === "high")}>
-            {safety.cases.length === 0 ? (
-              <div className="empty">
-                <h3>No safety cases</h3>
-                <p>Safety queue is clear right now.</p>
-              </div>
-            ) : (
-              <div className="list">
-                {safety.cases.slice(0, 14).map((item) => (
-                  <Link key={item.id} href={item.href} className={item.priority === "critical" || item.priority === "high" ? "row dangerRow" : "row"}>
-                    <div className="rowIcon">{iconFor(item.type)}</div>
-                    <div className="rowText">
-                      <strong>{shortText(item.title)}</strong>
-                      <span>{shortText(item.subtitle)}</span>
+        <section className="panel">
+          <p className="eyebrow">User Safety Control</p>
+          <h2>Users & Suspensions</h2>
+
+          {users.length === 0 ? (
+            <div className="empty">
+              <h3>No users found</h3>
+              <p>Users will appear here when accounts are created.</p>
+            </div>
+          ) : (
+            <div className="cardGrid">
+              {users.slice(0, 40).map((user) => (
+                <section key={user.id} className="itemCard">
+                  <div className="cardTop">
+                    <div>
+                      <h3>{user.name || user.email || "User"}</h3>
+                      <p>{user.role || "member"} • Trust {Number(user.trustScore || user.safetyScore || 65)}/100</p>
                     </div>
-                    <em className={`priority ${item.priority}`}>{item.priority}</em>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </Panel>
 
-          <Panel title="Safety Snapshot" eyebrow="Trust Overview" icon="🛡️" danger={safety.safetyScore < 80}>
-            <Info label="Safety Score" value={String(safety.safetyScore)} />
-            <Info label="Status" value={statusText()} />
-            <Info label="Urgent Reports" value={String(safety.urgentReports.length)} />
-            <Info label="Urgent Disputes" value={String(safety.urgentDisputes.length)} />
-            <Info label="Total Safety Cases" value={String(safety.cases.length)} />
-            <Info label="Users Monitored" value={String(users.length)} />
-          </Panel>
+                    <span className={`pill ${statusClass(user.suspended ? "suspended" : user.status)}`}>
+                      {user.suspended ? "Suspended" : user.status || "Active"}
+                    </span>
+                  </div>
+
+                  <div className="infoGrid">
+                    <Info label="Email" value={user.email || "Not available"} />
+                    <Info label="Driver Verified" value={user.driverVerified || user.verified ? "Yes" : "No"} />
+                    <Info label="Reports" value={String(user.reportsCount || 0)} />
+                    <Info label="Fraud Score" value={`${Number(user.fraudScore || 0)}/100`} />
+                  </div>
+
+                  <div className="actions">
+                    {!user.suspended ? (
+                      <button className="dangerButton" onClick={() => suspendUser(user)} disabled={processingId === user.id}>
+                        Suspend
+                      </button>
+                    ) : (
+                      <button className="goodButton" onClick={() => restoreUser(user)} disabled={processingId === user.id}>
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </section>
 
-        <section className="quickCard">
-          <p className="eyebrow">Safety Shortcuts</p>
-          <h2>Open Safety Tools</h2>
+        <section className="panel">
+          <p className="eyebrow">Incident Review</p>
+          <h2>Reports</h2>
 
-          <div className="quickLinks">
-            <Link href="/admin/emergency">🚨 Emergency Center</Link>
-            <Link href="/admin/reports">⚠️ Reports</Link>
-            <Link href="/admin/disputes">⚖️ Disputes</Link>
-            <Link href="/admin/fraud">🕵️ Fraud</Link>
-            <Link href="/admin/driver-risk">🚘 Driver Risk</Link>
-            <Link href="/admin/user-intelligence">👥 User Intelligence</Link>
-            <Link href="/admin/platform-control">🎛️ Platform Control</Link>
-            <Link href="/admin/logs">🧾 Audit Logs</Link>
-          </div>
+          {reports.length === 0 ? (
+            <div className="empty">
+              <h3>No reports found</h3>
+              <p>User reports and incidents will appear here.</p>
+            </div>
+          ) : (
+            <div className="cardGrid">
+              {reports.slice(0, 30).map((report) => (
+                <section key={report.id} className="itemCard">
+                  <div className="cardTop">
+                    <div>
+                      <h3>{report.type || report.category || "Safety Report"}</h3>
+                      <p>{report.message || "No message provided"}</p>
+                    </div>
+
+                    <span className={`pill ${statusClass(report.status, report.severity)}`}>
+                      {report.status || "open"}
+                    </span>
+                  </div>
+
+                  <div className="infoGrid">
+                    <Info label="Reporter" value={report.reporterEmail || "Not available"} />
+                    <Info label="Reported" value={report.reportedEmail || "Not available"} />
+                    <Info label="Severity" value={report.severity || "medium"} />
+                    <Info label="Created" value={formatDate(report.createdAt)} />
+                  </div>
+
+                  <div className="actions">
+                    <button onClick={() => updateReport(report, "reviewing")} disabled={processingId === report.id}>
+                      Review
+                    </button>
+                    <button className="goodButton" onClick={() => updateReport(report, "resolved")} disabled={processingId === report.id}>
+                      Resolve
+                    </button>
+                    <button className="dangerButton" onClick={() => updateReport(report, "closed")} disabled={processingId === report.id}>
+                      Close
+                    </button>
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <p className="eyebrow">Driver Verification Safety</p>
+          <h2>Pending Verifications</h2>
+
+          {metrics.pendingVerifications.length === 0 ? (
+            <div className="empty">
+              <h3>No pending verifications</h3>
+              <p>Driver verification requests will appear here.</p>
+            </div>
+          ) : (
+            <div className="cardGrid">
+              {metrics.pendingVerifications.map((item) => (
+                <section key={item.id} className="itemCard">
+                  <div className="cardTop">
+                    <div>
+                      <h3>{item.email || "Driver Verification"}</h3>
+                      <p>{item.type || "driver"} • {formatDate(item.createdAt)}</p>
+                    </div>
+
+                    <span className="pill pending">Pending</span>
+                  </div>
+
+                  <div className="actions">
+                    <button className="goodButton" onClick={() => updateVerification(item, "approved")} disabled={processingId === item.id}>
+                      Approve
+                    </button>
+                    <button className="dangerButton" onClick={() => updateVerification(item, "rejected")} disabled={processingId === item.id}>
+                      Reject
+                    </button>
+                    <button onClick={() => updateVerification(item, "reviewing")} disabled={processingId === item.id}>
+                      Review
+                    </button>
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </section>
       </section>
 
@@ -438,79 +558,68 @@ export default function AdminSafetyPage() {
         .page {
           min-height: 100vh;
           color: white;
-          padding: 16px;
-          padding-bottom: 150px;
+          padding: 24px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
           background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.2), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(34,197,94,0.13), transparent 35%),
+            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.16), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container {
-          max-width: 1180px;
-          margin: auto;
-        }
+        .container { max-width: 1450px; margin: auto; }
 
         .topNav {
           display: flex;
           flex-wrap: wrap;
-          gap: 8px;
-          margin-bottom: 14px;
+          gap: 12px;
+          margin-bottom: 24px;
         }
 
-        .miniButton {
-          padding: 9px 12px;
+        .miniButton,
+        .actionLink {
+          padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
-          font-size: 12px;
           font-weight: 900;
-        }
-
-        .dangerLink {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.12);
-          border-color: rgba(239,68,68,0.35);
         }
 
         .hero,
         .metric,
-        .statusCard,
-        .actionCard,
         .panel,
-        .quickCard {
+        .itemCard {
           background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 16px 44px rgba(0,0,0,0.45);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
           backdrop-filter: blur(16px);
         }
 
         .hero {
-          border-radius: 24px;
-          padding: 18px;
-          margin-bottom: 12px;
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 14px;
+          border-radius: 34px;
+          padding: 34px;
+          margin-bottom: 22px;
+          display: flex;
+          justify-content: space-between;
           align-items: center;
+          gap: 24px;
         }
 
         .eyebrow {
-          margin: 0 0 7px;
+          margin: 0 0 10px;
           color: #22c55e;
-          font-size: 10px;
+          font-size: 13px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
         h1 {
-          font-size: 34px;
-          line-height: 0.98;
-          margin: 0 0 10px;
+          font-size: 58px;
+          line-height: 1;
+          margin: 0 0 16px;
         }
 
         h1 span,
@@ -520,23 +629,26 @@ export default function AdminSafetyPage() {
         }
 
         h2 {
-          margin: 0;
-          font-size: 24px;
+          font-size: 30px;
+          margin: 0 0 14px;
         }
 
         .subtitle,
-        .actionCard p,
-        .empty p {
+        .empty p,
+        .itemCard p {
           color: #a1a1aa;
-          font-size: 13px;
-          line-height: 1.45;
-          margin: 0;
+          line-height: 1.5;
+        }
+
+        .message {
+          color: #22c55e;
+          font-weight: 900;
+          margin: 16px 0;
         }
 
         .scoreOrb {
-          min-width: 84px;
-          width: 84px;
-          height: 84px;
+          min-width: 112px;
+          height: 112px;
           border-radius: 50%;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
@@ -545,7 +657,6 @@ export default function AdminSafetyPage() {
           justify-content: center;
           flex-direction: column;
           text-align: center;
-          padding: 8px;
         }
 
         .warningScore {
@@ -555,378 +666,261 @@ export default function AdminSafetyPage() {
 
         .scoreOrb strong {
           color: #22c55e;
-          font-size: 24px;
+          font-size: 32px;
           font-weight: 900;
         }
 
-        .warningScore strong {
-          color: #fca5a5;
-        }
+        .warningScore strong { color: #fca5a5; }
 
         .scoreOrb span {
           color: #a1a1aa;
-          font-size: 9px;
+          font-size: 10px;
           font-weight: 900;
-        }
-
-        .message {
-          color: #22c55e;
-          font-size: 13px;
-          font-weight: 900;
-        }
-
-        .statusCard {
-          border-radius: 18px;
-          padding: 14px;
-          display: grid;
-          grid-template-columns: 14px 1fr;
-          gap: 12px;
-          align-items: center;
-          margin-bottom: 12px;
-        }
-
-        .dangerStatus,
-        .dangerPanel {
-          border-color: rgba(239,68,68,0.35);
-          background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.12), transparent 40%),
-            rgba(8,13,25,0.92);
-        }
-
-        .liveDot {
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          background: #22c55e;
-          animation: pulse 1.3s infinite;
-        }
-
-        .dangerStatus .liveDot {
-          background: #ef4444;
-        }
-
-        .statusCard strong,
-        .statusCard span {
-          display: block;
-        }
-
-        .statusCard span {
-          color: #a1a1aa;
-          font-size: 12px;
-          margin-top: 3px;
-        }
-
-        @keyframes pulse {
-          0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); }
-          70% { box-shadow: 0 0 0 9px rgba(34,197,94,0); }
-          100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-          margin-bottom: 12px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 14px;
+          margin-bottom: 24px;
         }
 
         .metric {
-          border-radius: 16px;
-          padding: 11px;
-          min-height: 58px;
-          display: grid;
-          grid-template-columns: 34px 1fr auto;
-          gap: 8px;
-          align-items: center;
-        }
-
-        .dangerMetric {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.2);
+          border-radius: 24px;
+          padding: 18px;
         }
 
         .metricIcon {
-          width: 34px;
-          height: 34px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 17px;
-        }
-
-        .dangerMetric .metricIcon {
-          background: rgba(239,68,68,0.16);
-        }
-
-        .dangerMetric .metricValue {
-          color: #ef4444;
-        }
-
-        .metricLabel {
-          color: #a1a1aa;
-          font-size: 10px;
-          font-weight: 900;
-        }
-
-        .metricValue {
-          font-size: 19px;
-          font-weight: 900;
-        }
-
-        .actionCard {
-          border-radius: 22px;
-          padding: 16px;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 14px;
-          margin-bottom: 12px;
-        }
-
-        .actionButtons {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 8px;
-        }
-
-        .dangerButton,
-        .safeButton {
-          border: none;
-          border-radius: 999px;
-          padding: 13px;
-          color: white;
-          font-weight: 900;
-          cursor: pointer;
-        }
-
-        .dangerButton {
-          background: linear-gradient(135deg, #ef4444, #991b1b);
-        }
-
-        .safeButton {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-        }
-
-        .gridTwo {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-
-        .panel,
-        .quickCard {
-          border-radius: 22px;
-          padding: 16px;
-          overflow: hidden;
-        }
-
-        .panelHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-          margin-bottom: 14px;
-        }
-
-        .panelIcon {
-          width: 46px;
-          height: 46px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          border: 1px solid rgba(34,197,94,0.25);
+          background: rgba(239,68,68,0.14);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 22px;
+          margin-bottom: 12px;
         }
 
-        .list,
-        .infoStack {
+        .metricLabel {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .metricValue {
+          color: #22c55e;
+          font-size: 22px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
+
+        .grid {
           display: grid;
-          gap: 8px;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 24px;
+          margin-bottom: 24px;
         }
 
-        .row,
-        .infoBox {
-          border-radius: 16px;
+        .panel {
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 24px;
+        }
+
+        .riskList,
+        .linkGrid {
+          display: grid;
+          gap: 12px;
+        }
+
+        .riskBox {
+          padding: 14px;
+          border-radius: 18px;
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
         }
 
-        .row {
-          display: grid;
-          grid-template-columns: 40px 1fr auto;
-          gap: 10px;
-          padding: 12px;
-          color: white;
-          text-decoration: none;
-          align-items: center;
+        .riskBox span {
+          color: #a1a1aa;
+          font-weight: 900;
         }
 
-        .dangerRow {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.18);
+        .riskBox strong {
+          color: #22c55e;
+          font-size: 22px;
         }
 
-        .rowIcon {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 19px;
-        }
-
-        .dangerRow .rowIcon {
-          background: rgba(239,68,68,0.16);
-        }
-
-        .rowText {
-          min-width: 0;
-        }
-
-        .rowText strong,
-        .rowText span {
+        .actionLink {
           display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          text-align: center;
+        }
+
+        .cardGrid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .itemCard {
+          border-radius: 24px;
+          padding: 22px;
+          box-shadow: none;
+        }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .itemCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
+        }
+
+        .itemCard p {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .pill {
+          padding: 8px 12px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 900;
           white-space: nowrap;
         }
 
-        .rowText strong {
-          font-size: 13px;
-        }
-
-        .rowText span {
-          color: #a1a1aa;
-          font-size: 11px;
-        }
-
-        .priority {
-          border-radius: 999px;
-          padding: 6px 9px;
-          font-size: 10px;
-          font-style: normal;
-          font-weight: 900;
-          text-transform: capitalize;
-        }
-
-        .priority.critical,
-        .priority.high {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.14);
-          border: 1px solid rgba(239,68,68,0.35);
-        }
-
-        .priority.medium {
-          color: #fde68a;
-          background: rgba(250,204,21,0.14);
-          border: 1px solid rgba(250,204,21,0.35);
-        }
-
-        .priority.low {
+        .pill.good {
           color: #22c55e;
-          background: rgba(34,197,94,0.14);
+          background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
         }
 
+        .pill.pending {
+          color: #facc15;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
+        }
+
+        .pill.bad {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
+        }
+
+        .infoGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
         .infoBox {
-          padding: 12px;
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
         }
 
         .infoBox span {
           display: block;
           color: #a1a1aa;
-          font-size: 10px;
+          font-size: 12px;
           font-weight: 900;
-          margin-bottom: 5px;
+          margin-bottom: 6px;
         }
 
         .infoBox strong {
           display: block;
-          color: white;
-          font-size: 14px;
           overflow-wrap: anywhere;
         }
 
-        .quickLinks {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 9px;
-          margin-top: 14px;
+        .actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
         }
 
-        .quickLinks a {
-          padding: 13px;
-          border-radius: 14px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          text-decoration: none;
-          font-size: 13px;
+        .actions button {
+          padding: 12px 16px;
+          border-radius: 999px;
+          border: none;
           font-weight: 900;
-          text-align: center;
+          color: white;
+          cursor: pointer;
+          background: rgba(59,130,246,0.14);
+          border: 1px solid rgba(59,130,246,0.35);
+        }
+
+        .actions .goodButton {
+          background: rgba(34,197,94,0.14);
+          border-color: rgba(34,197,94,0.35);
+        }
+
+        .actions .dangerButton {
+          background: rgba(239,68,68,0.14);
+          border-color: rgba(239,68,68,0.35);
+          color: #fca5a5;
         }
 
         .empty {
-          padding: 18px;
-          border-radius: 18px;
+          padding: 24px;
+          border-radius: 22px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
         }
 
         .empty h3 {
           margin: 0 0 8px;
-          font-size: 18px;
+          font-size: 22px;
         }
 
-        @media (max-width: 430px) {
-          h1 {
-            font-size: 31px;
-          }
+        button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
-          .row {
-            grid-template-columns: 40px 1fr;
-          }
-
-          .priority {
-            grid-column: 2;
-            width: fit-content;
-          }
-
-          .quickLinks {
-            grid-template-columns: 1fr;
+        @media (max-width: 1180px) {
+          .stats,
+          .infoGrid,
+          .grid {
+            grid-template-columns: repeat(2, 1fr);
           }
         }
 
-        @media (min-width: 900px) {
+        @media (max-width: 780px) {
           .page {
-            padding: 24px;
-            padding-bottom: 80px;
+            padding: 16px;
+            padding-bottom: 140px;
           }
 
-          .stats {
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+          .hero,
+          .cardTop {
+            flex-direction: column;
+            align-items: flex-start;
           }
 
-          .actionCard {
-            grid-template-columns: 1fr auto;
-            align-items: center;
+          .hero {
+            padding: 28px;
           }
 
-          .actionButtons {
-            grid-template-columns: 1fr 1fr;
+          h1 {
+            font-size: 44px;
           }
 
-          .gridTwo {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .quickLinks {
-            grid-template-columns: repeat(4, 1fr);
+          .stats,
+          .infoGrid,
+          .grid {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>
@@ -934,78 +928,29 @@ export default function AdminSafetyPage() {
   );
 }
 
-function normalizePriority(value?: string): RiskLevel {
-  if (value === "critical") return "critical";
-  if (value === "urgent" || value === "high") return "high";
-  if (value === "medium") return "medium";
-  return "low";
-}
-
-function priorityWeight(value: RiskLevel) {
-  if (value === "critical") return 4;
-  if (value === "high") return 3;
-  if (value === "medium") return 2;
-  return 1;
-}
-
-function iconFor(type: SafetyCase["type"]) {
-  if (type === "sos") return "🚨";
-  if (type === "report") return "⚠️";
-  if (type === "dispute") return "⚖️";
-  return "👥";
-}
-
-function shortText(value: string, max = 42) {
-  if (!value) return "Not available";
-  if (value.length <= max) return value;
-  return `${value.slice(0, max)}...`;
-}
-
 function Metric({
   icon,
   label,
   value,
-  danger,
 }: {
   icon: string;
   label: string;
   value: string;
-  danger?: boolean;
 }) {
   return (
-    <div className={danger ? "metric dangerMetric" : "metric"}>
+    <div className="metric">
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
-      <strong className="metricValue">{value}</strong>
+      <div className="metricValue">{value}</div>
     </div>
   );
 }
 
-function Panel({
-  title,
-  eyebrow,
-  icon,
-  children,
-  danger,
-}: {
-  title: string;
-  eyebrow: string;
-  icon: string;
-  children: React.ReactNode;
-  danger?: boolean;
-}) {
+function Risk({ label, value }: { label: string; value: number }) {
   return (
-    <section className={danger ? "panel dangerPanel" : "panel"}>
-      <div className="panelHeader">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-
-        <div className="panelIcon">{icon}</div>
-      </div>
-
-      <div className="infoStack">{children}</div>
+    <section className="riskBox">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </section>
   );
 }
@@ -1017,4 +962,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value || "Not available"}</strong>
     </div>
   );
-}
+          }
