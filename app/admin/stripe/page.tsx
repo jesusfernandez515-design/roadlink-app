@@ -1,147 +1,79 @@
-import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { db } from "../../../../lib/firebase";
+"use client";
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.getroadlink.com";
+import Link from "next/link";
 
-if (!stripeSecretKey) {
-  throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
+export default function AdminStripePage() {
+  return (
+    <main style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg,#020617,#0f172a)",
+      color: "white",
+      padding: "24px",
+      fontFamily: "Arial, sans-serif"
+    }}>
+      <section style={{
+        maxWidth: "900px",
+        margin: "auto",
+        background: "rgba(8,13,25,0.94)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        borderRadius: "30px",
+        padding: "28px"
+      }}>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "28px" }}>
+          <Link href="/admin" style={button}>Admin</Link>
+          <Link href="/admin/stripe-production" style={button}>Stripe Production</Link>
+          <Link href="/admin/payments" style={button}>Payments</Link>
+          <Link href="/admin/payouts" style={button}>Payouts</Link>
+        </div>
+
+        <p style={{ color: "#22c55e", fontWeight: 900, letterSpacing: "0.08em" }}>
+          ROADLINK STRIPE
+        </p>
+
+        <h1 style={{ fontSize: "44px", lineHeight: 1, margin: "0 0 14px" }}>
+          Stripe Connect <span style={{ color: "#22c55e" }}>Center</span>
+        </h1>
+
+        <p style={{ color: "#a1a1aa", lineHeight: 1.6 }}>
+          Stripe is now ready to connect with RoadLink Checkout, payments, platform fees,
+          driver payouts and Stripe Connect.
+        </p>
+
+        <div style={{
+          display: "grid",
+          gap: "14px",
+          marginTop: "24px"
+        }}>
+          <Card title="Checkout API" text="app/api/stripe/create-checkout-session/route.ts" />
+          <Card title="Webhook API" text="app/api/stripe/webhook/route.ts" />
+          <Card title="Connect API" text="app/api/stripe/connect-account/route.ts" />
+          <Card title="Environment Variables" text="STRIPE_SECRET_KEY, NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, NEXT_PUBLIC_APP_URL" />
+        </div>
+      </section>
+    </main>
+  );
 }
 
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2024-06-20",
-});
+const button = {
+  padding: "11px 16px",
+  borderRadius: "999px",
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  color: "white",
+  textDecoration: "none",
+  fontWeight: 900
+};
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-
-    const bookingId = String(body.bookingId || "");
-    const userId = String(body.userId || "");
-    const userEmail = String(body.userEmail || "");
-
-    if (!bookingId) {
-      return NextResponse.json(
-        { error: "bookingId is required." },
-        { status: 400 }
-      );
-    }
-
-    const bookingRef = doc(db, "bookings", bookingId);
-    const bookingSnap = await getDoc(bookingRef);
-
-    if (!bookingSnap.exists()) {
-      return NextResponse.json(
-        { error: "Booking not found." },
-        { status: 404 }
-      );
-    }
-
-    const booking = bookingSnap.data();
-
-    const amount =
-      Number(booking.amount || booking.price || 0) *
-      Number(booking.seatsBooked || 1);
-
-    if (!amount || amount <= 0) {
-      return NextResponse.json(
-        { error: "Invalid booking amount." },
-        { status: 400 }
-      );
-    }
-
-    const platformFee = Math.round(amount * 0.12 * 100) / 100;
-    const driverAmount = Math.max(amount - platformFee, 0);
-    const amountInCents = Math.round(amount * 100);
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: userEmail || booking.passengerEmail || undefined,
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: amountInCents,
-            product_data: {
-              name: `RoadLink Ride: ${booking.from || "Origin"} to ${booking.to || "Destination"}`,
-              description: `Booking ${bookingId}`,
-            },
-          },
-        },
-      ],
-      metadata: {
-        bookingId,
-        rideId: booking.rideId || "",
-        passengerId: userId || booking.passengerId || "",
-        passengerEmail: userEmail || booking.passengerEmail || "",
-        driverId: booking.driverId || "",
-        driverEmail: booking.driverEmail || "",
-        platformFee: String(platformFee),
-        driverAmount: String(driverAmount),
-      },
-      success_url: `${appUrl}/my-bookings?payment=success&bookingId=${bookingId}`,
-      cancel_url: `${appUrl}/my-bookings?payment=cancelled&bookingId=${bookingId}`,
-    });
-
-    const now = new Date().toISOString();
-
-    await setDoc(
-      doc(db, "payments", `stripe-${session.id}`),
-      {
-        bookingId,
-        rideId: booking.rideId || "",
-        passengerId: userId || booking.passengerId || "",
-        passengerEmail: userEmail || booking.passengerEmail || "",
-        driverId: booking.driverId || "",
-        driverEmail: booking.driverEmail || "",
-        amount,
-        platformFee,
-        driverAmount,
-        currency: "USD",
-        provider: "stripe",
-        status: "pending",
-        type: "booking_payment",
-        stripeCheckoutSessionId: session.id,
-        stripePaymentIntentId: "",
-        checkoutUrl: session.url || "",
-        createdAt: now,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-
-    await setDoc(
-      bookingRef,
-      {
-        status: "payment_pending",
-        paymentStatus: "pending",
-        paymentId: `stripe-${session.id}`,
-        stripeCheckoutSessionId: session.id,
-        amount,
-        platformFee,
-        driverAmount,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-
-    return NextResponse.json({
-      url: session.url,
-      sessionId: session.id,
-    });
-  } catch (error: unknown) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not create Stripe Checkout session.",
-      },
-      { status: 500 }
-    );
-  }
+function Card({ title, text }: { title: string; text: string }) {
+  return (
+    <section style={{
+      padding: "18px",
+      borderRadius: "20px",
+      background: "rgba(255,255,255,0.04)",
+      border: "1px solid rgba(255,255,255,0.1)"
+    }}>
+      <h3 style={{ margin: "0 0 8px", color: "#22c55e" }}>{title}</h3>
+      <p style={{ margin: 0, color: "#d4d4d8", overflowWrap: "anywhere" }}>{text}</p>
+    </section>
+  );
 }
