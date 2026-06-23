@@ -2,60 +2,54 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  updateDoc,
-} from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type EmergencyStatus = "active" | "in_progress" | "resolved";
+type EmergencyStatus = "open" | "active" | "reviewing" | "resolved" | "false_alarm";
+type EmergencySeverity = "low" | "medium" | "high" | "critical";
 
-type EmergencyAlert = {
+type SOSEvent = {
   id: string;
   userId?: string;
-  userEmail?: string;
+  email?: string;
+  name?: string;
+  phone?: string;
   status?: EmergencyStatus;
-  priority?: string;
-  latitude?: number | null;
-  longitude?: number | null;
+  severity?: EmergencySeverity;
+  message?: string;
+  locationText?: string;
+  latitude?: number;
+  longitude?: number;
+  rideId?: string;
+  bookingId?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
   createdAt?: string;
   updatedAt?: string;
   resolvedAt?: string;
-  adminNote?: string;
 };
 
-export default function AdminEmergencyPage() {
-  const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
-  const [selected, setSelected] = useState<EmergencyAlert | null>(null);
-  const [filter, setFilter] = useState<"all" | EmergencyStatus>("all");
-  const [adminNote, setAdminNote] = useState("");
-  const [showFullDetails, setShowFullDetails] = useState(false);
-  const [message, setMessage] = useState("Loading emergency alerts...");
-  const [loadingId, setLoadingId] = useState("");
+export default function AdminEmergencyCommandPage() {
+  const [events, setEvents] = useState<SOSEvent[]>([]);
+  const [message, setMessage] = useState("Loading emergency command center...");
+  const [processingId, setProcessingId] = useState("");
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
-      query(collection(db, "emergencyAlerts")),
+      query(collection(db, "sosEvents")),
       (snapshot) => {
-        const data = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        })) as EmergencyAlert[];
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })) as SOSEvent[];
 
-        data.sort((a, b) =>
-          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+        setEvents(
+          data.sort(
+            (a, b) =>
+              new Date(b.createdAt || "").getTime() -
+              new Date(a.createdAt || "").getTime()
+          )
         );
-
-        setAlerts(data);
-
-        setSelected((current) => {
-          if (!current) return data[0] || null;
-          return data.find((item) => item.id === current.id) || data[0] || null;
-        });
 
         setMessage("");
       },
@@ -65,169 +59,162 @@ export default function AdminEmergencyPage() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    setAdminNote(selected?.adminNote || "");
-    setShowFullDetails(false);
-  }, [selected]);
+  const metrics = useMemo(() => {
+    const open = events.filter((item) => !item.status || item.status === "open");
+    const active = events.filter((item) => item.status === "active");
+    const reviewing = events.filter((item) => item.status === "reviewing");
+    const resolved = events.filter((item) => item.status === "resolved");
+    const falseAlarms = events.filter((item) => item.status === "false_alarm");
 
-  const filteredAlerts = useMemo(() => {
-    if (filter === "all") return alerts;
-    return alerts.filter((item) => item.status === filter);
-  }, [alerts, filter]);
+    const critical = events.filter((item) => item.severity === "critical");
+    const high = events.filter((item) => item.severity === "high");
+    const withGps = events.filter((item) => Number(item.latitude || 0) && Number(item.longitude || 0));
 
-  const activeCount = alerts.filter((item) => item.status === "active").length;
-  const inProgressCount = alerts.filter((item) => item.status === "in_progress").length;
-  const resolvedCount = alerts.filter((item) => item.status === "resolved").length;
-  const criticalCount = alerts.filter((item) => item.priority === "critical").length;
+    const activeThreats = events.filter(
+      (item) =>
+        !item.status ||
+        item.status === "open" ||
+        item.status === "active" ||
+        item.status === "reviewing"
+    );
 
-  function dateText(value?: string) {
+    const emergencyScore = Math.max(
+      Math.min(
+        100 -
+          activeThreats.length * 12 -
+          critical.length * 15 -
+          high.length * 8 +
+          resolved.length * 4 +
+          withGps.length * 2,
+        100
+      ),
+      0
+    );
+
+    return {
+      open,
+      active,
+      reviewing,
+      resolved,
+      falseAlarms,
+      critical,
+      high,
+      withGps,
+      activeThreats,
+      emergencyScore,
+    };
+  }, [events]);
+
+  async function updateEvent(event: SOSEvent, status: EmergencyStatus, severity?: EmergencySeverity) {
+    try {
+      setProcessingId(event.id);
+      const now = new Date().toISOString();
+
+      await setDoc(
+        doc(db, "sosEvents", event.id),
+        {
+          status,
+          severity: severity || event.severity || "medium",
+          updatedAt: now,
+          ...(status === "resolved" || status === "false_alarm" ? { resolvedAt: now } : {}),
+        },
+        { merge: true }
+      );
+
+      if (event.userId || event.email) {
+        await setDoc(
+          doc(db, "notifications", `emergency-${event.id}-${Date.now()}`),
+          {
+            userId: event.userId || "",
+            email: event.email || "",
+            title:
+              status === "resolved"
+                ? "SOS resolved"
+                : status === "reviewing"
+                ? "SOS under review"
+                : "SOS updated",
+            message:
+              status === "resolved"
+                ? "Your emergency alert was marked as resolved."
+                : status === "reviewing"
+                ? "RoadLink support is reviewing your emergency alert."
+                : `Your emergency alert status changed to ${status}.`,
+            type: "emergency",
+            read: false,
+            sosId: event.id,
+            rideId: event.rideId || "",
+            bookingId: event.bookingId || "",
+            createdAt: now,
+          },
+          { merge: true }
+        );
+      }
+
+      await setDoc(
+        doc(db, "auditLogs", `emergency-${event.id}-${Date.now()}`),
+        {
+          action: "Emergency Event Updated",
+          targetId: event.id,
+          targetType: "sosEvent",
+          details: `${event.email || "User"} SOS changed to ${status}`,
+          severity:
+            status === "resolved"
+              ? "success"
+              : severity === "critical" || event.severity === "critical"
+              ? "critical"
+              : "warning",
+          createdAt: now,
+        },
+        { merge: true }
+      );
+
+      setMessage("Emergency event updated.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not update emergency event.");
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  function mapsUrl(event: SOSEvent) {
+    const lat = Number(event.latitude || 0);
+    const lng = Number(event.longitude || 0);
+    return `https://www.google.com/maps?q=${lat},${lng}`;
+  }
+
+  function hasGps(event: SOSEvent) {
+    return Boolean(Number(event.latitude || 0) && Number(event.longitude || 0));
+  }
+
+  function statusLabel(status?: EmergencyStatus) {
+    if (status === "active") return "Active";
+    if (status === "reviewing") return "Reviewing";
+    if (status === "resolved") return "Resolved";
+    if (status === "false_alarm") return "False Alarm";
+    return "Open";
+  }
+
+  function severityLabel(severity?: EmergencySeverity) {
+    if (severity === "critical") return "Critical";
+    if (severity === "high") return "High";
+    if (severity === "low") return "Low";
+    return "Medium";
+  }
+
+  function statusClass(status?: EmergencyStatus, severity?: EmergencySeverity) {
+    if (status === "resolved") return "good";
+    if (status === "false_alarm") return "neutral";
+    if (severity === "critical") return "critical";
+    if (severity === "high") return "bad";
+    return "pending";
+  }
+
+  function formatDate(value?: string) {
     if (!value) return "Not available";
     try {
       return new Date(value).toLocaleString();
     } catch {
-      return "Not available";
-    }
-  }
-
-  function shortDate(value?: string) {
-    if (!value) return "Recently";
-    try {
-      return new Date(value).toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return "Recently";
-    }
-  }
-
-  function timeAgo(value?: string) {
-    if (!value) return "Recently";
-
-    try {
-      const date = new Date(value);
-      const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-
-      if (seconds < 60) return "Just now";
-
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes} min ago`;
-
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours} hr ago`;
-
-      const days = Math.floor(hours / 24);
-      return `${days} day${days === 1 ? "" : "s"} ago`;
-    } catch {
-      return "Recently";
-    }
-  }
-
-  function shortEmail(value?: string) {
-    if (!value) return "RoadLink User";
-
-    const [name, domain] = value.split("@");
-
-    if (!domain) {
-      return value.length > 18 ? `${value.slice(0, 18)}...` : value;
-    }
-
-    const shortName = name.length > 13 ? `${name.slice(0, 13)}...` : name;
-    const shortDomain = domain.length > 11 ? `${domain.slice(0, 11)}...` : domain;
-
-    return `${shortName}@${shortDomain}`;
-  }
-
-  function shortId(value?: string) {
-    if (!value) return "No user ID";
-    if (value.length <= 14) return value;
-    return `${value.slice(0, 7)}...${value.slice(-5)}`;
-  }
-
-  function statusLabel(status?: EmergencyStatus) {
-    if (status === "in_progress") return "In Review";
-    if (status === "resolved") return "Resolved";
-    return "Active";
-  }
-
-  function locationText(alert: EmergencyAlert) {
-    if (typeof alert.latitude !== "number" || typeof alert.longitude !== "number") {
-      return "Location not available";
-    }
-
-    return `${alert.latitude.toFixed(6)}, ${alert.longitude.toFixed(6)}`;
-  }
-
-  function hasLocation(alert: EmergencyAlert) {
-    return typeof alert.latitude === "number" && typeof alert.longitude === "number";
-  }
-
-  function mapUrl(alert: EmergencyAlert) {
-    if (!hasLocation(alert)) return "";
-    return `https://maps.google.com/?q=${alert.latitude},${alert.longitude}`;
-  }
-
-  function mapEmbedUrl(alert: EmergencyAlert) {
-    if (!hasLocation(alert)) return "";
-    return `https://maps.google.com/maps?q=${alert.latitude},${alert.longitude}&z=16&output=embed`;
-  }
-
-  async function updateAlertStatus(alert: EmergencyAlert, status: EmergencyStatus) {
-    if (!alert.id) return;
-
-    try {
-      setLoadingId(alert.id);
-      setMessage("");
-
-      const now = new Date().toISOString();
-
-      await updateDoc(doc(db, "emergencyAlerts", alert.id), {
-        status,
-        adminNote: adminNote.trim(),
-        updatedAt: now,
-        ...(status === "resolved" ? { resolvedAt: now } : {}),
-      });
-
-      await addDoc(collection(db, "auditLogs"), {
-        action: "Emergency Alert Updated",
-        alertId: alert.id,
-        userId: alert.userId || "",
-        userEmail: alert.userEmail || "",
-        status,
-        details: adminNote.trim(),
-        severity: status === "resolved" ? "success" : "warning",
-        createdAt: now,
-      });
-
-      if (alert.userId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: alert.userId,
-          type: "emergency",
-          title:
-            status === "resolved"
-              ? "Emergency Alert Resolved"
-              : status === "in_progress"
-              ? "Emergency Alert In Review"
-              : "Emergency Alert Active",
-          message:
-            status === "resolved"
-              ? "RoadLink Support marked your emergency alert as resolved."
-              : status === "in_progress"
-              ? "RoadLink Support is reviewing your emergency alert."
-              : "Your emergency alert is still active.",
-          read: false,
-          createdAt: now,
-          actionUrl: "/sos",
-        });
-      }
-
-      setMessage("Emergency alert updated successfully.");
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    } finally {
-      setLoadingId("");
+      return value;
     }
   }
 
@@ -236,204 +223,183 @@ export default function AdminEmergencyPage() {
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin</Link>
-          <Link href="/admin/support" className="miniButton">Support</Link>
-          <Link href="/admin/fraud" className="miniButton">Fraud</Link>
-          <Link href="/admin/users" className="miniButton">Users</Link>
+          <Link href="/admin/live-map" className="miniButton">Live Map</Link>
+          <Link href="/admin/dispatch" className="miniButton">Dispatch</Link>
+          <Link href="/admin/safety" className="miniButton">Safety</Link>
+          <Link href="/admin/reports" className="miniButton">Reports</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Admin Safety</p>
-            <h1>Emergency <span>Center</span></h1>
+            <p className="eyebrow">RoadLink Safety Operations</p>
+            <h1>Emergency <span>Command</span></h1>
             <p className="subtitle">
-              Monitor active SOS alerts, GPS location, status, and safety response.
+              Monitor SOS alerts, active emergencies, critical incidents, user locations,
+              emergency contacts, audit logs and real-time safety response.
             </p>
           </div>
 
-          <div className="heroIcon">🚨</div>
+          <div className={metrics.emergencyScore >= 70 ? "scoreOrb" : "scoreOrb warningScore"}>
+            <strong>{metrics.emergencyScore}</strong>
+            <span>Safety Score</span>
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🚨" label="Active" value={String(activeCount)} />
-          <Metric icon="👀" label="Review" value={String(inProgressCount)} />
-          <Metric icon="✅" label="Resolved" value={String(resolvedCount)} />
-          <Metric icon="🔥" label="Critical" value={String(criticalCount)} />
+          <Metric icon="🚨" label="Open SOS" value={String(metrics.open.length)} />
+          <Metric icon="🔥" label="Active" value={String(metrics.active.length)} />
+          <Metric icon="👀" label="Reviewing" value={String(metrics.reviewing.length)} />
+          <Metric icon="✅" label="Resolved" value={String(metrics.resolved.length)} />
+          <Metric icon="🧨" label="Critical" value={String(metrics.critical.length)} />
+          <Metric icon="⚠️" label="High Severity" value={String(metrics.high.length)} />
+          <Metric icon="📍" label="With GPS" value={String(metrics.withGps.length)} />
+          <Metric icon="🟢" label="False Alarms" value={String(metrics.falseAlarms.length)} />
         </section>
 
-        <section className="alertsCard">
-          <div className="sectionTitle">
-            <div>
-              <p className="eyebrow">SOS Queue</p>
-              <h2>Emergency Alerts</h2>
-            </div>
-
-            {activeCount > 0 && (
-              <div className="liveBadge">
-                <span></span>
-                LIVE
-              </div>
-            )}
-          </div>
-
-          <div className="filters">
-            <button onClick={() => setFilter("all")} className={filter === "all" ? "activeFilter" : ""}>All</button>
-            <button onClick={() => setFilter("active")} className={filter === "active" ? "activeFilter" : ""}>Active</button>
-            <button onClick={() => setFilter("in_progress")} className={filter === "in_progress" ? "activeFilter" : ""}>Review</button>
-            <button onClick={() => setFilter("resolved")} className={filter === "resolved" ? "activeFilter" : ""}>Resolved</button>
-          </div>
-
-          {filteredAlerts.length === 0 ? (
-            <div className="empty">
-              <h3>No emergency alerts found</h3>
-              <p>SOS alerts will appear here after users submit them.</p>
-            </div>
-          ) : (
-            <div className="alertList">
-              {filteredAlerts.map((alert) => (
-                <button
-                  key={alert.id}
-                  onClick={() => setSelected(alert)}
-                  className={selected?.id === alert.id ? "alertRow activeAlert" : "alertRow"}
-                >
-                  <div className="alertIcon">🚨</div>
-
-                  <div className="alertText">
-                    <strong title={alert.userEmail || ""}>
-                      {shortEmail(alert.userEmail)}
-                    </strong>
-                    <span>{timeAgo(alert.createdAt)} • {shortDate(alert.createdAt)}</span>
-                    <small>{hasLocation(alert) ? "📍 Location available" : "Location not available"}</small>
-                  </div>
-
-                  <em className={`status ${alert.status || "active"}`}>
-                    {statusLabel(alert.status)}
-                  </em>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="detailsCard">
-          {selected ? (
-            <>
-              <div className="selectedTop">
-                <div className="selectedIdentity">
-                  <p className="eyebrow">Selected Alert</p>
-                  <h2 title={selected.userEmail || ""}>
-                    {shortEmail(selected.userEmail)}
-                  </h2>
-                  <p className="email">{shortId(selected.userId)}</p>
-                </div>
-
-                <span className={`statusPill ${selected.status || "active"}`}>
-                  {statusLabel(selected.status)}
-                </span>
+        <section className="commandGrid">
+          <section className="mapPanel">
+            <div className="mapHeader">
+              <div>
+                <p className="eyebrow">Emergency Map Layer</p>
+                <h2>SOS GPS View</h2>
               </div>
 
-              {selected.status === "active" && (
-                <div className="liveEmergency">
-                  <span></span>
-                  LIVE EMERGENCY
-                </div>
-              )}
+              <Link href="/admin/live-map" className="openMapButton">Open Live Map</Link>
+            </div>
 
-              <div className="emergencySummary">
-                <div>
-                  <span>Priority</span>
-                  <strong>{(selected.priority || "critical").toUpperCase()}</strong>
-                </div>
-
-                <div>
-                  <span>Created</span>
-                  <strong>{timeAgo(selected.createdAt)}</strong>
-                </div>
-
-                <div>
-                  <span>Location</span>
-                  <strong>{hasLocation(selected) ? "Available" : "Missing"}</strong>
-                </div>
-              </div>
-
-              {mapEmbedUrl(selected) ? (
-                <div className="mapPreview">
-                  <iframe
-                    src={mapEmbedUrl(selected)}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
+            <div className="fakeMap">
+              {metrics.activeThreats.filter(hasGps).length === 0 ? (
+                <div className="noPoints">
+                  <h3>No active GPS emergency points</h3>
+                  <p>SOS alerts with latitude and longitude will appear here.</p>
                 </div>
               ) : (
-                <div className="locationMissing">
-                  Location was not available for this SOS alert.
-                </div>
+                metrics.activeThreats.filter(hasGps).slice(0, 20).map((event, index) => (
+                  <a
+                    key={event.id}
+                    href={mapsUrl(event)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`mapPoint ${statusClass(event.status, event.severity)}`}
+                    style={{
+                      left: `${12 + ((index * 17) % 76)}%`,
+                      top: `${18 + ((index * 23) % 64)}%`,
+                    }}
+                  >
+                    🚨
+                  </a>
+                ))
               )}
+            </div>
+          </section>
 
-              {mapUrl(selected) && (
-                <a href={mapUrl(selected)} target="_blank" rel="noreferrer" className="mapButton">
-                  Open Location in Google Maps
-                </a>
-              )}
+          <section className="sidePanel">
+            <p className="eyebrow">Response Protocol</p>
+            <h2>Emergency Actions</h2>
 
-              <button
-                className="detailsToggle"
-                onClick={() => setShowFullDetails((value) => !value)}
-              >
-                {showFullDetails ? "Hide Full Details" : "View Full Details"}
-              </button>
+            <div className="protocolList">
+              <Protocol title="1. Verify location" text="Open GPS point and confirm user location." />
+              <Protocol title="2. Contact user" text="Use phone/email and send RoadLink notification." />
+              <Protocol title="3. Notify emergency contact" text="Use saved emergency contact if available." />
+              <Protocol title="4. Escalate if critical" text="If danger is immediate, contact local emergency services." />
+              <Protocol title="5. Resolve and audit" text="Mark resolved only after incident is handled." />
+            </div>
+          </section>
+        </section>
 
-              {showFullDetails && (
-                <div className="fullDetails">
-                  <Info label="Alert ID" value={selected.id} />
-                  <Info label="User Email" value={selected.userEmail || "Not available"} />
-                  <Info label="User ID" value={selected.userId || "Not available"} />
-                  <Info label="Status" value={statusLabel(selected.status)} />
-                  <Info label="Created" value={dateText(selected.createdAt)} />
-                  <Info label="Updated" value={dateText(selected.updatedAt)} />
-                  <Info label="Resolved" value={dateText(selected.resolvedAt)} />
-                  <Info label="Coordinates" value={locationText(selected)} />
-                </div>
-              )}
+        <section className="card">
+          <p className="eyebrow">Emergency Timeline</p>
+          <h2>SOS Events</h2>
 
-              <label>Admin Note</label>
-              <textarea
-                value={adminNote}
-                onChange={(event) => setAdminNote(event.target.value)}
-                placeholder="Write a note about this emergency case..."
-              />
-
-              <div className="actionRow">
-                <button
-                  className="reviewButton"
-                  onClick={() => updateAlertStatus(selected, "in_progress")}
-                  disabled={loadingId === selected.id}
-                >
-                  👀 Review
-                </button>
-
-                <button
-                  className="activeButton"
-                  onClick={() => updateAlertStatus(selected, "active")}
-                  disabled={loadingId === selected.id}
-                >
-                  🚨 Active
-                </button>
-
-                <button
-                  className="resolveButton"
-                  onClick={() => updateAlertStatus(selected, "resolved")}
-                  disabled={loadingId === selected.id}
-                >
-                  ✅ Resolve
-                </button>
-              </div>
-            </>
-          ) : (
+          {events.length === 0 ? (
             <div className="empty">
-              <h3>Select an alert</h3>
-              <p>Choose an SOS alert to review safety details.</p>
+              <h3>No SOS events yet</h3>
+              <p>Emergency alerts will appear here when users trigger SOS.</p>
+            </div>
+          ) : (
+            <div className="eventGrid">
+              {events.map((event) => (
+                <section key={event.id} className={`eventCard ${statusClass(event.status, event.severity)}`}>
+                  <div className="cardTop">
+                    <div>
+                      <h3>{event.name || event.email || "SOS Event"}</h3>
+                      <p>{event.message || "Emergency alert triggered"}</p>
+                    </div>
+
+                    <span className={`pill ${statusClass(event.status, event.severity)}`}>
+                      {statusLabel(event.status)} • {severityLabel(event.severity)}
+                    </span>
+                  </div>
+
+                  <div className="infoGrid">
+                    <Info label="Email" value={event.email || "Not available"} />
+                    <Info label="Phone" value={event.phone || "Not available"} />
+                    <Info label="Location" value={event.locationText || "Not available"} />
+                    <Info label="Latitude" value={String(event.latitude || "Not set")} />
+                    <Info label="Longitude" value={String(event.longitude || "Not set")} />
+                    <Info label="Ride ID" value={event.rideId || "Not linked"} />
+                    <Info label="Booking ID" value={event.bookingId || "Not linked"} />
+                    <Info label="Emergency Contact" value={event.emergencyContactName || "Not set"} />
+                    <Info label="Contact Phone" value={event.emergencyContactPhone || "Not set"} />
+                    <Info label="Created" value={formatDate(event.createdAt)} />
+                    <Info label="Updated" value={formatDate(event.updatedAt)} />
+                    <Info label="Resolved" value={formatDate(event.resolvedAt)} />
+                  </div>
+
+                  <div className="actions">
+                    {hasGps(event) && (
+                      <a
+                        href={mapsUrl(event)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="openMapButton"
+                      >
+                        Open GPS
+                      </a>
+                    )}
+
+                    <button
+                      onClick={() => updateEvent(event, "active", "high")}
+                      disabled={processingId === event.id}
+                    >
+                      Activate
+                    </button>
+
+                    <button
+                      onClick={() => updateEvent(event, "reviewing", event.severity)}
+                      disabled={processingId === event.id}
+                    >
+                      Review
+                    </button>
+
+                    <button
+                      className="criticalButton"
+                      onClick={() => updateEvent(event, event.status || "active", "critical")}
+                      disabled={processingId === event.id}
+                    >
+                      Critical
+                    </button>
+
+                    <button
+                      className="goodButton"
+                      onClick={() => updateEvent(event, "resolved", event.severity)}
+                      disabled={processingId === event.id}
+                    >
+                      Resolve
+                    </button>
+
+                    <button
+                      className="neutralButton"
+                      onClick={() => updateEvent(event, "false_alarm", "low")}
+                      disabled={processingId === event.id}
+                    >
+                      False Alarm
+                    </button>
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </section>
@@ -442,526 +408,417 @@ export default function AdminEmergencyPage() {
       <style>{`
         * { box-sizing: border-box; }
 
-        html,
-        body {
-          overflow-x: hidden;
-        }
-
         .page {
-          width: 100%;
-          max-width: 100vw;
           min-height: 100vh;
-          overflow-x: hidden;
-          background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.18), transparent 32%),
-            radial-gradient(circle at bottom left, rgba(34,197,94,0.1), transparent 34%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
-          padding: 12px;
-          padding-bottom: 150px;
+          padding: 24px;
+          padding-bottom: 140px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.24), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.14), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container {
-          width: 100%;
-          max-width: 760px;
-          margin: auto;
-          overflow-x: hidden;
-        }
+        .container { max-width: 1450px; margin: auto; }
 
         .topNav {
           display: flex;
-          gap: 8px;
           flex-wrap: wrap;
-          margin-bottom: 12px;
+          gap: 12px;
+          margin-bottom: 24px;
         }
 
         .miniButton,
-        .filters button,
-        .detailsToggle {
-          padding: 9px 12px;
+        .openMapButton {
+          padding: 11px 18px;
           border-radius: 999px;
-          background: rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.12);
           color: white;
           text-decoration: none;
-          font-size: 12px;
           font-weight: 900;
-          cursor: pointer;
         }
 
         .hero,
         .metric,
-        .alertsCard,
-        .detailsCard {
-          width: 100%;
-          max-width: 100%;
-          overflow: hidden;
-          background: rgba(8, 13, 25, 0.92);
+        .card,
+        .mapPanel,
+        .sidePanel,
+        .eventCard {
+          background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 16px 44px rgba(0,0,0,0.45);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
           backdrop-filter: blur(16px);
         }
 
         .hero {
-          position: relative;
-          border-radius: 24px;
-          padding: 18px;
-          min-height: 110px;
-          margin-bottom: 12px;
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 12px;
-          align-items: start;
+          border-radius: 34px;
+          padding: 34px;
+          margin-bottom: 22px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 24px;
         }
 
         .eyebrow {
-          margin: 0 0 7px;
-          color: #ef4444;
-          font-size: 10px;
+          margin: 0 0 10px;
+          color: #22c55e;
+          font-size: 13px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
         h1 {
-          font-size: 33px;
-          line-height: 0.98;
-          margin: 0 0 10px;
+          font-size: 58px;
+          line-height: 1;
+          margin: 0 0 16px;
         }
 
-        h1 span {
-          color: #ef4444;
-        }
-
+        h1 span,
         h2,
         .metricValue {
           color: #22c55e;
         }
 
         h2 {
-          font-size: 23px;
-          line-height: 1.05;
-          margin: 0 0 12px;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          font-size: 30px;
+          margin: 0 0 14px;
         }
 
         .subtitle,
-        .email {
+        .empty p,
+        .eventCard p,
+        .protocolItem p,
+        .noPoints p {
           color: #a1a1aa;
-          font-size: 13px;
-          line-height: 1.4;
-          margin: 0;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .heroIcon {
-          width: 48px;
-          height: 48px;
-          min-width: 48px;
-          border-radius: 50%;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 23px;
-          box-shadow: 0 0 28px rgba(239,68,68,0.18);
+          line-height: 1.5;
         }
 
         .message {
           color: #22c55e;
           font-weight: 900;
-          margin: 10px 0;
-          font-size: 13px;
+          margin: 16px 0;
+        }
+
+        .scoreOrb {
+          min-width: 112px;
+          height: 112px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .warningScore {
+          background: rgba(239,68,68,0.12);
+          border-color: rgba(239,68,68,0.35);
+        }
+
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 32px;
+          font-weight: 900;
+        }
+
+        .warningScore strong { color: #fca5a5; }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 10px;
+          font-weight: 900;
         }
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-          margin-bottom: 12px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 14px;
+          margin-bottom: 24px;
         }
 
         .metric {
-          border-radius: 18px;
-          padding: 11px 12px;
-          display: grid;
-          grid-template-columns: 34px 1fr auto;
-          align-items: center;
-          gap: 8px;
-          min-height: 58px;
+          border-radius: 24px;
+          padding: 18px;
         }
 
         .metricIcon {
-          width: 34px;
-          height: 34px;
+          width: 42px;
+          height: 42px;
           border-radius: 50%;
-          background: rgba(239,68,68,0.13);
+          background: rgba(239,68,68,0.14);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 18px;
+          font-size: 22px;
+          margin-bottom: 12px;
         }
 
         .metricLabel {
           display: block;
           color: #a1a1aa;
-          font-size: 10px;
+          font-size: 12px;
           font-weight: 900;
+          margin-bottom: 8px;
         }
 
         .metricValue {
+          color: #22c55e;
           font-size: 22px;
           font-weight: 900;
+          overflow-wrap: anywhere;
         }
 
-        .alertsCard,
-        .detailsCard {
-          border-radius: 22px;
-          padding: 16px;
-          margin-bottom: 12px;
+        .commandGrid {
+          display: grid;
+          grid-template-columns: 1.35fr 0.65fr;
+          gap: 24px;
+          margin-bottom: 24px;
         }
 
-        .sectionTitle {
+        .mapPanel,
+        .sidePanel,
+        .card {
+          border-radius: 30px;
+          padding: 28px;
+          margin-bottom: 24px;
+        }
+
+        .mapHeader {
           display: flex;
           justify-content: space-between;
-          gap: 10px;
+          gap: 14px;
           align-items: flex-start;
+          margin-bottom: 18px;
         }
 
-        .liveBadge,
-        .liveEmergency {
-          display: inline-flex;
-          align-items: center;
-          gap: 7px;
-          border-radius: 999px;
-          border: 1px solid rgba(239,68,68,0.4);
-          background: rgba(239,68,68,0.12);
-          color: #fca5a5;
-          font-size: 10px;
-          font-weight: 900;
-          padding: 8px 10px;
-          white-space: nowrap;
-        }
-
-        .liveBadge span,
-        .liveEmergency span {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #ef4444;
-          box-shadow: 0 0 0 rgba(239,68,68,0.7);
-          animation: pulse 1.3s infinite;
-        }
-
-        @keyframes pulse {
-          0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.7); }
-          70% { box-shadow: 0 0 0 9px rgba(239,68,68,0); }
-          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-        }
-
-        .filters {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 7px;
-          margin-bottom: 12px;
-        }
-
-        .filters .activeFilter {
-          background: rgba(239,68,68,0.14);
-          border-color: rgba(239,68,68,0.45);
-          color: #fca5a5;
-        }
-
-        .alertList {
-          display: grid;
-          gap: 9px;
-        }
-
-        .alertRow {
-          width: 100%;
-          max-width: 100%;
-          display: grid;
-          grid-template-columns: 38px minmax(0, 1fr);
-          gap: 10px;
-          align-items: start;
-          padding: 11px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          cursor: pointer;
-          text-align: left;
+        .fakeMap {
+          position: relative;
+          height: 460px;
+          border-radius: 28px;
           overflow: hidden;
+          border: 1px solid rgba(255,255,255,0.12);
+          background:
+            linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+            linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+            radial-gradient(circle at 35% 30%, rgba(239,68,68,0.22), transparent 22%),
+            radial-gradient(circle at 70% 65%, rgba(34,197,94,0.12), transparent 25%),
+            linear-gradient(135deg, #020617, #111827);
+          background-size: 44px 44px, 44px 44px, auto, auto, auto;
         }
 
-        .activeAlert {
-          border-color: rgba(239,68,68,0.5);
-          background: rgba(239,68,68,0.1);
-        }
-
-        .alertIcon {
-          width: 38px;
-          height: 38px;
+        .mapPoint {
+          position: absolute;
+          width: 48px;
+          height: 48px;
           border-radius: 50%;
-          background: rgba(239,68,68,0.13);
-          border: 1px solid rgba(239,68,68,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 18px;
+          text-decoration: none;
+          font-size: 22px;
+          transform: translate(-50%, -50%);
+          box-shadow: 0 12px 34px rgba(0,0,0,0.55);
         }
 
-        .alertText {
-          min-width: 0;
-          max-width: 100%;
+        .mapPoint.pending,
+        .mapPoint.bad,
+        .mapPoint.critical {
+          background: rgba(239,68,68,0.2);
+          border: 1px solid rgba(239,68,68,0.55);
         }
 
-        .alertRow strong,
-        .alertRow span,
-        .alertRow small {
-          display: block;
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+        .mapPoint.good {
+          background: rgba(34,197,94,0.2);
+          border: 1px solid rgba(34,197,94,0.55);
         }
 
-        .alertRow strong {
-          font-size: 12px;
+        .noPoints {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-direction: column;
+          text-align: center;
+          padding: 24px;
         }
 
-        .alertRow span,
-        .alertRow small {
-          color: #a1a1aa;
-          margin-top: 3px;
-          font-size: 10px;
+        .noPoints h3 {
+          font-size: 28px;
+          margin: 0 0 10px;
         }
 
-        .status {
-          grid-column: 2;
-          width: fit-content;
-          margin-top: 6px;
+        .protocolList {
+          display: grid;
+          gap: 12px;
         }
 
-        .status,
-        .statusPill {
+        .protocolItem {
+          padding: 14px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .protocolItem h3 {
+          margin: 0 0 6px;
+          color: #22c55e;
+          font-size: 16px;
+        }
+
+        .protocolItem p {
+          margin: 0;
+          font-size: 13px;
+        }
+
+        .eventGrid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .eventCard {
+          border-radius: 24px;
+          padding: 22px;
+          box-shadow: none;
+        }
+
+        .eventCard.critical,
+        .eventCard.bad,
+        .eventCard.pending {
+          border-color: rgba(239,68,68,0.32);
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.1), transparent 40%),
+            rgba(8,13,25,0.92);
+        }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .eventCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
+        }
+
+        .eventCard p {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .pill {
+          padding: 8px 12px;
           border-radius: 999px;
-          padding: 7px 10px;
-          font-style: normal;
+          font-size: 12px;
           font-weight: 900;
-          font-size: 10px;
           white-space: nowrap;
-          text-transform: capitalize;
         }
 
-        .status.active,
-        .statusPill.active {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
-        }
-
-        .status.in_progress,
-        .statusPill.in_progress {
-          color: #fde68a;
-          background: rgba(250,204,21,0.12);
-          border: 1px solid rgba(250,204,21,0.35);
-        }
-
-        .status.resolved,
-        .statusPill.resolved {
+        .pill.good {
           color: #22c55e;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .selectedTop {
+        .pill.neutral {
+          color: #d4d4d8;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .pill.pending,
+        .pill.bad,
+        .pill.critical {
+          color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
+        }
+
+        .pill.critical {
+          color: #fecaca;
+          border-color: rgba(248,113,113,0.7);
+        }
+
+        .infoGrid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 10px;
-          align-items: flex-start;
-          margin-bottom: 12px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-bottom: 16px;
         }
 
-        .selectedIdentity {
-          min-width: 0;
-        }
-
-        .statusPill {
-          display: inline-flex;
-          flex-shrink: 0;
-          margin-top: 4px;
-        }
-
-        .liveEmergency {
-          width: 100%;
-          justify-content: center;
-          margin-bottom: 12px;
-        }
-
-        .emergencySummary {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-
-        .emergencySummary div,
-        .infoBox,
-        .locationMissing {
-          max-width: 100%;
-          padding: 11px;
-          border-radius: 13px;
+        .infoBox {
+          padding: 14px;
+          border-radius: 16px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
-          overflow: hidden;
         }
 
-        .emergencySummary div:first-child {
-          background: rgba(239,68,68,0.1);
-          border-color: rgba(239,68,68,0.25);
-        }
-
-        .emergencySummary span,
         .infoBox span {
           display: block;
           color: #a1a1aa;
-          font-size: 10px;
+          font-size: 12px;
           font-weight: 900;
-          margin-bottom: 5px;
+          margin-bottom: 6px;
         }
 
-        .emergencySummary strong,
-        .infoBox strong,
-        .locationMissing {
+        .infoBox strong {
           display: block;
-          font-size: 11px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          overflow-wrap: anywhere;
         }
 
-        .emergencySummary div:first-child strong {
-          color: #ef4444;
-          font-size: 16px;
-        }
-
-        .fullDetails {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 9px;
-          margin-bottom: 12px;
-        }
-
-        .mapPreview {
-          width: 100%;
-          height: 240px;
-          border-radius: 20px;
-          overflow: hidden;
-          margin-bottom: 12px;
-          border: 1px solid rgba(59,130,246,0.35);
-          background: rgba(59,130,246,0.08);
-        }
-
-        .mapPreview iframe {
-          width: 100%;
-          height: 100%;
-          border: 0;
-          display: block;
-        }
-
-        .mapButton,
-        .detailsToggle {
+        .actions {
           display: flex;
-          width: 100%;
-          justify-content: center;
-          align-items: center;
-          padding: 13px;
-          margin-bottom: 12px;
-          border-radius: 999px;
-          font-weight: 900;
-          text-decoration: none;
-          font-size: 12px;
-          text-align: center;
+          flex-wrap: wrap;
+          gap: 10px;
         }
 
-        .mapButton {
-          background: rgba(59,130,246,0.15);
-          border: 1px solid rgba(59,130,246,0.4);
-          color: #93c5fd;
-        }
-
-        .detailsToggle {
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-        }
-
-        .locationMissing {
-          color: #a1a1aa;
-          margin-bottom: 12px;
-        }
-
-        label {
-          display: block;
-          font-weight: 900;
-          font-size: 12px;
-          margin-bottom: 7px;
-        }
-
-        textarea {
-          width: 100%;
-          min-height: 82px;
-          padding: 13px;
-          border-radius: 15px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
-          color: white;
-          font-size: 13px;
-          outline: none;
-          resize: vertical;
-          margin-bottom: 12px;
-          font-family: Arial, sans-serif;
-        }
-
-        .actionRow {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 8px;
-        }
-
-        .reviewButton,
-        .activeButton,
-        .resolveButton {
-          width: 100%;
-          min-height: 52px;
-          padding: 10px 8px;
+        .actions button {
+          padding: 12px 16px;
           border-radius: 999px;
           border: none;
-          color: white;
-          font-size: 12px;
           font-weight: 900;
+          color: white;
           cursor: pointer;
+          background: rgba(59,130,246,0.14);
+          border: 1px solid rgba(59,130,246,0.35);
         }
 
-        .reviewButton {
-          background: linear-gradient(135deg, #f59e0b, #b45309);
+        .actions .criticalButton {
+          background: rgba(239,68,68,0.18);
+          border-color: rgba(239,68,68,0.55);
+          color: #fecaca;
         }
 
-        .activeButton {
-          background: linear-gradient(135deg, #ef4444, #991b1b);
+        .actions .goodButton {
+          background: rgba(34,197,94,0.14);
+          border-color: rgba(34,197,94,0.35);
         }
 
-        .resolveButton {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+        .actions .neutralButton {
+          background: rgba(255,255,255,0.06);
+          border-color: rgba(255,255,255,0.14);
+        }
+
+        .empty {
+          padding: 24px;
+          border-radius: 22px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .empty h3 {
+          margin: 0 0 8px;
+          font-size: 22px;
         }
 
         button:disabled {
@@ -969,69 +826,45 @@ export default function AdminEmergencyPage() {
           cursor: not-allowed;
         }
 
-        .empty {
-          padding: 20px;
-          border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .empty h3 {
-          margin: 0 0 8px;
-          font-size: 18px;
-        }
-
-        .empty p {
-          color: #a1a1aa;
-          line-height: 1.5;
-          margin: 0;
-        }
-
-        @media (max-width: 430px) {
-          .emergencySummary {
-            grid-template-columns: 1fr;
-          }
-
-          .mapPreview {
-            height: 220px;
-          }
-        }
-
-        @media (min-width: 900px) {
-          .container {
-            max-width: 1180px;
-          }
-
-          .page {
-            padding: 24px;
-            padding-bottom: 60px;
-          }
-
-          .stats {
-            grid-template-columns: repeat(4, 1fr);
-          }
-
-          .alertsCard,
-          .detailsCard {
-            padding: 22px;
-          }
-
-          .alertRow {
-            grid-template-columns: 44px minmax(0, 1fr) auto;
-            align-items: center;
-          }
-
-          .status {
-            grid-column: auto;
-            margin-top: 0;
-          }
-
-          .fullDetails {
+        @media (max-width: 1180px) {
+          .stats,
+          .infoGrid {
             grid-template-columns: repeat(2, 1fr);
           }
 
-          .mapPreview {
-            height: 280px;
+          .commandGrid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 720px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 140px;
+          }
+
+          .hero,
+          .mapHeader,
+          .cardTop {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          .hero {
+            padding: 28px;
+          }
+
+          h1 {
+            font-size: 44px;
+          }
+
+          .stats,
+          .infoGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .fakeMap {
+            height: 400px;
           }
         }
       `}</style>
@@ -1054,6 +887,15 @@ function Metric({
       <span className="metricLabel">{label}</span>
       <div className="metricValue">{value}</div>
     </div>
+  );
+}
+
+function Protocol({ title, text }: { title: string; text: string }) {
+  return (
+    <section className="protocolItem">
+      <h3>{title}</h3>
+      <p>{text}</p>
+    </section>
   );
 }
 
