@@ -42,6 +42,7 @@ export default function OfferRidePage() {
   const geocoderRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
   const hiddenPlacesDivRef = useRef<HTMLDivElement | null>(null);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -98,6 +99,7 @@ export default function OfferRidePage() {
       if (fromInputRef.current && !fromAutoRef.current) {
         fromAutoRef.current = new window.google.maps.places.Autocomplete(fromInputRef.current, {
           fields: ["formatted_address", "geometry", "name", "place_id"],
+          componentRestrictions: { country: "us" },
         });
 
         fromAutoRef.current.addListener("place_changed", () => {
@@ -147,9 +149,6 @@ export default function OfferRidePage() {
 
       if (existingScript) {
         existingScript.addEventListener("load", setupGoogleServices);
-        existingScript.addEventListener("error", () => {
-          if (mounted) setMessage("Google Maps could not load.");
-        });
         return;
       }
 
@@ -170,6 +169,7 @@ export default function OfferRidePage() {
 
     return () => {
       mounted = false;
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
   }, []);
 
@@ -195,9 +195,12 @@ export default function OfferRidePage() {
   }
 
   function buildMapUrl() {
+    const origin = fromCoords ? `${fromCoords.lat},${fromCoords.lng}` : from.trim();
+    const destination = toCoords ? `${toCoords.lat},${toCoords.lng}` : to.trim();
+
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-      from.trim()
-    )}&destination=${encodeURIComponent(to.trim())}`;
+      origin
+    )}&destination=${encodeURIComponent(destination)}`;
   }
 
   function resetRouteInfo() {
@@ -224,13 +227,15 @@ export default function OfferRidePage() {
         setRouteLoading(false);
 
         if (status !== "OK" || !result) {
-          setMessage("Route distance could not be calculated.");
+          resetRouteInfo();
+          setMessage("Route distance could not be calculated. Try another destination.");
           return;
         }
 
         const leg = result.routes?.[0]?.legs?.[0];
 
         if (!leg) {
+          resetRouteInfo();
           setMessage("Route information was not found.");
           return;
         }
@@ -310,17 +315,13 @@ export default function OfferRidePage() {
       if (target === "from") {
         setFrom(address);
         setFromCoords(coords);
+        setMessage("Current location set as pickup point. Now type your destination.");
       } else {
         setTo(address);
         setToCoords(coords);
         setNearbyPlaces([]);
+        setMessage("Current location set as destination.");
       }
-
-      setMessage(
-        target === "from"
-          ? "Current location set as pickup point."
-          : "Current location set as destination."
-      );
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not get current location.");
     } finally {
@@ -335,47 +336,19 @@ export default function OfferRidePage() {
     if (value.includes("airport")) return "airport";
     if (value.includes("sju")) return "airport";
     if (value.includes("hospital")) return "hospital";
-    if (value.includes("walmart")) return "walmart";
-    if (value.includes("costco")) return "costco";
+    if (value.includes("walmart")) return "Walmart";
+    if (value.includes("costco")) return "Costco";
+    if (value.includes("sam")) return "Sam's Club";
     if (value.includes("gasolinera")) return "gas station";
     if (value.includes("gas station")) return "gas station";
     if (value.includes("gas")) return "gas station";
     if (value.includes("mall")) return "shopping mall";
     if (value.includes("plaza")) return "shopping mall";
-    if (value.includes("policía")) return "police";
-    if (value.includes("policia")) return "police";
-    if (value.includes("cuartel")) return "police";
+    if (value.includes("policía")) return "police station";
+    if (value.includes("policia")) return "police station";
+    if (value.includes("cuartel")) return "police station";
 
-    return value;
-  }
-
-  function getSearchType(text: string) {
-    const value = text.toLowerCase();
-
-    if (value.includes("airport") || value.includes("aeropuerto") || value.includes("sju")) {
-      return "airport";
-    }
-
-    if (value.includes("hospital")) return "hospital";
-
-    if (value.includes("gasolinera") || value.includes("gas") || value.includes("station")) {
-      return "gas_station";
-    }
-
-    if (value.includes("policia") || value.includes("policía") || value.includes("cuartel")) {
-      return "police";
-    }
-
-    if (
-      value.includes("walmart") ||
-      value.includes("costco") ||
-      value.includes("mall") ||
-      value.includes("plaza")
-    ) {
-      return "shopping_mall";
-    }
-
-    return "";
+    return text.trim();
   }
 
   function calculateStraightDistanceMiles(origin: LatLng, destination: LatLng) {
@@ -400,6 +373,14 @@ export default function OfferRidePage() {
   function searchNearbyPlaces(searchText: string) {
     setNearbyQuery(searchText);
 
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    searchTimerRef.current = setTimeout(() => {
+      runNearbySearch(searchText);
+    }, 450);
+  }
+
+  function runNearbySearch(searchText: string) {
     if (!mapsReady || !placesServiceRef.current || !window.google?.maps?.places) return;
 
     const baseLocation = fromCoords || userLocation;
@@ -418,24 +399,20 @@ export default function OfferRidePage() {
     }
 
     setNearbyLoading(true);
+    setMessage("");
 
-    const searchType = getSearchType(searchText);
-
-    const request: any = {
+    const request = {
+      query: cleanQuery,
       location: new window.google.maps.LatLng(baseLocation.lat, baseLocation.lng),
-      rankBy: window.google.maps.places.RankBy.DISTANCE,
-      keyword: cleanQuery,
+      radius: 50000,
     };
 
-    if (searchType) {
-      request.type = searchType;
-    }
-
-    placesServiceRef.current.nearbySearch(request, (results: any[], status: string) => {
+    placesServiceRef.current.textSearch(request, (results: any[], status: string) => {
       setNearbyLoading(false);
 
       if (status !== window.google.maps.places.PlacesServiceStatus.OK || !results?.length) {
         setNearbyPlaces([]);
+        setMessage("No nearby places found. Try a more specific search like Walmart Guayama.");
         return;
       }
 
@@ -449,7 +426,7 @@ export default function OfferRidePage() {
 
           return {
             name: place.name || "Unknown place",
-            address: place.vicinity || place.formatted_address || "",
+            address: place.formatted_address || place.vicinity || "",
             lat: coords.lat,
             lng: coords.lng,
             distanceMiles: calculateStraightDistanceMiles(baseLocation, coords),
@@ -457,7 +434,7 @@ export default function OfferRidePage() {
           };
         })
         .sort((a, b) => a.distanceMiles - b.distanceMiles)
-        .slice(0, 6);
+        .slice(0, 8);
 
       setNearbyPlaces(cleaned);
     });
@@ -484,6 +461,7 @@ export default function OfferRidePage() {
     setNearbyPlaces([]);
     setNearbyQuery("");
     resetRouteInfo();
+    setMessage("");
   }
 
   function useSuggestedPrice() {
@@ -515,6 +493,12 @@ export default function OfferRidePage() {
 
     if (!toCoords) {
       setMessage("Please select a real destination from Nearby Places.");
+      return;
+    }
+
+    if (routeInfo.distanceMiles <= 0) {
+      setMessage("Please wait until RoadLink calculates the route.");
+      calculateRoute(fromCoords, toCoords);
       return;
     }
 
@@ -1216,4 +1200,4 @@ function StatBox({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-}
+    }
