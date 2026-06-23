@@ -3,15 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  updateDoc,
-  where,
-} from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 
 type Booking = {
@@ -31,10 +23,9 @@ type Booking = {
   status?: string;
   paymentStatus?: string;
   paymentId?: string;
+  stripeCheckoutSessionId?: string;
   createdAt?: string;
 };
-
-type PaymentStatus = "pending" | "paid" | "failed" | "cancelled";
 
 export default function MyBookingsPage() {
   const [userId, setUserId] = useState("");
@@ -101,28 +92,16 @@ export default function MyBookingsPage() {
     );
 
     const pendingPayment = bookings.filter(
-      (item) =>
-        item.status === "payment_pending" ||
-        item.paymentStatus === "pending"
+      (item) => item.status === "payment_pending" || item.paymentStatus === "pending"
     );
 
     const paid = bookings.filter(
       (item) => item.paymentStatus === "paid" || item.status === "paid"
     );
 
-    const totalValue = bookings.reduce(
-      (total, item) => total + bookingTotal(item),
-      0
-    );
+    const totalValue = bookings.reduce((total, item) => total + bookingTotal(item), 0);
 
-    return {
-      active,
-      completed,
-      cancelled,
-      pendingPayment,
-      paid,
-      totalValue,
-    };
+    return { active, completed, cancelled, pendingPayment, paid, totalValue };
   }, [bookings]);
 
   async function startPayment(booking: Booking) {
@@ -135,167 +114,29 @@ export default function MyBookingsPage() {
 
     try {
       setPayingId(booking.id);
-      setMessage("");
+      setMessage("Opening secure Stripe Checkout...");
 
-      const now = new Date().toISOString();
-      const total = bookingTotal(booking);
-      const platformFee = Math.round(total * 0.12 * 100) / 100;
-      const driverAmount = Math.max(total - platformFee, 0);
-
-      const paymentRef = await addDoc(collection(db, "payments"), {
-        bookingId: booking.id,
-        rideId: booking.rideId || "",
-        passengerId: userId,
-        passengerEmail: userEmail || booking.passengerEmail || "",
-        driverId: booking.driverId || "",
-        driverEmail: booking.driverEmail || "",
-        amount: total,
-        platformFee,
-        driverAmount,
-        currency: "USD",
-        provider: "manual_stripe_ready",
-        status: "pending" as PaymentStatus,
-        type: "booking_payment",
-        description: `RoadLink booking payment from ${booking.from || "Origin"} to ${booking.to || "Destination"}`,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await updateDoc(doc(db, "bookings", booking.id), {
-        status: "payment_pending",
-        paymentStatus: "pending",
-        paymentId: paymentRef.id,
-        amount: total,
-        platformFee,
-        driverAmount,
-        updatedAt: now,
-      });
-
-      if (booking.rideId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: booking.driverId || "",
-          email: booking.driverEmail || "",
-          title: "Payment pending",
-          message: `${userEmail || "Passenger"} started payment for a booking.`,
-          type: "payment",
-          read: false,
+      const response = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           bookingId: booking.id,
-          rideId: booking.rideId,
-          createdAt: now,
-        });
+          userId,
+          userEmail: userEmail || booking.passengerEmail || "",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Could not create Stripe Checkout session.");
       }
 
-      await addDoc(collection(db, "auditLogs"), {
-        action: "Booking Payment Started",
-        targetId: booking.id,
-        targetType: "booking",
-        details: `Payment pending for ${money(total)}`,
-        severity: "info",
-        createdAt: now,
-      });
-
-      setMessage("Payment started. Stripe checkout can be connected next.");
+      window.location.href = data.url;
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not start payment.");
-    } finally {
-      setPayingId("");
-    }
-  }
-
-  async function markAsPaid(booking: Booking) {
-    if (!booking.id) return;
-
-    try {
-      setPayingId(booking.id);
-      setMessage("");
-
-      const now = new Date().toISOString();
-      const total = bookingTotal(booking);
-      const platformFee = Math.round(total * 0.12 * 100) / 100;
-      const driverAmount = Math.max(total - platformFee, 0);
-
-      let paymentId = booking.paymentId || "";
-
-      if (!paymentId) {
-        const paymentRef = await addDoc(collection(db, "payments"), {
-          bookingId: booking.id,
-          rideId: booking.rideId || "",
-          passengerId: userId,
-          passengerEmail: userEmail || booking.passengerEmail || "",
-          driverId: booking.driverId || "",
-          driverEmail: booking.driverEmail || "",
-          amount: total,
-          platformFee,
-          driverAmount,
-          currency: "USD",
-          provider: "manual_admin_ready",
-          status: "paid" as PaymentStatus,
-          type: "booking_payment",
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        paymentId = paymentRef.id;
-      } else {
-        await updateDoc(doc(db, "payments", paymentId), {
-          status: "paid",
-          paidAt: now,
-          updatedAt: now,
-        });
-      }
-
-      await updateDoc(doc(db, "bookings", booking.id), {
-        status: "paid",
-        paymentStatus: "paid",
-        paymentId,
-        amount: total,
-        platformFee,
-        driverAmount,
-        paidAt: now,
-        updatedAt: now,
-      });
-
-      await addDoc(collection(db, "walletTransactions"), {
-        bookingId: booking.id,
-        rideId: booking.rideId || "",
-        driverId: booking.driverId || "",
-        driverEmail: booking.driverEmail || "",
-        passengerId: userId,
-        passengerEmail: userEmail || booking.passengerEmail || "",
-        amount: driverAmount,
-        platformFee,
-        grossAmount: total,
-        type: "ride_payment",
-        status: "pending_payout",
-        description: `Ride payment from ${booking.from || "Origin"} to ${booking.to || "Destination"}`,
-        createdAt: now,
-      });
-
-      await addDoc(collection(db, "notifications"), {
-        userId: booking.driverId || "",
-        email: booking.driverEmail || "",
-        title: "Booking paid",
-        message: `A passenger paid ${money(total)}. Driver balance updated.`,
-        type: "payment",
-        read: false,
-        bookingId: booking.id,
-        rideId: booking.rideId || "",
-        createdAt: now,
-      });
-
-      await addDoc(collection(db, "auditLogs"), {
-        action: "Booking Payment Completed",
-        targetId: booking.id,
-        targetType: "booking",
-        details: `Payment completed for ${money(total)}`,
-        severity: "success",
-        createdAt: now,
-      });
-
-      setMessage("Payment marked as paid and driver wallet updated.");
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not complete payment.");
-    } finally {
+      setMessage(error instanceof Error ? error.message : "Could not open Stripe Checkout.");
       setPayingId("");
     }
   }
@@ -330,10 +171,7 @@ export default function MyBookingsPage() {
   }
 
   function bookingTotal(booking: Booking) {
-    return (
-      Number(booking.amount || booking.price || 0) *
-      Number(booking.seatsBooked || 1)
-    );
+    return Number(booking.amount || booking.price || 0) * Number(booking.seatsBooked || 1);
   }
 
   function money(value: number) {
@@ -375,7 +213,7 @@ export default function MyBookingsPage() {
             <p className="eyebrow">RoadLink Passenger</p>
             <h1>My <span>Bookings</span></h1>
             <p className="subtitle">
-              Manage your reservations, payment status, booking history, receipts and trip progress.
+              Manage reservations, Stripe payments, booking history, driver messages and trip progress.
             </p>
           </div>
 
@@ -418,10 +256,8 @@ export default function MyBookingsPage() {
                 const total = bookingTotal(booking);
                 const platformFee = Math.round(total * 0.12 * 100) / 100;
                 const driverAmount = Math.max(total - platformFee, 0);
-                const isPaid =
-                  booking.paymentStatus === "paid" || booking.status === "paid";
-                const isCancelled =
-                  booking.status === "cancelled" || booking.status === "rejected";
+                const isPaid = booking.paymentStatus === "paid" || booking.status === "paid";
+                const isCancelled = booking.status === "cancelled" || booking.status === "rejected";
 
                 return (
                   <section key={booking.id} className="bookingCard">
@@ -463,21 +299,11 @@ export default function MyBookingsPage() {
                           onClick={() => startPayment(booking)}
                           disabled={payingId === booking.id}
                         >
-                          {payingId === booking.id ? "Processing..." : "Pay Now"}
+                          {payingId === booking.id ? "Opening Stripe..." : "Pay Now"}
                         </button>
                       )}
 
-                      {!isPaid && !isCancelled && (
-                        <button
-                          className="paidButton"
-                          onClick={() => markAsPaid(booking)}
-                          disabled={payingId === booking.id}
-                        >
-                          Mark Paid
-                        </button>
-                      )}
-
-                      {!isCancelled && booking.status !== "completed" && (
+                      {!isCancelled && booking.status !== "completed" && !isPaid && (
                         <button
                           className="dangerButton"
                           onClick={() => cancelBooking(booking)}
@@ -516,10 +342,7 @@ export default function MyBookingsPage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container {
-          max-width: 1180px;
-          margin: auto;
-        }
+        .container { max-width: 1180px; margin: auto; }
 
         .topNav {
           display: flex;
@@ -539,9 +362,7 @@ export default function MyBookingsPage() {
           background: rgba(255,255,255,0.05);
         }
 
-        .miniButton {
-          padding: 10px 15px;
-        }
+        .miniButton { padding: 10px 15px; }
 
         .hero,
         .metric,
@@ -573,22 +394,9 @@ export default function MyBookingsPage() {
           text-transform: uppercase;
         }
 
-        h1 {
-          font-size: 52px;
-          line-height: 1;
-          margin: 0 0 12px;
-        }
-
-        h1 span,
-        h2,
-        .metricValue {
-          color: #22c55e;
-        }
-
-        h2 {
-          margin: 0;
-          font-size: 30px;
-        }
+        h1 { font-size: 52px; line-height: 1; margin: 0 0 12px; }
+        h1 span, h2, .metricValue { color: #22c55e; }
+        h2 { margin: 0; font-size: 30px; }
 
         .subtitle,
         .bookingCard p,
@@ -671,14 +479,8 @@ export default function MyBookingsPage() {
           padding: 24px;
         }
 
-        .sectionTop {
-          margin-bottom: 18px;
-        }
-
-        .bookingGrid {
-          display: grid;
-          gap: 14px;
-        }
+        .sectionTop { margin-bottom: 18px; }
+        .bookingGrid { display: grid; gap: 14px; }
 
         .bookingCard {
           border-radius: 24px;
@@ -700,9 +502,7 @@ export default function MyBookingsPage() {
           overflow-wrap: anywhere;
         }
 
-        .bookingCard p {
-          margin: 0;
-        }
+        .bookingCard p { margin: 0; }
 
         .pill {
           padding: 8px 11px;
@@ -798,11 +598,6 @@ export default function MyBookingsPage() {
           background: linear-gradient(135deg, #22c55e, #16a34a);
         }
 
-        .paidButton {
-          background: rgba(59,130,246,0.18);
-          border: 1px solid rgba(59,130,246,0.35) !important;
-        }
-
         .dangerButton {
           color: #fca5a5 !important;
           background: rgba(239,68,68,0.14);
@@ -855,9 +650,7 @@ export default function MyBookingsPage() {
             padding: 24px;
           }
 
-          h1 {
-            font-size: 42px;
-          }
+          h1 { font-size: 42px; }
 
           .stats,
           .routeBox,
@@ -865,28 +658,15 @@ export default function MyBookingsPage() {
             grid-template-columns: 1fr;
           }
 
-          .bookingsPanel {
-            padding: 18px;
-          }
-
-          .cardTop {
-            flex-direction: column;
-          }
+          .bookingsPanel { padding: 18px; }
+          .cardTop { flex-direction: column; }
         }
       `}</style>
     </main>
   );
 }
 
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-}) {
+function Metric({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="metric">
       <div className="metricIcon">{icon}</div>
@@ -903,4 +683,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value || "Not available"}</strong>
     </div>
   );
-          }
+}
