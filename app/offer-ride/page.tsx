@@ -37,7 +37,11 @@ export default function OfferRidePage() {
   const router = useRouter();
 
   const fromInputRef = useRef<HTMLInputElement | null>(null);
+  const toInputRef = useRef<HTMLInputElement | null>(null);
+
   const fromAutoRef = useRef<any>(null);
+  const toAutoRef = useRef<any>(null);
+
   const directionsServiceRef = useRef<any>(null);
   const geocoderRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
@@ -97,10 +101,13 @@ export default function OfferRidePage() {
       }
 
       if (fromInputRef.current && !fromAutoRef.current) {
-        fromAutoRef.current = new window.google.maps.places.Autocomplete(fromInputRef.current, {
-          fields: ["formatted_address", "geometry", "name", "place_id"],
-          componentRestrictions: { country: "us" },
-        });
+        fromAutoRef.current = new window.google.maps.places.Autocomplete(
+          fromInputRef.current,
+          {
+            fields: ["formatted_address", "geometry", "name", "place_id"],
+            componentRestrictions: { country: "us" },
+          }
+        );
 
         fromAutoRef.current.addListener("place_changed", () => {
           const place = fromAutoRef.current.getPlace();
@@ -117,9 +124,43 @@ export default function OfferRidePage() {
 
             setFromCoords(coords);
             setUserLocation(coords);
-            biasFromAutocomplete(coords);
+            biasAutocomplete(coords);
           } else {
             setFromCoords(null);
+            setMessage("Please select a real pickup location.");
+          }
+        });
+      }
+
+      if (toInputRef.current && !toAutoRef.current) {
+        toAutoRef.current = new window.google.maps.places.Autocomplete(
+          toInputRef.current,
+          {
+            fields: ["formatted_address", "geometry", "name", "place_id"],
+            componentRestrictions: { country: "us" },
+          }
+        );
+
+        toAutoRef.current.addListener("place_changed", () => {
+          const place = toAutoRef.current.getPlace();
+          const label = place.formatted_address || place.name || "";
+
+          setTo(label);
+          resetRouteInfo();
+
+          if (place.geometry?.location) {
+            const coords = {
+              lat: place.geometry.location.lat(),
+              lng: place.geometry.location.lng(),
+            };
+
+            setToCoords(coords);
+            setNearbyPlaces([]);
+            setNearbyQuery("");
+            setMessage("Destination selected successfully.");
+          } else {
+            setToCoords(null);
+            setMessage("Please select a real destination from Google results.");
           }
         });
       }
@@ -149,6 +190,9 @@ export default function OfferRidePage() {
 
       if (existingScript) {
         existingScript.addEventListener("load", setupGoogleServices);
+        existingScript.addEventListener("error", () => {
+          if (mounted) setMessage("Google Maps could not load.");
+        });
         return;
       }
 
@@ -179,18 +223,19 @@ export default function OfferRidePage() {
     }
   }, [fromCoords, toCoords, mapsReady]);
 
-  function biasFromAutocomplete(coords: LatLng) {
+  function biasAutocomplete(coords: LatLng) {
     if (!window.google?.maps) return;
 
     const circle = new window.google.maps.Circle({
       center: coords,
-      radius: 30000,
+      radius: 50000,
     });
 
     const bounds = circle.getBounds();
 
     if (bounds) {
       fromAutoRef.current?.setOptions({ bounds, strictBounds: false });
+      toAutoRef.current?.setOptions({ bounds, strictBounds: false });
     }
   }
 
@@ -310,12 +355,12 @@ export default function OfferRidePage() {
 
       resetRouteInfo();
       setUserLocation(coords);
-      biasFromAutocomplete(coords);
+      biasAutocomplete(coords);
 
       if (target === "from") {
         setFrom(address);
         setFromCoords(coords);
-        setMessage("Current location set as pickup point. Now type your destination.");
+        setMessage("Current location set as pickup point. Now select your destination.");
       } else {
         setTo(address);
         setToCoords(coords);
@@ -492,7 +537,7 @@ export default function OfferRidePage() {
     }
 
     if (!toCoords) {
-      setMessage("Please select a real destination from Nearby Places.");
+      setMessage("Please select a real destination from Google or Nearby Places.");
       return;
     }
 
@@ -564,7 +609,7 @@ export default function OfferRidePage() {
         <h1>Road<span>Link</span></h1>
         <h2>Offer a <span>Ride</span></h2>
 
-        <p>Publish your ride with GPS pickup and nearby destinations ranked by distance.</p>
+        <p>Publish your ride with GPS pickup and Google destination autocomplete.</p>
 
         <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
           {mapsReady ? "Google Maps ready" : "Loading Google Maps..."}
@@ -607,6 +652,7 @@ export default function OfferRidePage() {
         <Field label="To *">
           <div className="destinationBox">
             <input
+              ref={toInputRef}
               value={to}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -614,7 +660,7 @@ export default function OfferRidePage() {
                 resetRouteInfo();
                 searchNearbyPlaces(e.target.value);
               }}
-              placeholder="Airport, hospital, Walmart, gas station..."
+              placeholder="Search destination: Walmart, airport, hospital..."
               autoComplete="off"
             />
 
@@ -626,7 +672,9 @@ export default function OfferRidePage() {
           </div>
 
           {to && !destinationSelected && (
-            <p className="fieldWarning">Select a destination from Nearby Places before publishing.</p>
+            <p className="fieldWarning">
+              Select a real destination from Google suggestions or Nearby Places.
+            </p>
           )}
 
           {destinationSelected && (
@@ -636,7 +684,7 @@ export default function OfferRidePage() {
 
         <div className="gpsHelp">
           <span>Nearby Search</span>
-          Use GPS in From first, then type airport, hospital, Walmart or gas station.
+          Use GPS in From first, then type Walmart, airport, hospital or gas station.
         </div>
 
         {(nearbyLoading || nearbyPlaces.length > 0) && (
@@ -753,7 +801,7 @@ export default function OfferRidePage() {
             Destination GPS:{" "}
             {toCoords
               ? `${toCoords.lat.toFixed(5)}, ${toCoords.lng.toFixed(5)}`
-              : "Select destination from nearby results"}
+              : "Select destination from Google or Nearby Places"}
           </p>
 
           {from && destinationSelected && (
@@ -1200,4 +1248,4 @@ function StatBox({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-    }
+      }
