@@ -2,39 +2,29 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  setDoc,
-} from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type AuditSeverity = "info" | "success" | "warning" | "danger";
+type AuditSeverity = "info" | "success" | "warning" | "critical" | "error";
 
 type AuditLog = {
   id: string;
-  userId?: string;
-  userEmail?: string;
-  adminId?: string;
-  adminEmail?: string;
   action?: string;
   targetId?: string;
   targetType?: string;
   details?: string;
-  severity?: AuditSeverity;
+  severity?: AuditSeverity | string;
+  adminEmail?: string;
+  userEmail?: string;
   createdAt?: string;
+  resolved?: boolean;
 };
 
-export default function AdminAuditLogsPage() {
+export default function AdminAuditLogsCenterPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [selected, setSelected] = useState<AuditLog | null>(null);
-  const [search, setSearch] = useState("");
-  const [severityFilter, setSeverityFilter] = useState<"all" | AuditSeverity>("all");
-  const [message, setMessage] = useState("Loading audit logs...");
-  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState("Loading audit logs center...");
+  const [processingId, setProcessingId] = useState("");
+  const [filter, setFilter] = useState("all");
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -45,16 +35,13 @@ export default function AdminAuditLogsPage() {
           ...item.data(),
         })) as AuditLog[];
 
-        data.sort((a, b) =>
-          String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+        setLogs(
+          data.sort(
+            (a, b) =>
+              new Date(b.createdAt || "").getTime() -
+              new Date(a.createdAt || "").getTime()
+          )
         );
-
-        setLogs(data);
-
-        setSelected((current) => {
-          if (!current) return data[0] || null;
-          return data.find((item) => item.id === current.id) || data[0] || null;
-        });
 
         setMessage("");
       },
@@ -64,113 +51,153 @@ export default function AdminAuditLogsPage() {
     return () => unsubscribe();
   }, []);
 
+  const metrics = useMemo(() => {
+    const info = logs.filter((item) => !item.severity || item.severity === "info");
+    const success = logs.filter((item) => item.severity === "success");
+    const warning = logs.filter((item) => item.severity === "warning");
+    const critical = logs.filter((item) => item.severity === "critical" || item.severity === "error");
+    const unresolved = logs.filter((item) => !item.resolved && (item.severity === "critical" || item.severity === "error" || item.severity === "warning"));
+
+    const paymentLogs = logs.filter((item) => item.targetType === "payment" || item.action?.toLowerCase().includes("payment"));
+    const safetyLogs = logs.filter((item) =>
+      ["sosEvent", "report", "fraudSignal", "driverVerification"].includes(item.targetType || "")
+    );
+    const dispatchLogs = logs.filter((item) => item.action?.toLowerCase().includes("dispatch") || item.targetType === "ride" || item.targetType === "booking");
+
+    const auditScore = Math.max(
+      Math.min(
+        100 + success.length - warning.length * 2 - critical.length * 6 - unresolved.length * 5,
+        100
+      ),
+      0
+    );
+
+    return {
+      info,
+      success,
+      warning,
+      critical,
+      unresolved,
+      paymentLogs,
+      safetyLogs,
+      dispatchLogs,
+      auditScore,
+    };
+  }, [logs]);
+
   const filteredLogs = useMemo(() => {
-    const text = search.toLowerCase().trim();
+    if (filter === "critical") {
+      return logs.filter((item) => item.severity === "critical" || item.severity === "error");
+    }
 
-    return logs.filter((log) => {
-      const matchesSeverity =
-        severityFilter === "all" || (log.severity || "info") === severityFilter;
+    if (filter === "warning") {
+      return logs.filter((item) => item.severity === "warning");
+    }
 
-      const matchesSearch =
-        !text ||
-        log.userEmail?.toLowerCase().includes(text) ||
-        log.adminEmail?.toLowerCase().includes(text) ||
-        log.userId?.toLowerCase().includes(text) ||
-        log.adminId?.toLowerCase().includes(text) ||
-        log.action?.toLowerCase().includes(text) ||
-        log.targetId?.toLowerCase().includes(text) ||
-        log.targetType?.toLowerCase().includes(text) ||
-        log.details?.toLowerCase().includes(text) ||
-        log.id.toLowerCase().includes(text);
+    if (filter === "success") {
+      return logs.filter((item) => item.severity === "success");
+    }
 
-      return matchesSeverity && matchesSearch;
-    });
-  }, [logs, search, severityFilter]);
+    if (filter === "payments") {
+      return logs.filter((item) => item.targetType === "payment" || item.action?.toLowerCase().includes("payment"));
+    }
 
-  const infoCount = logs.filter((item) => !item.severity || item.severity === "info").length;
-  const successCount = logs.filter((item) => item.severity === "success").length;
-  const warningCount = logs.filter((item) => item.severity === "warning").length;
-  const dangerCount = logs.filter((item) => item.severity === "danger").length;
+    if (filter === "safety") {
+      return logs.filter((item) =>
+        ["sosEvent", "report", "fraudSignal", "driverVerification"].includes(item.targetType || "")
+      );
+    }
 
-  function dateText(value?: string) {
-    if (!value) return "Not available";
+    if (filter === "dispatch") {
+      return logs.filter((item) => item.action?.toLowerCase().includes("dispatch") || item.targetType === "ride" || item.targetType === "booking");
+    }
 
+    return logs;
+  }, [logs, filter]);
+
+  async function markResolved(log: AuditLog) {
     try {
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "Not available";
-      return date.toLocaleString();
-    } catch {
-      return "Not available";
+      setProcessingId(log.id);
+      const now = new Date().toISOString();
+
+      await setDoc(
+        doc(db, "auditLogs", log.id),
+        {
+          resolved: true,
+          resolvedAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      setMessage("Audit log marked as resolved.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not update audit log.");
+    } finally {
+      setProcessingId("");
     }
   }
 
-  function severityLabel(value?: string) {
-    if (value === "success") return "Success";
-    if (value === "warning") return "Warning";
-    if (value === "danger") return "Danger";
+  async function escalateLog(log: AuditLog) {
+    try {
+      setProcessingId(log.id);
+      const now = new Date().toISOString();
+
+      await setDoc(
+        doc(db, "auditLogs", log.id),
+        {
+          severity: "critical",
+          resolved: false,
+          escalatedAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      await setDoc(
+        doc(db, "notifications", `audit-escalation-${log.id}-${Date.now()}`),
+        {
+          title: "Critical audit log escalated",
+          message: `${log.action || "Audit event"} was escalated to critical.`,
+          type: "audit",
+          read: false,
+          targetId: log.targetId || "",
+          targetType: log.targetType || "auditLog",
+          createdAt: now,
+        },
+        { merge: true }
+      );
+
+      setMessage("Audit log escalated.");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Could not escalate audit log.");
+    } finally {
+      setProcessingId("");
+    }
+  }
+
+  function severityLabel(severity?: string) {
+    if (severity === "success") return "Success";
+    if (severity === "warning") return "Warning";
+    if (severity === "critical") return "Critical";
+    if (severity === "error") return "Error";
     return "Info";
   }
 
-  function iconFor(value?: string) {
-    if (value === "success") return "✅";
-    if (value === "warning") return "⚠️";
-    if (value === "danger") return "🚨";
-    return "ℹ️";
+  function severityClass(severity?: string, resolved?: boolean) {
+    if (resolved) return "resolved";
+    if (severity === "success") return "good";
+    if (severity === "warning") return "warning";
+    if (severity === "critical" || severity === "error") return "critical";
+    return "info";
   }
 
-  async function createTestLog() {
+  function formatDate(value?: string) {
+    if (!value) return "Not available";
     try {
-      setCreating(true);
-      setMessage("");
-
-      const now = new Date().toISOString();
-
-      await addDoc(collection(db, "auditLogs"), {
-        userId: "system",
-        userEmail: "system@getroadlink.com",
-        adminId: "admin",
-        adminEmail: "admin@getroadlink.com",
-        action: "Audit Log Test",
-        targetId: "admin-audit-logs",
-        targetType: "system",
-        details: "Manual test audit log created from Admin Audit Log Center.",
-        severity: "info",
-        createdAt: now,
-      });
-
-      setMessage("Test audit log created.");
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not create test log.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function markReviewed(log: AuditLog) {
-    try {
-      setCreating(true);
-      setMessage("");
-
-      const now = new Date().toISOString();
-
-      await setDoc(doc(db, "auditLogs", `reviewed-${log.id}-${Date.now()}`), {
-        userId: log.userId || "",
-        userEmail: log.userEmail || "",
-        adminId: "admin",
-        adminEmail: "admin@getroadlink.com",
-        action: "Audit Log Reviewed",
-        targetId: log.id,
-        targetType: "auditLog",
-        details: `Reviewed audit log: ${log.action || "Unknown action"}`,
-        severity: "success",
-        createdAt: now,
-      });
-
-      setMessage("Review audit log created.");
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not mark as reviewed.");
-    } finally {
-      setCreating(false);
+      return new Date(value).toLocaleString();
+    } catch {
+      return value;
     }
   }
 
@@ -178,166 +205,126 @@ export default function AdminAuditLogsPage() {
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin Home</Link>
-          <Link href="/admin/analytics" className="miniButton">Analytics</Link>
+          <Link href="/admin" className="miniButton">Admin</Link>
+          <Link href="/admin/reports" className="miniButton">Reports</Link>
+          <Link href="/admin/safety" className="miniButton">Safety</Link>
           <Link href="/admin/fraud" className="miniButton">Fraud</Link>
-          <Link href="/admin/settings" className="miniButton">Settings</Link>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/admin/payments" className="miniButton">Payments</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Admin</p>
-            <h1>Audit <span>Logs</span></h1>
+            <p className="eyebrow">RoadLink Governance</p>
+            <h1>Audit Logs <span>Center</span></h1>
             <p className="subtitle">
-              Track every important admin action, security event, payout decision,
-              verification review, support action, and platform change.
+              Monitor every critical action across payments, dispatch, reports, safety, fraud,
+              users, verification, Stripe, wallet and admin operations.
             </p>
           </div>
 
-          <div className="heroIcon">🧾</div>
+          <div className={metrics.auditScore >= 70 ? "scoreOrb" : "scoreOrb warningScore"}>
+            <strong>{metrics.auditScore}</strong>
+            <span>Audit Score</span>
+          </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🧾" label="Total Logs" value={String(logs.length)} />
-          <Metric icon="ℹ️" label="Info" value={String(infoCount)} />
-          <Metric icon="✅" label="Success" value={String(successCount)} />
-          <Metric icon="⚠️" label="Warning" value={String(warningCount)} />
-          <Metric icon="🚨" label="Danger" value={String(dangerCount)} />
-          <Metric icon="📋" label="Filtered" value={String(filteredLogs.length)} />
+          <Metric icon="📚" label="Total Logs" value={String(logs.length)} />
+          <Metric icon="✅" label="Success" value={String(metrics.success.length)} />
+          <Metric icon="ℹ️" label="Info" value={String(metrics.info.length)} />
+          <Metric icon="⚠️" label="Warnings" value={String(metrics.warning.length)} />
+          <Metric icon="🚨" label="Critical" value={String(metrics.critical.length)} />
+          <Metric icon="🔥" label="Unresolved" value={String(metrics.unresolved.length)} />
+          <Metric icon="💳" label="Payment Logs" value={String(metrics.paymentLogs.length)} />
+          <Metric icon="🛡️" label="Safety Logs" value={String(metrics.safetyLogs.length)} />
         </section>
 
-        <section className="toolsCard">
-          <div>
-            <p className="eyebrow">Developer Tool</p>
-            <h2>Create Test Audit Log</h2>
-            <p>
-              Use this to confirm that your audit logging system is writing correctly
-              to Firestore.
-            </p>
+        <section className="panel">
+          <div className="panelTop">
+            <div>
+              <p className="eyebrow">Audit Filters</p>
+              <h2>Control Timeline</h2>
+            </div>
+
+            <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+              <option value="all">All Logs</option>
+              <option value="critical">Critical</option>
+              <option value="warning">Warnings</option>
+              <option value="success">Success</option>
+              <option value="payments">Payments</option>
+              <option value="safety">Safety</option>
+              <option value="dispatch">Dispatch</option>
+            </select>
           </div>
 
-          <button onClick={createTestLog} disabled={creating}>
-            {creating ? "Creating..." : "Create Test Log"}
-          </button>
-        </section>
-
-        <section className="filtersCard">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by action, user, admin, target, details, or log ID..."
-          />
-
-          <select
-            value={severityFilter}
-            onChange={(event) => setSeverityFilter(event.target.value as "all" | AuditSeverity)}
-          >
-            <option value="all">All severity</option>
-            <option value="info">Info</option>
-            <option value="success">Success</option>
-            <option value="warning">Warning</option>
-            <option value="danger">Danger</option>
-          </select>
-        </section>
-
-        <section className="adminGrid">
-          <div className="logsCard">
-            <p className="eyebrow">Timeline</p>
-            <h2>System Activity</h2>
-
-            {filteredLogs.length === 0 ? (
-              <div className="empty">
-                <h3>No audit logs found</h3>
-                <p>Audit logs will appear here when admin actions happen.</p>
-              </div>
-            ) : (
-              <div className="logList">
-                {filteredLogs.map((log) => (
-                  <button
-                    key={log.id}
-                    onClick={() => setSelected(log)}
-                    className={selected?.id === log.id ? "logRow activeLog" : "logRow"}
-                  >
-                    <div className={`logIcon ${log.severity || "info"}`}>
-                      {iconFor(log.severity)}
-                    </div>
-
-                    <div className="logInfo">
-                      <strong>{log.action || "System Action"}</strong>
-                      <span>{log.adminEmail || log.userEmail || "System"}</span>
-                      <small>{dateText(log.createdAt)}</small>
-                    </div>
-
-                    <em className={`severity ${log.severity || "info"}`}>
-                      {severityLabel(log.severity)}
-                    </em>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="quickGrid">
+            <Quick label="Payments" value={metrics.paymentLogs.length} />
+            <Quick label="Safety" value={metrics.safetyLogs.length} />
+            <Quick label="Dispatch" value={metrics.dispatchLogs.length} />
+            <Quick label="Unresolved" value={metrics.unresolved.length} />
           </div>
+        </section>
 
-          <div className="detailsCard">
-            {selected ? (
-              <>
-                <div className="sectionHeader">
-                  <div>
-                    <p className="eyebrow">Selected Log</p>
-                    <h2>{selected.action || "System Action"}</h2>
-                    <p className="email">{selected.adminEmail || selected.userEmail || "No email"}</p>
+        <section className="panel">
+          <p className="eyebrow">System Timeline</p>
+          <h2>Audit Events</h2>
+
+          {filteredLogs.length === 0 ? (
+            <div className="empty">
+              <h3>No audit logs found</h3>
+              <p>Admin, payment, safety, fraud and dispatch actions will appear here.</p>
+            </div>
+          ) : (
+            <div className="logGrid">
+              {filteredLogs.map((log) => (
+                <section key={log.id} className={`logCard ${severityClass(log.severity, log.resolved)}`}>
+                  <div className="cardTop">
+                    <div>
+                      <h3>{log.action || "Audit Event"}</h3>
+                      <p>{log.details || "No details available"}</p>
+                    </div>
+
+                    <span className={`pill ${severityClass(log.severity, log.resolved)}`}>
+                      {log.resolved ? "Resolved" : severityLabel(log.severity)}
+                    </span>
                   </div>
 
-                  <span className={`severityPill ${selected.severity || "info"}`}>
-                    {severityLabel(selected.severity)}
-                  </span>
-                </div>
+                  <div className="infoGrid">
+                    <Info label="Target Type" value={log.targetType || "Not available"} />
+                    <Info label="Target ID" value={log.targetId || "Not linked"} />
+                    <Info label="Admin" value={log.adminEmail || "Not available"} />
+                    <Info label="User" value={log.userEmail || "Not available"} />
+                    <Info label="Severity" value={severityLabel(log.severity)} />
+                    <Info label="Created" value={formatDate(log.createdAt)} />
+                    <Info label="Resolved" value={log.resolved ? "Yes" : "No"} />
+                    <Info label="Log ID" value={log.id} />
+                  </div>
 
-                <div className={`detailsBox ${selected.severity || "info"}`}>
-                  <strong>Details</strong>
-                  <p>{selected.details || "No details provided."}</p>
-                </div>
+                  <div className="actions">
+                    {!log.resolved && (
+                      <button
+                        className="goodButton"
+                        onClick={() => markResolved(log)}
+                        disabled={processingId === log.id}
+                      >
+                        Resolve
+                      </button>
+                    )}
 
-                <div className="infoGrid">
-                  <Info label="Log ID" value={selected.id} />
-                  <Info label="Severity" value={severityLabel(selected.severity)} />
-                  <Info label="Action" value={selected.action || "Not available"} />
-                  <Info label="Target Type" value={selected.targetType || "Not available"} />
-                  <Info label="Target ID" value={selected.targetId || "Not available"} />
-                  <Info label="User ID" value={selected.userId || "Not available"} />
-                  <Info label="User Email" value={selected.userEmail || "Not available"} />
-                  <Info label="Admin ID" value={selected.adminId || "Not available"} />
-                  <Info label="Admin Email" value={selected.adminEmail || "Not available"} />
-                  <Info label="Created" value={dateText(selected.createdAt)} />
-                </div>
-
-                <div className="actionRow">
-                  <button
-                    className="approveButton"
-                    onClick={() => markReviewed(selected)}
-                    disabled={creating}
-                  >
-                    {creating ? "Working..." : "Mark Reviewed"}
-                  </button>
-
-                  <Link href="/admin/fraud" className="linkButton">
-                    Open Fraud
-                  </Link>
-
-                  <Link href="/admin/support" className="linkButton">
-                    Open Support
-                  </Link>
-                </div>
-              </>
-            ) : (
-              <div className="empty">
-                <h3>Select a log</h3>
-                <p>Choose an audit log to view full details.</p>
-              </div>
-            )}
-          </div>
+                    <button
+                      className="dangerButton"
+                      onClick={() => escalateLog(log)}
+                      disabled={processingId === log.id}
+                    >
+                      Escalate
+                    </button>
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </section>
       </section>
 
@@ -346,20 +333,17 @@ export default function AdminAuditLogsPage() {
 
         .page {
           min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
           padding-bottom: 140px;
           font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(59,130,246,0.20), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(34,197,94,0.14), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container {
-          max-width: 1180px;
-          margin: auto;
-        }
+        .container { max-width: 1450px; margin: auto; }
 
         .topNav {
           display: flex;
@@ -380,11 +364,10 @@ export default function AdminAuditLogsPage() {
 
         .hero,
         .metric,
-        .toolsCard,
-        .filtersCard,
-        .logsCard,
-        .detailsCard {
-          background: rgba(8, 13, 25, 0.92);
+        .panel,
+        .logCard,
+        .quickBox {
+          background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
           backdrop-filter: blur(16px);
@@ -422,28 +405,15 @@ export default function AdminAuditLogsPage() {
         }
 
         h2 {
-          font-size: 32px;
-          margin: 0 0 10px;
+          font-size: 30px;
+          margin: 0 0 14px;
         }
 
         .subtitle,
-        .email,
         .empty p,
-        .toolsCard p {
+        .logCard p {
           color: #a1a1aa;
           line-height: 1.5;
-        }
-
-        .heroIcon {
-          min-width: 92px;
-          height: 92px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 42px;
         }
 
         .message {
@@ -452,11 +422,43 @@ export default function AdminAuditLogsPage() {
           margin: 16px 0;
         }
 
+        .scoreOrb {
+          min-width: 112px;
+          height: 112px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .warningScore {
+          background: rgba(239,68,68,0.12);
+          border-color: rgba(239,68,68,0.35);
+        }
+
+        .scoreOrb strong {
+          color: #22c55e;
+          font-size: 32px;
+          font-weight: 900;
+        }
+
+        .warningScore strong { color: #fca5a5; }
+
+        .scoreOrb span {
+          color: #a1a1aa;
+          font-size: 10px;
+          font-weight: 900;
+        }
+
         .stats {
           display: grid;
-          grid-template-columns: repeat(6, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
-          margin-bottom: 18px;
+          margin-bottom: 24px;
         }
 
         .metric {
@@ -468,7 +470,7 @@ export default function AdminAuditLogsPage() {
           width: 42px;
           height: 42px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
+          background: rgba(59,130,246,0.14);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -485,48 +487,34 @@ export default function AdminAuditLogsPage() {
         }
 
         .metricValue {
-          font-size: 24px;
+          color: #22c55e;
+          font-size: 22px;
           font-weight: 900;
+          overflow-wrap: anywhere;
         }
 
-        .toolsCard {
-          border-radius: 28px;
-          padding: 24px;
-          margin-bottom: 18px;
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 18px;
-          align-items: center;
-        }
-
-        .toolsCard button {
-          padding: 16px 22px;
-          border-radius: 999px;
-          border: none;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          font-weight: 900;
-          cursor: pointer;
-        }
-
-        .filtersCard {
-          display: grid;
-          grid-template-columns: 1fr 220px;
-          gap: 12px;
-          border-radius: 24px;
-          padding: 18px;
+        .panel {
+          border-radius: 30px;
+          padding: 28px;
           margin-bottom: 24px;
         }
 
-        input,
+        .panelTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          align-items: flex-start;
+          margin-bottom: 18px;
+        }
+
         select {
-          width: 100%;
-          padding: 15px;
+          min-width: 220px;
+          padding: 14px;
           border-radius: 16px;
           border: 1px solid rgba(255,255,255,0.12);
           background: rgba(255,255,255,0.05);
           color: white;
-          font-size: 16px;
+          font-weight: 900;
           outline: none;
         }
 
@@ -534,173 +522,117 @@ export default function AdminAuditLogsPage() {
           color: black;
         }
 
-        .adminGrid {
+        .quickGrid {
           display: grid;
-          grid-template-columns: 0.9fr 1.4fr;
-          gap: 24px;
-        }
-
-        .logsCard,
-        .detailsCard {
-          border-radius: 30px;
-          padding: 28px;
-        }
-
-        .logList {
-          display: grid;
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
         }
 
-        .logRow {
-          width: 100%;
-          display: grid;
-          grid-template-columns: 52px 1fr auto;
-          gap: 12px;
-          align-items: center;
-          padding: 14px;
+        .quickBox {
           border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          cursor: pointer;
-          text-align: left;
+          padding: 16px;
+          box-shadow: none;
         }
 
-        .activeLog {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.1);
+        .quickBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 8px;
         }
 
-        .logIcon {
-          width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 24px;
-          border: 1px solid rgba(255,255,255,0.12);
+        .quickBox strong {
+          display: block;
+          color: #22c55e;
+          font-size: 26px;
+          font-weight: 900;
         }
 
-        .logIcon.info {
-          background: rgba(59,130,246,0.12);
-          border-color: rgba(59,130,246,0.35);
+        .logGrid {
+          display: grid;
+          gap: 16px;
         }
 
-        .logIcon.success {
-          background: rgba(34,197,94,0.12);
-          border-color: rgba(34,197,94,0.35);
+        .logCard {
+          border-radius: 24px;
+          padding: 22px;
+          box-shadow: none;
         }
 
-        .logIcon.warning {
-          background: rgba(250,204,21,0.12);
+        .logCard.critical {
+          border-color: rgba(239,68,68,0.35);
+          background:
+            radial-gradient(circle at top right, rgba(239,68,68,0.12), transparent 42%),
+            rgba(8,13,25,0.92);
+        }
+
+        .logCard.warning {
           border-color: rgba(250,204,21,0.35);
         }
 
-        .logIcon.danger {
-          background: rgba(239,68,68,0.12);
-          border-color: rgba(239,68,68,0.35);
+        .logCard.good,
+        .logCard.resolved {
+          border-color: rgba(34,197,94,0.35);
         }
 
-        .logInfo {
-          min-width: 0;
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 16px;
         }
 
-        .logInfo strong,
-        .logInfo span,
-        .logInfo small {
-          display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+        .logCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
         }
 
-        .logInfo span,
-        .logInfo small {
-          color: #a1a1aa;
-          margin-top: 4px;
+        .logCard p {
+          margin: 0;
+          overflow-wrap: anywhere;
         }
 
-        .severity,
-        .severityPill {
+        .pill {
+          padding: 8px 12px;
           border-radius: 999px;
-          padding: 8px 11px;
-          font-style: normal;
-          font-weight: 900;
           font-size: 12px;
+          font-weight: 900;
           white-space: nowrap;
         }
 
-        .severity.info,
-        .severityPill.info {
-          color: #93c5fd;
-          background: rgba(59,130,246,0.12);
-          border: 1px solid rgba(59,130,246,0.35);
-        }
-
-        .severity.success,
-        .severityPill.success {
+        .pill.good,
+        .pill.resolved {
           color: #22c55e;
           background: rgba(34,197,94,0.12);
           border: 1px solid rgba(34,197,94,0.35);
         }
 
-        .severity.warning,
-        .severityPill.warning {
-          color: #fde68a;
+        .pill.info {
+          color: #60a5fa;
+          background: rgba(59,130,246,0.12);
+          border: 1px solid rgba(59,130,246,0.35);
+        }
+
+        .pill.warning {
+          color: #facc15;
           background: rgba(250,204,21,0.12);
           border: 1px solid rgba(250,204,21,0.35);
         }
 
-        .severity.danger,
-        .severityPill.danger {
+        .pill.critical {
           color: #fca5a5;
           background: rgba(239,68,68,0.12);
           border: 1px solid rgba(239,68,68,0.35);
         }
 
-        .sectionHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-          margin-bottom: 20px;
-        }
-
-        .detailsBox {
-          padding: 22px;
-          border-radius: 22px;
-          margin-bottom: 20px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
-        }
-
-        .detailsBox.success {
-          background: rgba(34,197,94,0.1);
-          border-color: rgba(34,197,94,0.35);
-        }
-
-        .detailsBox.warning {
-          background: rgba(250,204,21,0.1);
-          border-color: rgba(250,204,21,0.35);
-        }
-
-        .detailsBox.danger {
-          background: rgba(239,68,68,0.1);
-          border-color: rgba(239,68,68,0.35);
-        }
-
-        .detailsBox p {
-          color: #e5e7eb;
-          line-height: 1.5;
-          margin-bottom: 0;
-        }
-
         .infoGrid {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
-          margin-bottom: 20px;
+          margin-bottom: 16px;
         }
 
         .infoBox {
@@ -719,46 +651,40 @@ export default function AdminAuditLogsPage() {
         }
 
         .infoBox strong {
+          display: block;
           overflow-wrap: anywhere;
         }
 
-        .actionRow {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
+        .actions {
+          display: flex;
+          flex-wrap: wrap;
           gap: 10px;
         }
 
-        .approveButton,
-        .linkButton {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 15px;
+        .actions button {
+          padding: 12px 16px;
           border-radius: 999px;
           border: none;
-          color: white;
           font-weight: 900;
+          color: white;
           cursor: pointer;
-          text-decoration: none;
-          text-align: center;
+          background: rgba(59,130,246,0.14);
+          border: 1px solid rgba(59,130,246,0.35);
         }
 
-        .approveButton {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+        .actions .goodButton {
+          background: rgba(34,197,94,0.14);
+          border-color: rgba(34,197,94,0.35);
         }
 
-        .linkButton {
-          background: rgba(255,255,255,0.08);
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
-        button:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
+        .actions .dangerButton {
+          background: rgba(239,68,68,0.14);
+          border-color: rgba(239,68,68,0.35);
+          color: #fca5a5;
         }
 
         .empty {
-          padding: 26px;
+          padding: 24px;
           border-radius: 22px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
@@ -766,30 +692,36 @@ export default function AdminAuditLogsPage() {
 
         .empty h3 {
           margin: 0 0 8px;
-          font-size: 24px;
+          font-size: 22px;
         }
 
-        @media (max-width: 1100px) {
-          .stats {
-            grid-template-columns: repeat(3, 1fr);
-          }
+        button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
 
-          .adminGrid {
-            grid-template-columns: 1fr;
+        @media (max-width: 1180px) {
+          .stats,
+          .infoGrid,
+          .quickGrid {
+            grid-template-columns: repeat(2, 1fr);
           }
         }
 
-        @media (max-width: 720px) {
+        @media (max-width: 780px) {
           .page {
             padding: 16px;
             padding-bottom: 140px;
           }
 
           .hero,
-          .toolsCard {
-            grid-template-columns: 1fr;
+          .cardTop,
+          .panelTop {
             flex-direction: column;
             align-items: flex-start;
+          }
+
+          .hero {
             padding: 28px;
           }
 
@@ -797,34 +729,14 @@ export default function AdminAuditLogsPage() {
             font-size: 44px;
           }
 
+          select {
+            width: 100%;
+          }
+
           .stats,
-          .filtersCard,
           .infoGrid,
-          .actionRow {
+          .quickGrid {
             grid-template-columns: 1fr;
-          }
-
-          .logsCard,
-          .detailsCard {
-            padding: 24px;
-          }
-
-          .logRow {
-            grid-template-columns: 46px 1fr;
-          }
-
-          .logRow .severity {
-            grid-column: 1 / -1;
-            width: fit-content;
-          }
-
-          .logIcon {
-            width: 46px;
-            height: 46px;
-          }
-
-          .sectionHeader {
-            flex-direction: column;
           }
         }
       `}</style>
@@ -850,6 +762,15 @@ function Metric({
   );
 }
 
+function Quick({ label, value }: { label: string; value: number }) {
+  return (
+    <section className="quickBox">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </section>
+  );
+}
+
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
@@ -857,4 +778,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value || "Not available"}</strong>
     </div>
   );
-          }
+}
