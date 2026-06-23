@@ -5,49 +5,15 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 
-type StripeAccountStatus =
-  | "not_started"
-  | "pending"
-  | "verified"
-  | "restricted"
-  | "rejected";
-
-type StripePaymentStatus =
-  | "pending"
-  | "paid"
-  | "failed"
-  | "cancelled"
-  | "refunded";
-
-type StripePayoutStatus =
-  | "scheduled"
-  | "processing"
-  | "paid"
-  | "failed"
-  | "cancelled";
-
-type DriverAccount = {
-  id: string;
-  email?: string;
-  name?: string;
-  driverEmail?: string;
-  driverVerified?: boolean;
-  verified?: boolean;
-  stripeAccountId?: string;
-  stripeStatus?: StripeAccountStatus;
-  stripeChargesEnabled?: boolean;
-  stripePayoutsEnabled?: boolean;
-  stripeDetailsSubmitted?: boolean;
-  createdAt?: string;
-};
-
 type Payment = {
   id: string;
   amount?: number;
   platformFee?: number;
   driverAmount?: number;
-  status?: StripePaymentStatus;
+  status?: string;
   provider?: string;
+  stripePaymentIntentId?: string;
+  stripeCheckoutSessionId?: string;
   driverEmail?: string;
   passengerEmail?: string;
   bookingId?: string;
@@ -55,31 +21,34 @@ type Payment = {
   createdAt?: string;
 };
 
+type User = {
+  id: string;
+  email?: string;
+  name?: string;
+  role?: string;
+  driverVerified?: boolean;
+  verified?: boolean;
+  stripeAccountId?: string;
+  stripeStatus?: string;
+  stripeChargesEnabled?: boolean;
+  stripePayoutsEnabled?: boolean;
+  stripeDetailsSubmitted?: boolean;
+};
+
 type Payout = {
   id: string;
   amount?: number;
-  status?: StripePayoutStatus;
+  status?: string;
   driverEmail?: string;
   stripePayoutId?: string;
   createdAt?: string;
 };
 
-type Dispute = {
-  id: string;
-  amount?: number;
-  status?: string;
-  reason?: string;
-  paymentId?: string;
-  email?: string;
-  createdAt?: string;
-};
-
-export default function AdminStripeConnectCenterPage() {
-  const [users, setUsers] = useState<DriverAccount[]>([]);
+export default function AdminStripeProductionCenterPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
-  const [disputes, setDisputes] = useState<Dispute[]>([]);
-  const [message, setMessage] = useState("Loading Stripe Connect center...");
+  const [message, setMessage] = useState("Loading Stripe Production Center...");
   const [processingId, setProcessingId] = useState("");
 
   useEffect(() => {
@@ -96,205 +65,179 @@ export default function AdminStripeConnectCenterPage() {
         }
       );
 
-    const unsubUsers = listen<DriverAccount>("users", setUsers);
     const unsubPayments = listen<Payment>("payments", setPayments);
+    const unsubUsers = listen<User>("users", setUsers);
     const unsubPayouts = listen<Payout>("payoutRequests", setPayouts);
-    const unsubDisputes = listen<Dispute>("disputes", setDisputes);
 
     return () => {
-      unsubUsers();
       unsubPayments();
+      unsubUsers();
       unsubPayouts();
-      unsubDisputes();
     };
   }, []);
 
   const metrics = useMemo(() => {
-    const drivers = users.filter(
-      (item) => item.driverVerified || item.verified || item.stripeAccountId
-    );
-
-    const notStarted = drivers.filter(
-      (item) => !item.stripeStatus || item.stripeStatus === "not_started"
-    );
-
-    const pending = drivers.filter((item) => item.stripeStatus === "pending");
-
-    const verified = drivers.filter(
+    const stripePayments = payments.filter(
       (item) =>
-        item.stripeStatus === "verified" ||
-        (item.stripeChargesEnabled && item.stripePayoutsEnabled)
+        item.provider === "stripe" ||
+        item.stripePaymentIntentId ||
+        item.stripeCheckoutSessionId
     );
 
-    const restricted = drivers.filter((item) => item.stripeStatus === "restricted");
-    const rejected = drivers.filter((item) => item.stripeStatus === "rejected");
+    const manualPayments = payments.filter(
+      (item) =>
+        item.provider !== "stripe" &&
+        !item.stripePaymentIntentId &&
+        !item.stripeCheckoutSessionId
+    );
 
-    const pendingPayments = payments.filter((item) => !item.status || item.status === "pending");
-    const paidPayments = payments.filter((item) => item.status === "paid");
-    const failedPayments = payments.filter((item) => item.status === "failed");
-    const refundedPayments = payments.filter((item) => item.status === "refunded");
+    const paid = payments.filter((item) => item.status === "paid");
+    const pending = payments.filter((item) => !item.status || item.status === "pending");
+    const failed = payments.filter((item) => item.status === "failed");
+    const refunded = payments.filter((item) => item.status === "refunded");
 
-    const scheduledPayouts = payouts.filter((item) => item.status === "scheduled");
-    const processingPayouts = payouts.filter((item) => item.status === "processing");
+    const connectedDrivers = users.filter(
+      (item) => item.stripeAccountId || item.stripeStatus === "verified"
+    );
+
+    const readyDrivers = users.filter(
+      (item) =>
+        item.stripeChargesEnabled &&
+        item.stripePayoutsEnabled &&
+        item.stripeDetailsSubmitted
+    );
+
+    const needsOnboarding = users.filter(
+      (item) =>
+        (item.driverVerified || item.verified || item.role === "driver") &&
+        (!item.stripeAccountId || item.stripeStatus !== "verified")
+    );
+
     const paidPayouts = payouts.filter((item) => item.status === "paid");
+    const pendingPayouts = payouts.filter(
+      (item) => !item.status || item.status === "pending" || item.status === "scheduled"
+    );
     const failedPayouts = payouts.filter((item) => item.status === "failed");
 
-    const totalProcessed = paidPayments.reduce(
-      (total, item) => total + Number(item.amount || 0),
-      0
-    );
+    const totalVolume = payments.reduce((total, item) => total + Number(item.amount || 0), 0);
+    const stripeVolume = stripePayments.reduce((total, item) => total + Number(item.amount || 0), 0);
+    const platformRevenue = paid.reduce((total, item) => total + Number(item.platformFee || 0), 0);
+    const driverRevenue = paid.reduce((total, item) => total + Number(item.driverAmount || 0), 0);
+    const payoutVolume = paidPayouts.reduce((total, item) => total + Number(item.amount || 0), 0);
 
-    const pendingBalance = pendingPayments.reduce(
-      (total, item) => total + Number(item.amount || 0),
-      0
-    );
-
-    const platformRevenue = paidPayments.reduce(
-      (total, item) => total + Number(item.platformFee || 0),
-      0
-    );
-
-    const driverRevenue = paidPayments.reduce(
-      (total, item) => total + Number(item.driverAmount || 0),
-      0
-    );
-
-    const payoutVolume = paidPayouts.reduce(
-      (total, item) => total + Number(item.amount || 0),
-      0
-    );
-
-    const disputedVolume = disputes.reduce(
-      (total, item) => total + Number(item.amount || 0),
-      0
-    );
-
-    const payoutSuccessRate =
-      payouts.length > 0 ? Math.round((paidPayouts.length / payouts.length) * 100) : 0;
-
-    const stripeHealthScore = Math.max(
+    const productionScore = Math.max(
       Math.min(
-        verified.length * 12 +
-          paidPayments.length * 8 +
-          paidPayouts.length * 8 +
+        readyDrivers.length * 12 +
+          stripePayments.length * 8 +
+          paid.length * 6 +
           Math.round(platformRevenue / 10) -
-          restricted.length * 10 -
-          rejected.length * 12 -
-          failedPayments.length * 8 -
+          failed.length * 10 -
+          refunded.length * 8 -
           failedPayouts.length * 10 -
-          disputes.length * 10,
+          needsOnboarding.length * 2,
         100
       ),
       0
     );
 
     return {
-      drivers,
-      notStarted,
+      stripePayments,
+      manualPayments,
+      paid,
       pending,
-      verified,
-      restricted,
-      rejected,
-      pendingPayments,
-      paidPayments,
-      failedPayments,
-      refundedPayments,
-      scheduledPayouts,
-      processingPayouts,
+      failed,
+      refunded,
+      connectedDrivers,
+      readyDrivers,
+      needsOnboarding,
       paidPayouts,
+      pendingPayouts,
       failedPayouts,
-      totalProcessed,
-      pendingBalance,
+      totalVolume,
+      stripeVolume,
       platformRevenue,
       driverRevenue,
       payoutVolume,
-      disputedVolume,
-      payoutSuccessRate,
-      stripeHealthScore,
+      productionScore,
     };
-  }, [users, payments, payouts, disputes]);
+  }, [payments, users, payouts]);
 
-  async function updateStripeStatus(driver: DriverAccount, status: StripeAccountStatus) {
+  async function markProductionReady() {
     try {
-      setProcessingId(driver.id);
+      setProcessingId("production-ready");
       const now = new Date().toISOString();
 
       await setDoc(
-        doc(db, "users", driver.id),
+        doc(db, "platformSettings", "stripeProduction"),
         {
-          stripeStatus: status,
-          stripeDetailsSubmitted: status !== "not_started",
-          stripeChargesEnabled: status === "verified",
-          stripePayoutsEnabled: status === "verified",
-          stripeUpdatedAt: now,
+          mode: "production_ready",
+          stripeConnectEnabled: true,
+          checkoutEnabled: true,
+          payoutsEnabled: true,
+          platformFeePercent: 12,
+          currency: "USD",
           updatedAt: now,
         },
         { merge: true }
       );
 
       await setDoc(
-        doc(db, "auditLogs", `stripe-account-${driver.id}-${Date.now()}`),
+        doc(db, "auditLogs", `stripe-production-${Date.now()}`),
         {
-          action: "Stripe Account Status Updated",
-          targetId: driver.id,
-          targetType: "stripeAccount",
-          details: `${driver.email || driver.driverEmail || "Driver"} changed to ${status}`,
-          severity: status === "verified" ? "success" : status === "restricted" || status === "rejected" ? "warning" : "info",
+          action: "Stripe Production Marked Ready",
+          targetId: "stripeProduction",
+          targetType: "platformSettings",
+          details: "Stripe production settings marked as ready.",
+          severity: "success",
           createdAt: now,
         },
         { merge: true }
       );
 
-      setMessage("Stripe account status updated.");
+      setMessage("Stripe production settings marked as ready.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not update Stripe status.");
+      setMessage(error instanceof Error ? error.message : "Could not update Stripe production settings.");
     } finally {
       setProcessingId("");
     }
   }
 
-  async function createStripePlaceholder(driver: DriverAccount) {
+  async function createProductionChecklist() {
     try {
-      setProcessingId(driver.id);
+      setProcessingId("checklist");
       const now = new Date().toISOString();
-      const fakeStripeAccountId = `acct_roadlink_${driver.id.slice(0, 10)}`;
 
-      await setDoc(
-        doc(db, "users", driver.id),
-        {
-          stripeAccountId: driver.stripeAccountId || fakeStripeAccountId,
-          stripeStatus: "pending",
-          stripeDetailsSubmitted: false,
-          stripeChargesEnabled: false,
-          stripePayoutsEnabled: false,
-          stripeProvider: "stripe_connect_ready",
-          stripeCreatedAt: driver.stripeAccountId ? undefined : now,
-          stripeUpdatedAt: now,
-          updatedAt: now,
-        },
-        { merge: true }
+      const items = [
+        "Add STRIPE_SECRET_KEY to Vercel",
+        "Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to Vercel",
+        "Add STRIPE_WEBHOOK_SECRET to Vercel",
+        "Create Checkout Session API route",
+        "Create Stripe Connect onboarding route",
+        "Create Stripe webhook route",
+        "Test booking payment",
+        "Test driver payout",
+        "Switch Stripe account to live mode",
+      ];
+
+      await Promise.all(
+        items.map((title, index) =>
+          setDoc(
+            doc(db, "stripeProductionChecklist", `item-${index + 1}`),
+            {
+              title,
+              status: "pending",
+              order: index + 1,
+              createdAt: now,
+              updatedAt: now,
+            },
+            { merge: true }
+          )
+        )
       );
 
-      await setDoc(
-        doc(db, "stripeAccounts", driver.id),
-        {
-          userId: driver.id,
-          email: driver.email || driver.driverEmail || "",
-          stripeAccountId: driver.stripeAccountId || fakeStripeAccountId,
-          status: "pending",
-          chargesEnabled: false,
-          payoutsEnabled: false,
-          detailsSubmitted: false,
-          provider: "stripe_connect_ready",
-          createdAt: now,
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-
-      setMessage("Stripe Connect placeholder created. Real onboarding can be connected next.");
+      setMessage("Stripe production checklist created.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not create Stripe placeholder.");
+      setMessage(error instanceof Error ? error.message : "Could not create checklist.");
     } finally {
       setProcessingId("");
     }
@@ -304,28 +247,10 @@ export default function AdminStripeConnectCenterPage() {
     return `$${Math.round(value).toLocaleString()}`;
   }
 
-  function statusLabel(status?: StripeAccountStatus) {
-    if (status === "verified") return "Verified";
-    if (status === "pending") return "Pending";
-    if (status === "restricted") return "Restricted";
-    if (status === "rejected") return "Rejected";
-    return "Not Started";
-  }
-
-  function statusClass(status?: StripeAccountStatus) {
-    if (status === "verified") return "good";
-    if (status === "restricted" || status === "rejected") return "bad";
-    if (status === "pending") return "pending";
-    return "neutral";
-  }
-
-  function formatDate(value?: string) {
-    if (!value) return "Not available";
-    try {
-      return new Date(value).toLocaleString();
-    } catch {
-      return value;
-    }
+  function statusClass(value: number) {
+    if (value >= 70) return "good";
+    if (value >= 40) return "warning";
+    return "bad";
   }
 
   return (
@@ -333,132 +258,121 @@ export default function AdminStripeConnectCenterPage() {
       <section className="container">
         <div className="topNav">
           <Link href="/admin" className="miniButton">Admin</Link>
+          <Link href="/admin/stripe" className="miniButton">Stripe Connect</Link>
           <Link href="/admin/payments" className="miniButton">Payments</Link>
           <Link href="/admin/payouts" className="miniButton">Payouts</Link>
-          <Link href="/admin/revenue-intelligence" className="miniButton">Revenue</Link>
-          <Link href="/admin/risk" className="miniButton">Risk</Link>
+          <Link href="/admin/audit-logs" className="miniButton">Audit Logs</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Stripe Connect</p>
-            <h1>Stripe Connect <span>Center</span></h1>
+            <p className="eyebrow">RoadLink Production Payments</p>
+            <h1>Stripe Production <span>Center</span></h1>
             <p className="subtitle">
-              Manage connected driver accounts, Stripe readiness, payment volume,
-              platform revenue, driver revenue, payouts, disputes and financial risk.
+              Prepare RoadLink for real Stripe Checkout, Stripe Connect Express,
+              platform fees, driver payouts, webhooks and production payment monitoring.
             </p>
           </div>
 
-          <div className={metrics.stripeHealthScore >= 60 ? "scoreOrb" : "scoreOrb warningScore"}>
-            <strong>{metrics.stripeHealthScore}</strong>
-            <span>Stripe Health</span>
+          <div className={`scoreOrb ${statusClass(metrics.productionScore)}`}>
+            <strong>{metrics.productionScore}</strong>
+            <span>Production Score</span>
           </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="💳" label="Total Processed" value={money(metrics.totalProcessed)} />
-          <Metric icon="⏳" label="Pending Balance" value={money(metrics.pendingBalance)} />
+          <Metric icon="💳" label="Total Volume" value={money(metrics.totalVolume)} />
+          <Metric icon="⚡" label="Stripe Volume" value={money(metrics.stripeVolume)} />
           <Metric icon="🟢" label="Platform Revenue" value={money(metrics.platformRevenue)} />
           <Metric icon="🚗" label="Driver Revenue" value={money(metrics.driverRevenue)} />
-          <Metric icon="🏦" label="Payout Volume" value={money(metrics.payoutVolume)} />
-          <Metric icon="✅" label="Payout Success" value={`${metrics.payoutSuccessRate}%`} />
-          <Metric icon="⚠️" label="Disputed Volume" value={money(metrics.disputedVolume)} />
-          <Metric icon="👥" label="Connected Drivers" value={String(metrics.verified.length)} />
+          <Metric icon="✅" label="Paid Payments" value={String(metrics.paid.length)} />
+          <Metric icon="⏳" label="Pending Payments" value={String(metrics.pending.length)} />
+          <Metric icon="❌" label="Failed Payments" value={String(metrics.failed.length)} />
+          <Metric icon="🏦" label="Paid Payouts" value={String(metrics.paidPayouts.length)} />
         </section>
 
-        <section className="scoreGrid">
-          <section className="scoreCard">
-            <p className="eyebrow">Stripe Accounts</p>
-            <h2>{metrics.drivers.length}</h2>
-            <p>Total driver accounts tracked for Stripe Connect onboarding.</p>
+        <section className="grid">
+          <section className="panel">
+            <p className="eyebrow">Production Readiness</p>
+            <h2>Stripe Checklist</h2>
+
+            <div className="checkList">
+              <Check label="Stripe secret key in Vercel" />
+              <Check label="Stripe publishable key in Vercel" />
+              <Check label="Webhook secret configured" />
+              <Check label="Checkout Session API route" />
+              <Check label="Connect onboarding API route" />
+              <Check label="Webhook route for completed payments" />
+              <Check label="Driver payouts tested" />
+              <Check label="Live mode enabled in Stripe" />
+            </div>
+
+            <div className="actions">
+              <button onClick={createProductionChecklist} disabled={processingId === "checklist"}>
+                Create Checklist
+              </button>
+
+              <button className="goodButton" onClick={markProductionReady} disabled={processingId === "production-ready"}>
+                Mark Production Ready
+              </button>
+            </div>
           </section>
 
-          <section className="scoreCard">
-            <p className="eyebrow">Needs Verification</p>
-            <h2>{metrics.pending.length + metrics.restricted.length}</h2>
-            <p>Drivers that need verification, onboarding or restriction resolution.</p>
-          </section>
+          <section className="panel">
+            <p className="eyebrow">Environment Variables</p>
+            <h2>Vercel Keys Needed</h2>
 
-          <section className="scoreCard">
-            <p className="eyebrow">Payment Risk</p>
-            <h2>{metrics.failedPayments.length + metrics.failedPayouts.length + disputes.length}</h2>
-            <p>Failed payments, failed payouts and disputes requiring review.</p>
+            <div className="codeBox">
+              <code>STRIPE_SECRET_KEY</code>
+              <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code>
+              <code>STRIPE_WEBHOOK_SECRET</code>
+              <code>NEXT_PUBLIC_APP_URL</code>
+            </div>
+
+            <p className="smallText">
+              Nunca pongas las llaves secretas dentro del frontend. Van en Vercel Environment Variables.
+            </p>
           </section>
         </section>
 
-        <section className="card">
-          <p className="eyebrow">Stripe Driver Accounts</p>
-          <h2>Connected Accounts</h2>
+        <section className="panel">
+          <p className="eyebrow">Connected Drivers</p>
+          <h2>Stripe Connect Accounts</h2>
 
-          {metrics.drivers.length === 0 ? (
+          <div className="miniGrid">
+            <Mini label="Connected Drivers" value={String(metrics.connectedDrivers.length)} />
+            <Mini label="Ready Drivers" value={String(metrics.readyDrivers.length)} />
+            <Mini label="Need Onboarding" value={String(metrics.needsOnboarding.length)} />
+            <Mini label="Payout Volume" value={money(metrics.payoutVolume)} />
+          </div>
+
+          {metrics.connectedDrivers.length === 0 ? (
             <div className="empty">
-              <h3>No driver Stripe accounts yet</h3>
-              <p>Verified drivers or users with Stripe accounts will appear here.</p>
+              <h3>No Stripe connected drivers yet</h3>
+              <p>Drivers will appear here after Stripe Connect onboarding starts.</p>
             </div>
           ) : (
-            <div className="accountGrid">
-              {metrics.drivers.map((driver) => (
-                <section key={driver.id} className="accountCard">
+            <div className="cardGrid">
+              {metrics.connectedDrivers.map((driver) => (
+                <section key={driver.id} className="itemCard">
                   <div className="cardTop">
                     <div>
-                      <h3>{driver.name || driver.email || driver.driverEmail || "Driver Account"}</h3>
-                      <p>{driver.email || driver.driverEmail || "No email"}</p>
+                      <h3>{driver.name || driver.email || "Driver"}</h3>
+                      <p>{driver.stripeAccountId || "No Stripe Account ID"}</p>
                     </div>
 
-                    <span className={`pill ${statusClass(driver.stripeStatus)}`}>
-                      {statusLabel(driver.stripeStatus)}
+                    <span className={`pill ${driver.stripeStatus === "verified" ? "good" : "warning"}`}>
+                      {driver.stripeStatus || "pending"}
                     </span>
                   </div>
 
                   <div className="infoGrid">
-                    <Info label="Stripe Account ID" value={driver.stripeAccountId || "Not created"} />
+                    <Info label="Email" value={driver.email || "Not available"} />
                     <Info label="Charges Enabled" value={driver.stripeChargesEnabled ? "Yes" : "No"} />
                     <Info label="Payouts Enabled" value={driver.stripePayoutsEnabled ? "Yes" : "No"} />
                     <Info label="Details Submitted" value={driver.stripeDetailsSubmitted ? "Yes" : "No"} />
-                    <Info label="Driver Verified" value={driver.driverVerified || driver.verified ? "Yes" : "No"} />
-                    <Info label="Created" value={formatDate(driver.createdAt)} />
-                  </div>
-
-                  <div className="actions">
-                    <button
-                      onClick={() => createStripePlaceholder(driver)}
-                      disabled={processingId === driver.id}
-                    >
-                      Create Stripe Ready
-                    </button>
-
-                    <button
-                      onClick={() => updateStripeStatus(driver, "pending")}
-                      disabled={processingId === driver.id}
-                    >
-                      Pending
-                    </button>
-
-                    <button
-                      className="goodButton"
-                      onClick={() => updateStripeStatus(driver, "verified")}
-                      disabled={processingId === driver.id}
-                    >
-                      Verify
-                    </button>
-
-                    <button
-                      className="dangerButton"
-                      onClick={() => updateStripeStatus(driver, "restricted")}
-                      disabled={processingId === driver.id}
-                    >
-                      Restrict
-                    </button>
-
-                    <button
-                      className="dangerButton"
-                      onClick={() => updateStripeStatus(driver, "rejected")}
-                      disabled={processingId === driver.id}
-                    >
-                      Reject
-                    </button>
                   </div>
                 </section>
               ))}
@@ -466,56 +380,39 @@ export default function AdminStripeConnectCenterPage() {
           )}
         </section>
 
-        <section className="card">
-          <p className="eyebrow">Stripe Payments</p>
-          <h2>Payment Operations</h2>
+        <section className="panel">
+          <p className="eyebrow">Payment Operations</p>
+          <h2>Production Payment Records</h2>
 
-          <div className="miniStats">
-            <Mini label="Pending Payments" value={String(metrics.pendingPayments.length)} />
-            <Mini label="Successful Payments" value={String(metrics.paidPayments.length)} />
-            <Mini label="Failed Payments" value={String(metrics.failedPayments.length)} />
-            <Mini label="Refunded Payments" value={String(metrics.refundedPayments.length)} />
-          </div>
-        </section>
-
-        <section className="card">
-          <p className="eyebrow">Stripe Payouts</p>
-          <h2>Payout Operations</h2>
-
-          <div className="miniStats">
-            <Mini label="Scheduled" value={String(metrics.scheduledPayouts.length)} />
-            <Mini label="Processing" value={String(metrics.processingPayouts.length)} />
-            <Mini label="Paid" value={String(metrics.paidPayouts.length)} />
-            <Mini label="Failed" value={String(metrics.failedPayouts.length)} />
-          </div>
-        </section>
-
-        <section className="card">
-          <p className="eyebrow">Risk Monitoring</p>
-          <h2>Disputes & Chargebacks</h2>
-
-          {disputes.length === 0 ? (
+          {payments.length === 0 ? (
             <div className="empty">
-              <h3>No disputes found</h3>
-              <p>Stripe disputes, chargebacks and fraud alerts will appear here.</p>
+              <h3>No payments yet</h3>
+              <p>Stripe and manual payments will appear here.</p>
             </div>
           ) : (
-            <div className="accountGrid">
-              {disputes.map((item) => (
-                <section key={item.id} className="accountCard dangerCard">
+            <div className="cardGrid">
+              {payments.slice(0, 30).map((payment) => (
+                <section key={payment.id} className="itemCard">
                   <div className="cardTop">
                     <div>
-                      <h3>{money(Number(item.amount || 0))} Dispute</h3>
-                      <p>{item.reason || "No reason provided"}</p>
+                      <h3>{money(Number(payment.amount || 0))} Payment</h3>
+                      <p>{payment.passengerEmail || "Passenger"} → {payment.driverEmail || "Driver"}</p>
                     </div>
 
-                    <span className="pill bad">{item.status || "Open"}</span>
+                    <span className={`pill ${payment.status === "paid" ? "good" : payment.status === "failed" ? "bad" : "warning"}`}>
+                      {payment.status || "pending"}
+                    </span>
                   </div>
 
                   <div className="infoGrid">
-                    <Info label="Payment ID" value={item.paymentId || "Not linked"} />
-                    <Info label="Email" value={item.email || "Not available"} />
-                    <Info label="Created" value={formatDate(item.createdAt)} />
+                    <Info label="Provider" value={payment.provider || "manual"} />
+                    <Info label="Stripe Intent" value={payment.stripePaymentIntentId || "Not linked"} />
+                    <Info label="Checkout Session" value={payment.stripeCheckoutSessionId || "Not linked"} />
+                    <Info label="Platform Fee" value={money(Number(payment.platformFee || 0))} />
+                    <Info label="Driver Amount" value={money(Number(payment.driverAmount || 0))} />
+                    <Info label="Booking ID" value={payment.bookingId || "Not linked"} />
+                    <Info label="Ride ID" value={payment.rideId || "Not linked"} />
+                    <Info label="Payment ID" value={payment.id} />
                   </div>
                 </section>
               ))}
@@ -539,7 +436,7 @@ export default function AdminStripeConnectCenterPage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
         }
 
-        .container { max-width: 1380px; margin: auto; }
+        .container { max-width: 1450px; margin: auto; }
 
         .topNav {
           display: flex;
@@ -560,9 +457,8 @@ export default function AdminStripeConnectCenterPage() {
 
         .hero,
         .metric,
-        .card,
-        .accountCard,
-        .scoreCard,
+        .panel,
+        .itemCard,
         .miniBox {
           background: rgba(8,13,25,0.92);
           border: 1px solid rgba(255,255,255,0.12);
@@ -608,8 +504,8 @@ export default function AdminStripeConnectCenterPage() {
 
         .subtitle,
         .empty p,
-        .accountCard p,
-        .scoreCard p {
+        .itemCard p,
+        .smallText {
           color: #a1a1aa;
           line-height: 1.5;
         }
@@ -633,7 +529,12 @@ export default function AdminStripeConnectCenterPage() {
           text-align: center;
         }
 
-        .warningScore {
+        .scoreOrb.warning {
+          background: rgba(250,204,21,0.12);
+          border-color: rgba(250,204,21,0.35);
+        }
+
+        .scoreOrb.bad {
           background: rgba(239,68,68,0.12);
           border-color: rgba(239,68,68,0.35);
         }
@@ -644,7 +545,9 @@ export default function AdminStripeConnectCenterPage() {
           font-weight: 900;
         }
 
-        .warningScore strong { color: #fca5a5; }
+        .scoreOrb.bad strong {
+          color: #fca5a5;
+        }
 
         .scoreOrb span {
           color: #a1a1aa;
@@ -652,20 +555,14 @@ export default function AdminStripeConnectCenterPage() {
           font-weight: 900;
         }
 
-        .stats,
-        .scoreGrid {
+        .stats {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 14px;
           margin-bottom: 24px;
         }
 
-        .scoreGrid {
-          grid-template-columns: repeat(3, 1fr);
-        }
-
-        .metric,
-        .scoreCard {
+        .metric {
           border-radius: 24px;
           padding: 18px;
         }
@@ -674,7 +571,7 @@ export default function AdminStripeConnectCenterPage() {
           width: 42px;
           height: 42px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
+          background: rgba(99,102,241,0.14);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -697,129 +594,40 @@ export default function AdminStripeConnectCenterPage() {
           overflow-wrap: anywhere;
         }
 
-        .scoreCard h2 {
-          font-size: 38px;
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 24px;
+          margin-bottom: 24px;
         }
 
-        .card {
+        .panel {
           border-radius: 30px;
           padding: 28px;
           margin-bottom: 24px;
         }
 
-        .accountGrid {
+        .checkList {
           display: grid;
-          gap: 16px;
+          gap: 10px;
+          margin-bottom: 18px;
         }
 
-        .accountCard {
-          border-radius: 24px;
-          padding: 22px;
-          box-shadow: none;
-        }
-
-        .dangerCard {
-          border-color: rgba(239,68,68,0.32);
-          background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.1), transparent 40%),
-            rgba(8,13,25,0.92);
-        }
-
-        .cardTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
-          align-items: flex-start;
-          margin-bottom: 16px;
-        }
-
-        .accountCard h3 {
-          margin: 0 0 6px;
-          font-size: 22px;
-          overflow-wrap: anywhere;
-        }
-
-        .accountCard p {
-          margin: 0;
-          overflow-wrap: anywhere;
-        }
-
-        .pill {
-          padding: 8px 12px;
-          border-radius: 999px;
-          font-size: 12px;
-          font-weight: 900;
-          white-space: nowrap;
-        }
-
-        .pill.good {
-          color: #22c55e;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-        }
-
-        .pill.pending {
-          color: #facc15;
-          background: rgba(250,204,21,0.12);
-          border: 1px solid rgba(250,204,21,0.35);
-        }
-
-        .pill.neutral {
-          color: #e5e7eb;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.14);
-        }
-
-        .pill.bad {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
-        }
-
-        .infoGrid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin-bottom: 16px;
-        }
-
-        .infoBox {
-          padding: 14px;
+        .checkItem,
+        .codeBox code {
+          display: block;
+          padding: 13px 14px;
           border-radius: 16px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .infoBox span,
-        .miniBox span {
-          display: block;
-          color: #a1a1aa;
-          font-size: 12px;
+          color: #e5e7eb;
           font-weight: 900;
-          margin-bottom: 6px;
         }
 
-        .infoBox strong,
-        .miniBox strong {
-          display: block;
-          overflow-wrap: anywhere;
-        }
-
-        .miniStats {
+        .codeBox {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
-        }
-
-        .miniBox {
-          padding: 16px;
-          border-radius: 18px;
-          box-shadow: none;
-        }
-
-        .miniBox strong {
-          color: #22c55e;
-          font-size: 24px;
+          gap: 10px;
+          margin-bottom: 14px;
         }
 
         .actions {
@@ -844,10 +652,115 @@ export default function AdminStripeConnectCenterPage() {
           border-color: rgba(34,197,94,0.35);
         }
 
-        .actions .dangerButton {
-          background: rgba(239,68,68,0.14);
-          border-color: rgba(239,68,68,0.35);
+        .miniGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .miniBox {
+          border-radius: 18px;
+          padding: 16px;
+          box-shadow: none;
+        }
+
+        .miniBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .miniBox strong {
+          display: block;
+          color: #22c55e;
+          font-size: 24px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
+
+        .cardGrid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .itemCard {
+          border-radius: 24px;
+          padding: 22px;
+          box-shadow: none;
+        }
+
+        .cardTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .itemCard h3 {
+          margin: 0 0 6px;
+          font-size: 22px;
+          overflow-wrap: anywhere;
+        }
+
+        .itemCard p {
+          margin: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .pill {
+          padding: 8px 12px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .pill.good {
+          color: #22c55e;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+        }
+
+        .pill.warning {
+          color: #facc15;
+          background: rgba(250,204,21,0.12);
+          border: 1px solid rgba(250,204,21,0.35);
+        }
+
+        .pill.bad {
           color: #fca5a5;
+          background: rgba(239,68,68,0.12);
+          border: 1px solid rgba(239,68,68,0.35);
+        }
+
+        .infoGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+        }
+
+        .infoBox {
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .infoBox span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .infoBox strong {
+          display: block;
+          overflow-wrap: anywhere;
         }
 
         .empty {
@@ -869,25 +782,26 @@ export default function AdminStripeConnectCenterPage() {
 
         @media (max-width: 1180px) {
           .stats,
-          .scoreGrid,
-          .miniStats {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .infoGrid {
+          .infoGrid,
+          .miniGrid,
+          .grid {
             grid-template-columns: repeat(2, 1fr);
           }
         }
 
-        @media (max-width: 720px) {
+        @media (max-width: 780px) {
           .page {
             padding: 16px;
             padding-bottom: 140px;
           }
 
-          .hero {
+          .hero,
+          .cardTop {
             flex-direction: column;
             align-items: flex-start;
+          }
+
+          .hero {
             padding: 28px;
           }
 
@@ -896,14 +810,10 @@ export default function AdminStripeConnectCenterPage() {
           }
 
           .stats,
-          .scoreGrid,
-          .miniStats,
-          .infoGrid {
+          .infoGrid,
+          .miniGrid,
+          .grid {
             grid-template-columns: 1fr;
-          }
-
-          .cardTop {
-            flex-direction: column;
           }
         }
       `}</style>
@@ -911,15 +821,7 @@ export default function AdminStripeConnectCenterPage() {
   );
 }
 
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-}) {
+function Metric({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="metric">
       <div className="metricIcon">{icon}</div>
@@ -931,11 +833,15 @@ function Metric({
 
 function Mini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="miniBox">
+    <section className="miniBox">
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
+    </section>
   );
+}
+
+function Check({ label }: { label: string }) {
+  return <div className="checkItem">✅ {label}</div>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {
@@ -945,4 +851,4 @@ function Info({ label, value }: { label: string; value: string }) {
       <strong>{value || "Not available"}</strong>
     </div>
   );
-            }
+}
