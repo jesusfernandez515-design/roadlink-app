@@ -15,11 +15,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import {
-  getDownloadURL,
-  ref,
-  uploadBytes,
-} from "firebase/storage";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { auth, db, storage } from "../../lib/firebase";
 
 type Ride = {
@@ -40,20 +36,14 @@ type ChatData = {
   driverEmail?: string;
   passengerId?: string;
   passengerEmail?: string;
-  participants?: string[];
-  participantEmails?: string[];
   lastMessage?: string;
   lastMessageTime?: string;
   lastSenderId?: string;
   lastSenderEmail?: string;
   createdAt?: string;
   updatedAt?: string;
-  typing?: {
-    [key: string]: boolean;
-  };
-  unread?: {
-    [key: string]: number;
-  };
+  typing?: { [key: string]: boolean };
+  unread?: { [key: string]: number };
 };
 
 type UserProfile = {
@@ -97,7 +87,6 @@ function LoadingChat() {
   return (
     <main className="page">
       <p className="status">Loading chat...</p>
-
       <style>{`
         .page {
           min-height: 100vh;
@@ -106,7 +95,6 @@ function LoadingChat() {
           padding: 24px;
           font-family: Arial, sans-serif;
         }
-
         .status {
           text-align: center;
           color: #22c55e;
@@ -162,6 +150,7 @@ function ChatContent() {
       await setDoc(
         doc(db, "users", user.uid),
         {
+          email: user.email || "",
           online: true,
           lastSeen: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -177,15 +166,9 @@ function ChatContent() {
 
         if (urlChatId) {
           const chatSnap = await getDoc(doc(db, "chats", urlChatId));
-
           if (chatSnap.exists()) {
-            const data = {
-              id: chatSnap.id,
-              ...chatSnap.data(),
-            } as ChatData;
-
+            const data = { id: chatSnap.id, ...chatSnap.data() } as ChatData;
             setChatData(data);
-
             finalRideId = data.rideId || finalRideId;
             finalDriverId = data.driverId || finalDriverId;
             finalPassengerId = data.passengerId || finalPassengerId;
@@ -195,13 +178,8 @@ function ChatContent() {
 
         if (finalRideId) {
           const rideSnap = await getDoc(doc(db, "rides", finalRideId));
-
           if (rideSnap.exists()) {
-            const rideData = {
-              id: rideSnap.id,
-              ...rideSnap.data(),
-            } as Ride;
-
+            const rideData = { id: rideSnap.id, ...rideSnap.data() } as Ride;
             setRide(rideData);
             finalDriverId = finalDriverId || rideData.driverId || "";
           }
@@ -229,14 +207,11 @@ function ChatContent() {
         setPassengerId(finalPassengerId);
         setChatId(finalChatId);
 
-        const receiverId =
-          user.uid === finalDriverId ? finalPassengerId : finalDriverId;
+        const receiverId = user.uid === finalDriverId ? finalPassengerId : finalDriverId;
 
         if (receiverId) {
           unsubscribeOtherUser = onSnapshot(doc(db, "users", receiverId), (snapshot) => {
-            if (snapshot.exists()) {
-              setOtherUser(snapshot.data() as UserProfile);
-            }
+            if (snapshot.exists()) setOtherUser(snapshot.data() as UserProfile);
           });
         }
 
@@ -259,10 +234,7 @@ function ChatContent() {
 
         unsubscribeChat = onSnapshot(doc(db, "chats", finalChatId), (snapshot) => {
           if (snapshot.exists()) {
-            setChatData({
-              id: snapshot.id,
-              ...snapshot.data(),
-            } as ChatData);
+            setChatData({ id: snapshot.id, ...snapshot.data() } as ChatData);
           }
         });
 
@@ -283,10 +255,7 @@ function ChatContent() {
   useEffect(() => {
     if (!chatId || !userId) return;
 
-    const messagesQuery = query(
-      collection(db, "messages"),
-      where("chatId", "==", chatId)
-    );
+    const messagesQuery = query(collection(db, "messages"), where("chatId", "==", chatId));
 
     const unsubscribeMessages = onSnapshot(
       messagesQuery,
@@ -296,9 +265,7 @@ function ChatContent() {
           id: document.id,
         })) as Message[];
 
-        data.sort((a, b) =>
-          String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
-        );
+        data.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
 
         setMessages(data);
 
@@ -334,10 +301,7 @@ function ChatContent() {
   }, [chatId, userId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "end",
-    });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
   const otherUserId = useMemo(() => {
@@ -359,9 +323,7 @@ function ChatContent() {
 
   const otherUserInitial = otherUserLabel.charAt(0).toUpperCase() || "R";
 
-  const isOtherUserTyping = Boolean(
-    otherUserId && chatData?.typing && chatData.typing[otherUserId]
-  );
+  const isOtherUserTyping = Boolean(otherUserId && chatData?.typing && chatData.typing[otherUserId]);
 
   const onlineText = otherUser?.online
     ? "Online now"
@@ -370,23 +332,12 @@ function ChatContent() {
     : "Secure RoadLink user";
 
   const unreadOutgoingCount = useMemo(() => {
-    return messages.filter(
-      (message) => message.senderId === userId && message.read === false
-    ).length;
+    return messages.filter((message) => message.senderId === userId && message.read === false).length;
   }, [messages, userId]);
 
   const chatTitle = ride
     ? `${ride.from || "Starting point"} → ${ride.to || "Destination"}`
     : `Chat with ${otherUserLabel}`;
-
-  function getReceiverId() {
-    const finalDriverId = driverId || ride?.driverId || "";
-    const finalPassengerId = passengerId || (userId !== finalDriverId ? userId : "");
-
-    if (!finalDriverId || !finalPassengerId) return "";
-
-    return userId === finalDriverId ? finalPassengerId : finalDriverId;
-  }
 
   function getParticipants() {
     const finalDriverId = driverId || ride?.driverId || "";
@@ -411,14 +362,8 @@ function ChatContent() {
         rideId: rideId || "",
         driverId: finalDriverId,
         passengerId: finalPassengerId,
-        driverEmail:
-          userId === finalDriverId
-            ? userEmail
-            : chatData?.driverEmail || ride?.driverEmail || "",
-        passengerEmail:
-          userId === finalPassengerId
-            ? userEmail
-            : chatData?.passengerEmail || "",
+        driverEmail: userId === finalDriverId ? userEmail : chatData?.driverEmail || ride?.driverEmail || "",
+        passengerEmail: userId === finalPassengerId ? userEmail : chatData?.passengerEmail || "",
         participants: [finalDriverId, finalPassengerId],
         lastMessage,
         lastMessageTime: now,
@@ -486,17 +431,7 @@ function ChatContent() {
   async function sendMessage() {
     const cleanText = text.trim();
 
-    if (!cleanText) return;
-
-    if (!userId) {
-      setStatus("Please sign in to send messages.");
-      return;
-    }
-
-    if (!chatId) {
-      setStatus("No chat selected.");
-      return;
-    }
+    if (!cleanText || !userId || !chatId) return;
 
     try {
       setSending(true);
@@ -562,7 +497,6 @@ function ChatContent() {
       const imageRef = ref(storage, filePath);
 
       await uploadBytes(imageRef, file);
-
       const imageUrl = await getDownloadURL(imageRef);
 
       await addDoc(collection(db, "messages"), {
@@ -588,10 +522,7 @@ function ChatContent() {
       setStatus(error instanceof Error ? error.message : "Could not upload image.");
     } finally {
       setUploading(false);
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -666,7 +597,6 @@ function ChatContent() {
 
   function locationUrl(message: Message) {
     if (!message.latitude || !message.longitude) return "#";
-
     return `https://www.google.com/maps?q=${message.latitude},${message.longitude}`;
   }
 
@@ -675,7 +605,6 @@ function ChatContent() {
 
     try {
       const date = new Date(value);
-
       if (Number.isNaN(date.getTime())) return value.slice(11, 16);
 
       return date.toLocaleTimeString([], {
@@ -714,19 +643,15 @@ function ChatContent() {
     const currentDate = new Date(current.createdAt);
     const previousDate = new Date(previous.createdAt);
 
-    if (Number.isNaN(currentDate.getTime()) || Number.isNaN(previousDate.getTime())) {
-      return false;
-    }
+    if (Number.isNaN(currentDate.getTime()) || Number.isNaN(previousDate.getTime())) return false;
 
     return currentDate.toDateString() !== previousDate.toDateString();
   }
 
   function getMessageStatus(message: Message) {
     if (message.senderId !== userId) return "";
-
     if (message.read) return "✓✓ Read";
     if (message.status === "sent") return "✓ Sent";
-
     return "✓ Sent";
   }
 
@@ -734,7 +659,6 @@ function ChatContent() {
     if (!value) return "recently";
 
     const date = new Date(value);
-
     if (Number.isNaN(date.getTime())) return "recently";
 
     const diffMs = Date.now() - date.getTime();
@@ -744,11 +668,9 @@ function ChatContent() {
     if (diffMinutes < 60) return `${diffMinutes} min ago`;
 
     const diffHours = Math.floor(diffMinutes / 60);
-
     if (diffHours < 24) return `${diffHours} hr ago`;
 
     const diffDays = Math.floor(diffHours / 24);
-
     return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
   }
 
@@ -787,26 +709,13 @@ function ChatContent() {
       <section className="chatShell">
         <header className="header">
           <div className="topActions">
-            <Link href="/messages" className="miniButton">
-              ← Inbox
-            </Link>
-
-            <Link href="/dashboard" className="miniButton">
-              Dashboard
-            </Link>
-
-            <Link href="/notifications" className="miniButton">
-              Notifications
-            </Link>
-
-            <Link href="/my-bookings" className="miniButton">
-              My Bookings
-            </Link>
+            <Link href="/messages" className="miniButton">← Inbox</Link>
+            <Link href="/dashboard" className="miniButton">Dashboard</Link>
+            <Link href="/notifications" className="miniButton">Notifications</Link>
+            <Link href="/my-bookings" className="miniButton">My Bookings</Link>
           </div>
 
-          <div className="brand">
-            Road<span>Link</span>
-          </div>
+          <div className="brand">Road<span>Link</span></div>
 
           <div className="routeCard">
             {otherUser?.photoURL ? (
@@ -816,7 +725,7 @@ function ChatContent() {
             )}
 
             <div>
-              <p className="eyebrow">Live RoadLink Chat</p>
+              <p className="eyebrow">Premium Live Chat</p>
               <h1>{otherUserLabel}</h1>
               <p className="subtitle">{chatTitle}</p>
 
@@ -840,9 +749,7 @@ function ChatContent() {
             <div className="empty">
               <div className="emptyIcon">💬</div>
               <h2>No messages yet</h2>
-              <p>
-                Start the conversation about pickup time, location, luggage, or trip details.
-              </p>
+              <p>Start the conversation about pickup time, location, luggage, or trip details.</p>
             </div>
           ) : (
             <>
@@ -853,11 +760,7 @@ function ChatContent() {
 
                 return (
                   <div key={message.id}>
-                    {showDate && (
-                      <div className="dateSeparator">
-                        {formatDateLabel(message.createdAt)}
-                      </div>
-                    )}
+                    {showDate && <div className="dateSeparator">{formatDateLabel(message.createdAt)}</div>}
 
                     <div className={isMine ? "messageRow mine" : "messageRow"}>
                       {!isMine && (
@@ -943,11 +846,7 @@ function ChatContent() {
             }}
           />
 
-          <button
-            className="sendButton"
-            onClick={sendMessage}
-            disabled={sending || !text.trim()}
-          >
+          <button className="sendButton" onClick={sendMessage} disabled={sending || !text.trim()}>
             {sending ? "Sending..." : "Send"}
           </button>
         </section>
@@ -964,13 +863,11 @@ function ChatContent() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
+          padding-bottom: 130px;
           font-family: Arial, sans-serif;
         }
 
-        .chatShell {
-          max-width: 900px;
-          margin: 0 auto;
-        }
+        .chatShell { max-width: 960px; margin: 0 auto; }
 
         .header,
         .messages,
@@ -1042,9 +939,7 @@ function ChatContent() {
           font-weight: 900;
         }
 
-        .avatarImage {
-          object-fit: cover;
-        }
+        .avatarImage { object-fit: cover; }
 
         .eyebrow {
           margin: 0 0 8px;
@@ -1129,10 +1024,7 @@ function ChatContent() {
           margin-bottom: 18px;
         }
 
-        .empty h2 {
-          font-size: 32px;
-          margin: 0 0 10px;
-        }
+        .empty h2 { font-size: 32px; margin: 0 0 10px; }
 
         .empty p {
           color: #a1a1aa;
@@ -1161,9 +1053,7 @@ function ChatContent() {
           margin-bottom: 14px;
         }
 
-        .messageRow.mine {
-          justify-content: flex-end;
-        }
+        .messageRow.mine { justify-content: flex-end; }
 
         .smallAvatar {
           width: 34px;
@@ -1284,13 +1174,8 @@ function ChatContent() {
           animation: blink 1s infinite;
         }
 
-        .typingIndicator b:nth-child(2) {
-          animation-delay: 0.15s;
-        }
-
-        .typingIndicator b:nth-child(3) {
-          animation-delay: 0.3s;
-        }
+        .typingIndicator b:nth-child(2) { animation-delay: 0.15s; }
+        .typingIndicator b:nth-child(3) { animation-delay: 0.3s; }
 
         @keyframes blink {
           0%, 80%, 100% { opacity: 0.2; }
@@ -1306,9 +1191,7 @@ function ChatContent() {
           align-items: end;
         }
 
-        .hiddenFile {
-          display: none;
-        }
+        .hiddenFile { display: none; }
 
         .toolRow {
           display: grid;
@@ -1353,9 +1236,7 @@ function ChatContent() {
           font-family: Arial, sans-serif;
         }
 
-        textarea::placeholder {
-          color: #71717a;
-        }
+        textarea::placeholder { color: #71717a; }
 
         button:disabled {
           opacity: 0.55;
@@ -1363,7 +1244,10 @@ function ChatContent() {
         }
 
         @media (max-width: 700px) {
-          .page { padding: 16px; }
+          .page {
+            padding: 16px;
+            padding-bottom: 130px;
+          }
 
           .header,
           .messages,
@@ -1371,13 +1255,9 @@ function ChatContent() {
             border-radius: 28px;
           }
 
-          .header {
-            padding: 24px;
-          }
+          .header { padding: 24px; }
 
-          .routeCard {
-            align-items: flex-start;
-          }
+          .routeCard { align-items: flex-start; }
 
           .avatar,
           .avatarImage {
@@ -1387,26 +1267,18 @@ function ChatContent() {
             font-size: 30px;
           }
 
-          h1 {
-            font-size: 34px;
-          }
+          h1 { font-size: 34px; }
 
           .messages {
             min-height: 420px;
             padding: 18px;
           }
 
-          .bubble {
-            max-width: 88%;
-          }
+          .bubble { max-width: 88%; }
 
-          .composer {
-            grid-template-columns: 1fr;
-          }
+          .composer { grid-template-columns: 1fr; }
 
-          .toolRow {
-            grid-template-columns: 1fr 1fr;
-          }
+          .toolRow { grid-template-columns: 1fr 1fr; }
 
           .toolButton,
           .sendButton {
@@ -1416,4 +1288,4 @@ function ChatContent() {
       `}</style>
     </main>
   );
-  }
+    }
