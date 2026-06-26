@@ -36,12 +36,14 @@ type NotificationItem = {
 
 type CategoryKey =
   | "message"
-  | "payout"
-  | "support"
-  | "emergency"
   | "booking"
   | "cancelled"
-  | "completed";
+  | "completed"
+  | "payout"
+  | "emergency"
+  | "support";
+
+type TimeGroupKey = "today" | "yesterday" | "week" | "older";
 
 const categories: {
   key: CategoryKey;
@@ -53,43 +55,70 @@ const categories: {
     key: "message",
     title: "New Messages",
     icon: "💬",
-    description: "All direct chat and message notifications.",
-  },
-  {
-    key: "payout",
-    title: "Payout Update",
-    icon: "🏦",
-    description: "Driver wallet, payout requests and payout status updates.",
-  },
-  {
-    key: "support",
-    title: "Support Ticket Created",
-    icon: "🎧",
-    description: "Support requests submitted through RoadLink.",
-  },
-  {
-    key: "emergency",
-    title: "Emergency Alert Sent",
-    icon: "🚨",
-    description: "SOS and emergency alerts sent from the platform.",
+    description: "Chats and direct messages.",
   },
   {
     key: "booking",
     title: "New Ride Booking",
     icon: "🎟️",
-    description: "New passenger reservations and ride booking activity.",
+    description: "New reservations and passenger booking activity.",
   },
   {
     key: "cancelled",
     title: "Booking Cancelled",
     icon: "❌",
-    description: "Cancelled passenger bookings and ride reservation changes.",
+    description: "Cancelled bookings and ride changes.",
   },
   {
     key: "completed",
     title: "Ride Completed",
     icon: "✅",
-    description: "Completed trips and finished ride confirmations.",
+    description: "Completed rides and finished trip updates.",
+  },
+  {
+    key: "payout",
+    title: "Payout Update",
+    icon: "🏦",
+    description: "Wallet, payouts and payment status.",
+  },
+  {
+    key: "emergency",
+    title: "Emergency Alert Sent",
+    icon: "🚨",
+    description: "SOS and emergency activity.",
+  },
+  {
+    key: "support",
+    title: "Support Ticket Created",
+    icon: "🎧",
+    description: "Support requests and ticket updates.",
+  },
+];
+
+const timeGroups: {
+  key: TimeGroupKey;
+  title: string;
+  subtitle: string;
+}[] = [
+  {
+    key: "today",
+    title: "Today",
+    subtitle: "Activity from today",
+  },
+  {
+    key: "yesterday",
+    title: "Yesterday",
+    subtitle: "Activity from yesterday",
+  },
+  {
+    key: "week",
+    title: "This Week",
+    subtitle: "Recent activity from this week",
+  },
+  {
+    key: "older",
+    title: "Older",
+    subtitle: "Older RoadLink activity",
   },
 ];
 
@@ -98,9 +127,10 @@ export default function NotificationsPage() {
 
   const [userId, setUserId] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [status, setStatus] = useState("Loading notifications...");
+  const [status, setStatus] = useState("Loading Activity Center...");
   const [saving, setSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("message");
+  const [activeTimeGroup, setActiveTimeGroup] = useState<TimeGroupKey>("today");
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -150,17 +180,32 @@ export default function NotificationsPage() {
   const categorized = useMemo(() => {
     const groups: Record<CategoryKey, NotificationItem[]> = {
       message: [],
-      payout: [],
-      support: [],
-      emergency: [],
       booking: [],
       cancelled: [],
       completed: [],
+      payout: [],
+      emergency: [],
+      support: [],
     };
 
     notifications.forEach((notification) => {
       const category = getCategory(notification);
       groups[category].push(notification);
+    });
+
+    return groups;
+  }, [notifications]);
+
+  const timeline = useMemo(() => {
+    const groups: Record<TimeGroupKey, NotificationItem[]> = {
+      today: [],
+      yesterday: [],
+      week: [],
+      older: [],
+    };
+
+    notifications.forEach((notification) => {
+      groups[getTimeGroup(notification.createdAt)].push(notification);
     });
 
     return groups;
@@ -172,6 +217,42 @@ export default function NotificationsPage() {
 
   const activeNotifications = categorized[activeCategory] || [];
   const activeUnread = activeNotifications.filter((item) => !item.read).length;
+  const timelineNotifications = timeline[activeTimeGroup] || [];
+  const timelineUnread = timelineNotifications.filter((item) => !item.read).length;
+
+  const todayHighlights = timeline.today;
+  const yesterdayHighlights = timeline.yesterday;
+  const weekHighlights = timeline.week;
+
+  function getDate(value?: any) {
+    if (!value) return new Date();
+
+    try {
+      const date = value?.toDate ? value.toDate() : new Date(value);
+      if (Number.isNaN(date.getTime())) return new Date();
+      return date;
+    } catch {
+      return new Date();
+    }
+  }
+
+  function getTimeGroup(value?: any): TimeGroupKey {
+    const date = getDate(value);
+    const now = new Date();
+
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startYesterday = new Date(startToday);
+    startYesterday.setDate(startYesterday.getDate() - 1);
+
+    const startWeek = new Date(startToday);
+    startWeek.setDate(startWeek.getDate() - 7);
+
+    if (date >= startToday) return "today";
+    if (date >= startYesterday && date < startToday) return "yesterday";
+    if (date >= startWeek) return "week";
+
+    return "older";
+  }
 
   function getCategory(notification: NotificationItem): CategoryKey {
     const title = String(notification.title || "").toLowerCase();
@@ -179,24 +260,25 @@ export default function NotificationsPage() {
     const type = String(notification.type || "").toLowerCase();
     const combined = `${title} ${message} ${type}`;
 
-    if (combined.includes("message")) return "message";
-    if (combined.includes("payout") || combined.includes("payment")) return "payout";
-    if (combined.includes("support")) return "support";
-    if (combined.includes("emergency") || combined.includes("sos")) return "emergency";
+    if (combined.includes("message") || type === "chat") return "message";
     if (combined.includes("cancel")) return "cancelled";
     if (combined.includes("completed") || combined.includes("ride completed")) return "completed";
+    if (combined.includes("payout") || combined.includes("payment") || combined.includes("wallet")) return "payout";
+    if (combined.includes("emergency") || combined.includes("sos")) return "emergency";
+    if (combined.includes("support") || combined.includes("ticket")) return "support";
     if (combined.includes("booking") || type === "booking") return "booking";
 
     return "booking";
   }
 
+  function getCategoryIcon(notification: NotificationItem) {
+    const category = categories.find((item) => item.key === getCategory(notification));
+    return category?.icon || "🔔";
+  }
+
   function formatTime(value?: any) {
-    if (!value) return "Now";
-
     try {
-      const date = value?.toDate ? value.toDate() : new Date(value);
-
-      if (Number.isNaN(date.getTime())) return "Recently";
+      const date = getDate(value);
 
       return date.toLocaleString([], {
         month: "short",
@@ -225,6 +307,7 @@ export default function NotificationsPage() {
     if (category === "payout") return "/wallet";
     if (category === "support") return "/support";
     if (category === "emergency") return "/sos";
+
     if (category === "booking") {
       if (notification.rideId) return `/ride-passengers?rideId=${notification.rideId}`;
       return "/my-rides";
@@ -311,8 +394,38 @@ export default function NotificationsPage() {
     }
   }
 
+  async function markTimelineAsRead() {
+    const unreadTimeline = timelineNotifications.filter((notification) => !notification.read);
+    if (!unreadTimeline.length) return;
+
+    try {
+      setSaving(true);
+      setStatus("");
+
+      const batch = writeBatch(db);
+
+      unreadTimeline.forEach((notification) => {
+        batch.update(doc(db, "notifications", notification.id), {
+          read: true,
+          readAt: new Date().toISOString(),
+        });
+      });
+
+      await batch.commit();
+      setStatus(`${getActiveTimelineTitle()} marked as read.`);
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not update timeline.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function getActiveCategoryTitle() {
     return categories.find((category) => category.key === activeCategory)?.title || "Notifications";
+  }
+
+  function getActiveTimelineTitle() {
+    return timeGroups.find((group) => group.key === activeTimeGroup)?.title || "Timeline";
   }
 
   return (
@@ -322,15 +435,17 @@ export default function NotificationsPage() {
           <Link href="/dashboard" className="backButton">← Dashboard</Link>
           <Link href="/messages" className="backButton">Messages</Link>
           <Link href="/my-rides" className="backButton">My Rides</Link>
+          <Link href="/wallet" className="backButton">Wallet</Link>
           <Link href="/profile" className="backButton">Profile</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Notifications</p>
-            <h1>Notification <span>Center</span></h1>
+            <p className="eyebrow">RoadLink Activity</p>
+            <h1>Activity <span>Center</span></h1>
             <p className="subtitle">
-              View your activity by category. Tap a notification type to expand its full content.
+              See RoadLink activity by time and category: messages, bookings, cancellations,
+              payouts, emergency alerts, completed rides and support tickets.
             </p>
           </div>
 
@@ -354,20 +469,95 @@ export default function NotificationsPage() {
           </div>
 
           <div className="stat">
-            <span>Status</span>
-            <h2>{userId ? "Live" : "Locked"}</h2>
+            <span>Today</span>
+            <h2>{todayHighlights.length}</h2>
           </div>
+
+          <div className="stat">
+            <span>This Week</span>
+            <h2>{weekHighlights.length + todayHighlights.length + yesterdayHighlights.length}</h2>
+          </div>
+        </section>
+
+        <section className="timelinePanel">
+          <div className="header">
+            <div>
+              <p className="eyebrow">Timeline</p>
+              <h2>Activity by Time</h2>
+            </div>
+
+            <button className="readButton" onClick={markAllAsRead} disabled={saving || totalUnread === 0}>
+              {saving ? "Updating..." : "Mark all read"}
+            </button>
+          </div>
+
+          <div className="timeGrid">
+            {timeGroups.map((group) => {
+              const items = timeline[group.key] || [];
+              const unread = items.filter((item) => !item.read).length;
+              const active = activeTimeGroup === group.key;
+
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  className={active ? "timeButton activeTime" : "timeButton"}
+                  onClick={() => setActiveTimeGroup(group.key)}
+                >
+                  <span>{group.title}</span>
+                  <strong>{items.length}</strong>
+                  {unread > 0 && <small>{unread} new</small>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="header">
+            <div>
+              <p className="eyebrow">Timeline Content</p>
+              <h2>{getActiveTimelineTitle()}</h2>
+              <p className="categorySummary">
+                {timelineNotifications.length} total · {timelineUnread} unread
+              </p>
+            </div>
+
+            <button
+              className="readButton"
+              onClick={markTimelineAsRead}
+              disabled={saving || timelineUnread === 0}
+            >
+              {saving ? "Updating..." : "Mark time read"}
+            </button>
+          </div>
+
+          {timelineNotifications.length === 0 ? (
+            <EmptyState icon="🕒" title={`No activity for ${getActiveTimelineTitle()}`} />
+          ) : (
+            <div className="list compactList">
+              {timelineNotifications.slice(0, 6).map((notification) => (
+                <NotificationCard
+                  key={notification.id}
+                  notification={notification}
+                  icon={getCategoryIcon(notification)}
+                  formatTime={formatTime}
+                  openNotification={openNotification}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="categoryPanel">
           <div className="header">
             <div>
               <p className="eyebrow">Notification Types</p>
-              <h2>Activity Buttons</h2>
+              <h2>Category Centers</h2>
             </div>
 
-            <button className="readButton" onClick={markAllAsRead} disabled={saving || totalUnread === 0}>
-              {saving ? "Updating..." : "Mark all as read"}
+            <button className="readButton" onClick={markCategoryAsRead} disabled={saving || activeUnread === 0}>
+              {saving ? "Updating..." : "Mark category read"}
             </button>
           </div>
 
@@ -404,79 +594,30 @@ export default function NotificationsPage() {
         <section className="card">
           <div className="header">
             <div>
-              <p className="eyebrow">Expanded Content</p>
+              <p className="eyebrow">Expanded Center</p>
               <h2>{getActiveCategoryTitle()}</h2>
               <p className="categorySummary">
                 {activeNotifications.length} total · {activeUnread} unread
               </p>
             </div>
-
-            <button
-              className="readButton"
-              onClick={markCategoryAsRead}
-              disabled={saving || activeUnread === 0}
-            >
-              {saving ? "Updating..." : "Mark category read"}
-            </button>
           </div>
 
           {activeNotifications.length === 0 ? (
-            <div className="empty">
-              <div className="emptyIcon">
-                {categories.find((category) => category.key === activeCategory)?.icon || "🔕"}
-              </div>
-
-              <h3>No {getActiveCategoryTitle()} yet</h3>
-
-              <p>
-                When RoadLink creates this type of notification, it will appear inside this category.
-              </p>
-            </div>
+            <EmptyState
+              icon={categories.find((category) => category.key === activeCategory)?.icon || "🔕"}
+              title={`No ${getActiveCategoryTitle()} yet`}
+            />
           ) : (
             <div className="list">
-              {activeNotifications.map((notification) => {
-                const isUnread = !notification.read;
-
-                return (
-                  <button
-                    key={notification.id}
-                    type="button"
-                    className={isUnread ? "notification unread" : "notification"}
-                    onClick={() => openNotification(notification)}
-                  >
-                    <div className="icon">
-                      {categories.find((category) => category.key === activeCategory)?.icon || "🔔"}
-                    </div>
-
-                    <div className="content">
-                      <div className="titleRow">
-                        <h3>{notification.title || "RoadLink Update"}</h3>
-
-                        {isUnread ? (
-                          <span className="unreadBadge">New</span>
-                        ) : (
-                          <span className="readBadge">Read</span>
-                        )}
-                      </div>
-
-                      <p>{notification.message || "You have a new RoadLink notification."}</p>
-
-                      <div className="detailsGrid">
-                        {notification.rideId && <Detail label="Ride ID" value={notification.rideId} />}
-                        {notification.bookingId && <Detail label="Booking ID" value={notification.bookingId} />}
-                        {notification.chatId && <Detail label="Chat ID" value={notification.chatId} />}
-                        {notification.driverId && <Detail label="Driver ID" value={notification.driverId} />}
-                        {notification.passengerId && <Detail label="Passenger ID" value={notification.passengerId} />}
-                      </div>
-
-                      <div className="metaRow">
-                        <span>{formatTime(notification.createdAt)}</span>
-                        <strong>Open</strong>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+              {activeNotifications.map((notification) => (
+                <NotificationCard
+                  key={notification.id}
+                  notification={notification}
+                  icon={categories.find((category) => category.key === activeCategory)?.icon || "🔔"}
+                  formatTime={formatTime}
+                  openNotification={openNotification}
+                />
+              ))}
             </div>
           )}
         </section>
@@ -498,7 +639,7 @@ export default function NotificationsPage() {
         }
 
         .container {
-          max-width: 1100px;
+          max-width: 1120px;
           margin: auto;
         }
 
@@ -522,7 +663,8 @@ export default function NotificationsPage() {
         .hero,
         .stat,
         .card,
-        .categoryPanel {
+        .categoryPanel,
+        .timelinePanel {
           background: rgba(8,13,25,0.9);
           border: 1px solid rgba(255,255,255,0.1);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -562,7 +704,7 @@ export default function NotificationsPage() {
 
         .subtitle {
           color: #a1a1aa;
-          max-width: 650px;
+          max-width: 680px;
           line-height: 1.5;
           font-size: 18px;
           margin: 0;
@@ -618,7 +760,7 @@ export default function NotificationsPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 15px;
           margin-bottom: 20px;
         }
@@ -640,6 +782,7 @@ export default function NotificationsPage() {
           font-size: 34px;
         }
 
+        .timelinePanel,
         .categoryPanel,
         .card {
           padding: 30px;
@@ -669,6 +812,50 @@ export default function NotificationsPage() {
         .readButton:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+
+        .timeGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+        }
+
+        .timeButton {
+          padding: 18px;
+          border-radius: 20px;
+          border: 1px solid rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.04);
+          color: white;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .activeTime {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.1);
+        }
+
+        .timeButton span {
+          display: block;
+          color: #a1a1aa;
+          font-weight: 900;
+          margin-bottom: 8px;
+        }
+
+        .timeButton strong {
+          display: block;
+          color: #22c55e;
+          font-size: 30px;
+        }
+
+        .timeButton small {
+          display: inline-flex;
+          margin-top: 8px;
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.14);
+          color: #22c55e;
+          font-weight: 900;
         }
 
         .categoryGrid {
@@ -744,7 +931,7 @@ export default function NotificationsPage() {
         }
 
         .empty {
-          min-height: 260px;
+          min-height: 240px;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -766,7 +953,7 @@ export default function NotificationsPage() {
         }
 
         .empty h3 {
-          font-size: 30px;
+          font-size: 28px;
           margin: 0 0 10px;
         }
 
@@ -780,6 +967,12 @@ export default function NotificationsPage() {
         .list {
           display: grid;
           gap: 15px;
+        }
+
+        .compactList {
+          max-height: 620px;
+          overflow: auto;
+          padding-right: 4px;
         }
 
         .notification {
@@ -895,31 +1088,21 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.1);
         }
 
-        @media (max-width: 760px) {
-          .page {
-            padding: 16px;
-            padding-bottom: 120px;
-          }
-
-          .hero {
-            flex-direction: column;
-            align-items: flex-start;
-            padding: 28px;
-          }
-
-          h1 {
-            font-size: 42px;
-          }
-
+        @media (max-width: 850px) {
           .stats,
+          .timeGrid,
           .categoryGrid,
           .detailsGrid {
             grid-template-columns: 1fr;
           }
 
-          .categoryPanel,
-          .card {
-            padding: 22px;
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          h1 {
+            font-size: 42px;
           }
 
           .header {
@@ -943,22 +1126,84 @@ export default function NotificationsPage() {
             gap: 10px;
           }
 
-          .titleRow {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-
           .notification {
             grid-template-columns: 1fr;
           }
 
+          .titleRow,
           .metaRow {
             flex-direction: column;
             align-items: flex-start;
           }
         }
+
+        @media (max-width: 600px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 120px;
+          }
+
+          .hero,
+          .card,
+          .categoryPanel,
+          .timelinePanel {
+            padding: 22px;
+            border-radius: 26px;
+          }
+        }
       `}</style>
     </main>
+  );
+}
+
+function NotificationCard({
+  notification,
+  icon,
+  formatTime,
+  openNotification,
+}: {
+  notification: NotificationItem;
+  icon: string;
+  formatTime: (value?: any) => string;
+  openNotification: (notification: NotificationItem) => void;
+}) {
+  const isUnread = !notification.read;
+
+  return (
+    <button
+      type="button"
+      className={isUnread ? "notification unread" : "notification"}
+      onClick={() => openNotification(notification)}
+    >
+      <div className="icon">{icon}</div>
+
+      <div className="content">
+        <div className="titleRow">
+          <h3>{notification.title || "RoadLink Update"}</h3>
+
+          {isUnread ? (
+            <span className="unreadBadge">New</span>
+          ) : (
+            <span className="readBadge">Read</span>
+          )}
+        </div>
+
+        <p>{notification.message || "You have a new RoadLink notification."}</p>
+
+        <div className="detailsGrid">
+          {notification.rideId && <Detail label="Ride ID" value={notification.rideId} />}
+          {notification.bookingId && <Detail label="Booking ID" value={notification.bookingId} />}
+          {notification.chatId && <Detail label="Chat ID" value={notification.chatId} />}
+          {notification.driverId && <Detail label="Driver ID" value={notification.driverId} />}
+          {notification.passengerId && <Detail label="Passenger ID" value={notification.passengerId} />}
+        </div>
+
+        <div className="metaRow">
+          <span>{formatTime(notification.createdAt)}</span>
+          <strong>Open</strong>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -969,4 +1214,14 @@ function Detail({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-        }
+}
+
+function EmptyState({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div className="empty">
+      <div className="emptyIcon">{icon}</div>
+      <h3>{title}</h3>
+      <p>When RoadLink creates this type of activity, it will appear here.</p>
+    </div>
+  );
+      }
