@@ -1,16 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { addDoc, collection } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
-
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
 
 type LatLng = {
   lat: number;
@@ -26,13 +20,6 @@ type RouteInfo = {
 
 export default function OfferRidePage() {
   const router = useRouter();
-
-  const fromInputRef = useRef<HTMLInputElement | null>(null);
-  const toInputRef = useRef<HTMLInputElement | null>(null);
-  const fromAutoRef = useRef<any>(null);
-  const toAutoRef = useRef<any>(null);
-  const directionsServiceRef = useRef<any>(null);
-  const geocoderRef = useRef<any>(null);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -53,9 +40,7 @@ export default function OfferRidePage() {
     durationMinutes: 0,
   });
 
-  const [message, setMessage] = useState("Loading Google Maps...");
-  const [mapsReady, setMapsReady] = useState(false);
-  const [routeLoading, setRouteLoading] = useState(false);
+  const [message, setMessage] = useState("Manual route mode ready.");
   const [geoLoading, setGeoLoading] = useState<"from" | "to" | "">("");
   const [loading, setLoading] = useState(false);
 
@@ -63,117 +48,6 @@ export default function OfferRidePage() {
     routeInfo.distanceMiles > 0
       ? Math.max(10, Math.round(routeInfo.distanceMiles * 0.28))
       : 0;
-
-  useEffect(() => {
-    let mounted = true;
-
-    function setupGoogleServices() {
-      if (!window.google?.maps) return;
-
-      directionsServiceRef.current = new window.google.maps.DirectionsService();
-      geocoderRef.current = new window.google.maps.Geocoder();
-
-      if (window.google.maps.places && fromInputRef.current && !fromAutoRef.current) {
-        fromAutoRef.current = new window.google.maps.places.Autocomplete(fromInputRef.current, {
-          fields: ["formatted_address", "geometry", "name"],
-          componentRestrictions: { country: "us" },
-        });
-
-        fromAutoRef.current.addListener("place_changed", () => {
-          const place = fromAutoRef.current.getPlace();
-          const label = place.formatted_address || place.name || "";
-
-          setFrom(label);
-          resetRouteInfo();
-
-          if (place.geometry?.location) {
-            setFromCoords({
-              lat: place.geometry.location.lat(),
-              lng: place.geometry.location.lng(),
-            });
-            setMessage("Pickup selected.");
-          } else {
-            setFromCoords(null);
-            setMessage("Select a real pickup location or press Use Typed Address.");
-          }
-        });
-      }
-
-      if (window.google.maps.places && toInputRef.current && !toAutoRef.current) {
-        toAutoRef.current = new window.google.maps.places.Autocomplete(toInputRef.current, {
-          fields: ["formatted_address", "geometry", "name"],
-          componentRestrictions: { country: "us" },
-        });
-
-        toAutoRef.current.addListener("place_changed", () => {
-          const place = toAutoRef.current.getPlace();
-          const label = place.formatted_address || place.name || "";
-
-          setTo(label);
-          resetRouteInfo();
-
-          if (place.geometry?.location) {
-            setToCoords({
-              lat: place.geometry.location.lat(),
-              lng: place.geometry.location.lng(),
-            });
-            setMessage("Destination selected.");
-          } else {
-            setToCoords(null);
-            setMessage("Select a real destination or press Use Typed Address.");
-          }
-        });
-      }
-
-      if (mounted) {
-        setMapsReady(true);
-        setMessage("Google Maps ready.");
-      }
-    }
-
-    function loadGoogleMaps() {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-      if (!apiKey) {
-        setMessage("Google Maps API key is missing in Vercel.");
-        return;
-      }
-
-      if (window.google?.maps) {
-        setupGoogleServices();
-        return;
-      }
-
-      const existing = document.getElementById("roadlink-google-maps");
-
-      if (existing) {
-        existing.addEventListener("load", setupGoogleServices);
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.id = "roadlink-google-maps";
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-      script.async = true;
-      script.defer = true;
-      script.onload = setupGoogleServices;
-      script.onerror = () => setMessage("Google Maps failed to load. Check API key, billing and domain restrictions.");
-
-      document.head.appendChild(script);
-    }
-
-    loadGoogleMaps();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (fromCoords && toCoords && mapsReady) {
-      calculateRoute(fromCoords, toCoords);
-    }
-  }, [fromCoords, toCoords, mapsReady]);
 
   function resetRouteInfo() {
     setRouteInfo({
@@ -192,33 +66,35 @@ export default function OfferRidePage() {
       return;
     }
 
-    if (!window.google?.maps || !geocoderRef.current) {
-      setMessage("Google Maps is not ready yet.");
-      return;
-    }
-
     try {
       setGeoLoading(target);
       setMessage("Finding address...");
 
-      const response = await geocoderRef.current.geocode({
-        address: value.includes("Puerto Rico") ? value : `${value}, Puerto Rico`,
-        region: "pr",
-      });
+      const searchText = value.toLowerCase().includes("puerto rico")
+        ? value
+        : `${value}, Puerto Rico`;
 
-      const result = response.results?.[0];
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
+          searchText
+        )}`
+      );
 
-      if (!result?.geometry?.location) {
-        setMessage("Address not found. Try a more specific address.");
+      const results = await response.json();
+
+      if (!Array.isArray(results) || results.length === 0) {
+        setMessage("Address not found. Try Guayama Puerto Rico or Patillas Puerto Rico.");
         return;
       }
 
+      const result = results[0];
+
       const coords = {
-        lat: result.geometry.location.lat(),
-        lng: result.geometry.location.lng(),
+        lat: Number(result.lat),
+        lng: Number(result.lon),
       };
 
-      const label = result.formatted_address || value;
+      const label = result.display_name || searchText;
 
       resetRouteInfo();
 
@@ -226,10 +102,12 @@ export default function OfferRidePage() {
         setFrom(label);
         setFromCoords(coords);
         setMessage("Pickup address selected.");
+        if (toCoords) calculateRoute(coords, toCoords);
       } else {
         setTo(label);
         setToCoords(coords);
         setMessage("Destination address selected.");
+        if (fromCoords) calculateRoute(fromCoords, coords);
       }
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not find address.");
@@ -263,13 +141,17 @@ export default function OfferRidePage() {
   }
 
   async function reverseGeocode(coords: LatLng) {
-    if (!window.google?.maps || !geocoderRef.current) {
-      return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
-    }
-
     try {
-      const response = await geocoderRef.current.geocode({ location: coords });
-      return response.results?.[0]?.formatted_address || `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.lat}&lon=${coords.lng}`
+      );
+
+      const data = await response.json();
+
+      return (
+        data.display_name ||
+        `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`
+      );
     } catch {
       return `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
     }
@@ -289,10 +171,12 @@ export default function OfferRidePage() {
         setFrom(address);
         setFromCoords(coords);
         setMessage("Current location set as pickup.");
+        if (toCoords) calculateRoute(coords, toCoords);
       } else {
         setTo(address);
         setToCoords(coords);
         setMessage("Current location set as destination.");
+        if (fromCoords) calculateRoute(fromCoords, coords);
       }
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not get GPS location.");
@@ -302,55 +186,15 @@ export default function OfferRidePage() {
   }
 
   function calculateRoute(origin: LatLng, destination: LatLng) {
-    if (!window.google?.maps || !directionsServiceRef.current) {
-      const miles = calculateStraightDistanceMiles(origin, destination);
-      setRouteInfo({
-        distanceText: `${miles} mi estimated`,
-        durationText: "Estimated",
-        distanceMiles: miles,
-        durationMinutes: Math.round(miles * 2),
-      });
-      return;
-    }
+    const miles = calculateStraightDistanceMiles(origin, destination);
+    const estimatedMinutes = Math.max(5, Math.round(miles * 2.1));
 
-    setRouteLoading(true);
-
-    directionsServiceRef.current.route(
-      {
-        origin,
-        destination,
-        travelMode: window.google.maps.TravelMode.DRIVING,
-      },
-      (result: any, status: string) => {
-        setRouteLoading(false);
-
-        if (status !== "OK" || !result) {
-          const miles = calculateStraightDistanceMiles(origin, destination);
-          setRouteInfo({
-            distanceText: `${miles} mi estimated`,
-            durationText: "Estimated",
-            distanceMiles: miles,
-            durationMinutes: Math.round(miles * 2),
-          });
-          setMessage("Route estimated because Google Directions could not calculate it.");
-          return;
-        }
-
-        const leg = result.routes?.[0]?.legs?.[0];
-        const meters = Number(leg?.distance?.value || 0);
-        const seconds = Number(leg?.duration?.value || 0);
-        const miles = meters / 1609.344;
-
-        setRouteInfo({
-          distanceText: leg?.distance?.text || `${miles.toFixed(1)} mi`,
-          durationText: leg?.duration?.text || "Estimated",
-          distanceMiles: Number(miles.toFixed(1)),
-          durationMinutes: Math.round(seconds / 60),
-        });
-
-        setMessage("");
-      }
-    );
+    setRouteInfo({
+      distanceText: `${miles} mi estimated`,
+      durationText: `${estimatedMinutes} min estimated`,
+      distanceMiles: miles,
+      durationMinutes: estimatedMinutes,
+    });
   }
 
   function calculateStraightDistanceMiles(origin: LatLng, destination: LatLng) {
@@ -364,14 +208,18 @@ export default function OfferRidePage() {
       Math.sin(deltaLat / 2) ** 2 +
       Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
 
-    return Number((earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
+    return Number(
+      (earthRadiusMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1)
+    );
   }
 
   function buildMapUrl() {
     const origin = fromCoords ? `${fromCoords.lat},${fromCoords.lng}` : from.trim();
     const destination = toCoords ? `${toCoords.lat},${toCoords.lng}` : to.trim();
 
-    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      origin
+    )}&destination=${encodeURIComponent(destination)}`;
   }
 
   function useSuggestedPrice() {
@@ -395,18 +243,28 @@ export default function OfferRidePage() {
     }
 
     if (!fromCoords) {
-      setMessage("Press Use Typed Address or Use GPS for pickup.");
+      setMessage("Press Use Typed Address or GPS for pickup.");
       return;
     }
 
     if (!toCoords) {
-      setMessage("Press Use Typed Address or Use GPS for destination.");
+      setMessage("Press Use Typed Address or GPS for destination.");
       return;
     }
 
     if (routeInfo.distanceMiles <= 0) {
       calculateRoute(fromCoords, toCoords);
-      setMessage("Calculating route. Press Publish again in a moment.");
+      setMessage("Route calculated. Press Publish again.");
+      return;
+    }
+
+    if (Number(price) <= 0) {
+      setMessage("Price must be greater than 0.");
+      return;
+    }
+
+    if (Number(seats) <= 0) {
+      setMessage("Seats must be greater than 0.");
       return;
     }
 
@@ -447,8 +305,6 @@ export default function OfferRidePage() {
     }
   }
 
-  const destinationSelected = Boolean(toCoords);
-
   return (
     <main className="page">
       <section className="card heroCard">
@@ -461,10 +317,10 @@ export default function OfferRidePage() {
 
         <h1>Road<span>Link</span></h1>
         <h2>Offer a <span>Ride</span></h2>
-        <p>Publish your ride with GPS, Google autocomplete or manual address search.</p>
+        <p>Publish your ride using manual address search or GPS. No Google popup required.</p>
 
-        <div className={mapsReady ? "mapsStatus ready" : "mapsStatus"}>
-          {mapsReady ? "Google Maps ready" : "Loading Google Maps..."}
+        <div className="mapsStatus ready">
+          Manual Maps Ready
         </div>
       </section>
 
@@ -472,7 +328,6 @@ export default function OfferRidePage() {
         <Field label="From *">
           <div className="locationInputRow">
             <input
-              ref={fromInputRef}
               value={from}
               onChange={(e) => {
                 setFrom(e.target.value);
@@ -481,7 +336,7 @@ export default function OfferRidePage() {
               }}
               placeholder="Example: Guayama Puerto Rico"
             />
-            <button type="button" onClick={() => geocodeTypedAddress("from")} disabled={geoLoading !== "" || !mapsReady}>
+            <button type="button" onClick={() => geocodeTypedAddress("from")} disabled={geoLoading !== ""}>
               {geoLoading === "from" ? "Finding..." : "Use Typed Address"}
             </button>
             <button type="button" onClick={() => useCurrentLocation("from")} disabled={geoLoading !== ""}>
@@ -493,7 +348,6 @@ export default function OfferRidePage() {
         <Field label="To *">
           <div className="locationInputRow">
             <input
-              ref={toInputRef}
               value={to}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -502,7 +356,7 @@ export default function OfferRidePage() {
               }}
               placeholder="Example: Patillas Puerto Rico"
             />
-            <button type="button" onClick={() => geocodeTypedAddress("to")} disabled={geoLoading !== "" || !mapsReady}>
+            <button type="button" onClick={() => geocodeTypedAddress("to")} disabled={geoLoading !== ""}>
               {geoLoading === "to" ? "Finding..." : "Use Typed Address"}
             </button>
             <button type="button" onClick={() => useCurrentLocation("to")} disabled={geoLoading !== ""}>
@@ -510,13 +364,13 @@ export default function OfferRidePage() {
             </button>
           </div>
 
-          {!destinationSelected && <p className="fieldWarning">Type destination and press Use Typed Address.</p>}
-          {destinationSelected && <p className="fieldSuccess">Destination selected.</p>}
+          {!toCoords && <p className="fieldWarning">Type destination and press Use Typed Address.</p>}
+          {toCoords && <p className="fieldSuccess">Destination selected.</p>}
         </Field>
 
         <div className="routeStats">
-          <StatBox label="Distance" value={routeLoading ? "Calculating..." : routeInfo.distanceText || "Select route"} />
-          <StatBox label="Duration" value={routeLoading ? "Calculating..." : routeInfo.durationText || "Select route"} />
+          <StatBox label="Distance" value={routeInfo.distanceText || "Select route"} />
+          <StatBox label="Duration" value={routeInfo.durationText || "Select route"} />
           <StatBox label="Miles" value={routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"} />
           <StatBox label="Suggested" value={suggestedPrice ? `$${suggestedPrice}` : "$0"} />
         </div>
@@ -542,17 +396,31 @@ export default function OfferRidePage() {
 
         <Field label="Price per Seat *">
           <div className="priceRow">
-            <input value={price} onChange={(e) => setPrice(e.target.value)} type="number" min="1" placeholder="45" />
+            <input
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              type="number"
+              min="1"
+              placeholder="45"
+            />
             <button type="button" onClick={useSuggestedPrice}>Use ${suggestedPrice || 0}</button>
           </div>
         </Field>
 
         <Field label="Vehicle *">
-          <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder="Toyota Camry..." />
+          <input
+            value={vehicle}
+            onChange={(e) => setVehicle(e.target.value)}
+            placeholder="Toyota Camry..."
+          />
         </Field>
 
         <Field label="Trip Notes">
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Pickup details, luggage, rules..." />
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Pickup details, luggage, rules..."
+          />
         </Field>
 
         <div className="preview">
