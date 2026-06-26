@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,
@@ -11,9 +10,10 @@ import {
   doc,
   getDocs,
   query,
-  updateDoc,
+  runTransaction,
   where,
 } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 
 type Ride = {
   id: string;
@@ -34,6 +34,7 @@ type Ride = {
   durationMinutes?: number;
   mapUrl?: string;
   suggestedPrice?: number;
+  originalSeats?: number;
 };
 
 export default function FindRidePage() {
@@ -52,69 +53,87 @@ export default function FindRidePage() {
       setLoading(true);
       setMessage("Loading rides...");
 
-      const ridesQuery = query(
-        collection(db, "rides"),
-        where("status", "==", "active")
-      );
-
+      const ridesQuery = query(collection(db, "rides"), where("status", "==", "active"));
       const snapshot = await getDocs(ridesQuery);
 
-      const ridesData = snapshot.docs.map((document) => {
-        const data = document.data();
+      const ridesData = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      })) as Ride[];
 
-        return {
-          ...data,
-          id: document.id,
-        };
-      }) as Ride[];
+      const sorted = ridesData.sort((a, b) => {
+        const dateA = new Date(`${a.date || ""} ${a.time || ""}`).getTime();
+        const dateB = new Date(`${b.date || ""} ${b.time || ""}`).getTime();
+        return dateA - dateB;
+      });
 
-      setRides(ridesData);
-      setMessage(ridesData.length ? "" : "No rides available yet.");
+      setRides(sorted);
+      setMessage(sorted.length ? "" : "No rides available yet.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "Could not load rides.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function loadUserBookings(currentUserId: string) {
+  async function loadUserBookings(currentUserId: string, currentEmail: string) {
     try {
-      if (!currentUserId) {
+      if (!currentUserId && !currentEmail) {
         setReservedRideIds([]);
         return;
       }
 
-      const bookingsQuery = query(
-        collection(db, "bookings"),
-        where("passengerId", "==", currentUserId)
-      );
+      const activeStatuses = [
+        "reserved",
+        "confirmed",
+        "payment_pending",
+        "paid",
+        "completed",
+      ];
 
-      const snapshot = await getDocs(bookingsQuery);
+      const ids = new Set<string>();
 
-      const ids = snapshot.docs
-        .map((document) => {
-          const data = document.data();
-          if (
-            data.status === "reserved" ||
-            data.status === "confirmed" ||
-            data.status === "completed"
-          ) {
-            return data.rideId;
+      if (currentUserId) {
+        const byUidQuery = query(
+          collection(db, "bookings"),
+          where("passengerId", "==", currentUserId)
+        );
+
+        const byUidSnapshot = await getDocs(byUidQuery);
+
+        byUidSnapshot.docs.forEach((item) => {
+          const data = item.data();
+          if (activeStatuses.includes(String(data.status || "")) && data.rideId) {
+            ids.add(String(data.rideId));
           }
+        });
+      }
 
-          return "";
-        })
-        .filter(Boolean) as string[];
+      if (currentEmail) {
+        const byEmailQuery = query(
+          collection(db, "bookings"),
+          where("passengerEmail", "==", currentEmail)
+        );
 
-      setReservedRideIds(ids);
+        const byEmailSnapshot = await getDocs(byEmailQuery);
+
+        byEmailSnapshot.docs.forEach((item) => {
+          const data = item.data();
+          if (activeStatuses.includes(String(data.status || "")) && data.rideId) {
+            ids.add(String(data.rideId));
+          }
+        });
+      }
+
+      setReservedRideIds(Array.from(ids));
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "Could not load your bookings.");
     }
   }
 
-  async function refreshPageData(currentUserId: string) {
+  async function refreshPageData(currentUserId: string, currentEmail: string) {
     await loadRides();
-    await loadUserBookings(currentUserId);
+    await loadUserBookings(currentUserId, currentEmail);
   }
 
   function routeMapUrl(ride: Ride) {
@@ -162,13 +181,17 @@ export default function FindRidePage() {
 
       const duplicateSnapshot = await getDocs(duplicateQuery);
 
-      const hasActiveBooking = duplicateSnapshot.docs.some((document) => {
-        const data = document.data();
-        return (
-          data.status === "reserved" ||
-          data.status === "confirmed" ||
-          data.status === "completed"
-        );
+      const activeStatuses = [
+        "reserved",
+        "confirmed",
+        "payment_pending",
+        "paid",
+        "completed",
+      ];
+
+      const hasActiveBooking = duplicateSnapshot.docs.some((item) => {
+        const data = item.data();
+        return activeStatuses.includes(String(data.status || ""));
       });
 
       if (hasActiveBooking) {
@@ -176,75 +199,124 @@ export default function FindRidePage() {
         setReservedRideIds((previous) =>
           previous.includes(ride.id) ? previous : [...previous, ride.id]
         );
+        router.push("/my-bookings");
         return;
       }
 
       const now = new Date().toISOString();
-      const finalMapUrl = routeMapUrl(ride);
-      const finalDriverId = ride.driverId || "";
-      const finalDriverEmail = ride.driverEmail || "";
+      const bookingRef = doc(collection(db, "bookings"));
+      const rideRef = doc(db, "rides", ride.id);
 
-      await addDoc(collection(db, "bookings"), {
-        rideId: ride.id,
+      const bookingPayload = await runTransaction(db, async (transaction) => {
+        const rideSnap = await transaction.get(rideRef);
 
-        passengerId: userId,
-        passengerEmail: userEmail,
+        if (!rideSnap.exists()) {
+          throw new Error("Ride no longer exists.");
+        }
 
-        driverId: finalDriverId,
-        driverEmail: finalDriverEmail,
+        const liveRide = rideSnap.data() as Ride;
+        const liveSeats = Number(liveRide.seats || 0);
+        const liveStatus = String(liveRide.status || "");
 
-        from: ride.from || "",
-        to: ride.to || "",
-        date: ride.date || "",
-        time: ride.time || "",
+        if (liveStatus !== "active") {
+          throw new Error("This ride is no longer active.");
+        }
 
-        price: Number(ride.price || 0),
-        seatsBooked: 1,
+        if (liveSeats <= 0) {
+          throw new Error("No seats available for this ride.");
+        }
 
-        distanceText: ride.distanceText || "",
-        durationText: ride.durationText || "",
-        distanceMiles: Number(ride.distanceMiles || 0),
-        durationMinutes: Number(ride.durationMinutes || 0),
-        mapUrl: finalMapUrl,
+        const amount = Number(liveRide.price || ride.price || 0);
+        const platformFee = Math.round(amount * 0.12 * 100) / 100;
+        const driverAmount = Math.max(amount - platformFee, 0);
+        const newSeats = liveSeats - 1;
 
-        status: "reserved",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      if (finalDriverId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: finalDriverId,
-          type: "booking",
-          title: "New Ride Booking",
-          message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
+        const payload = {
           rideId: ride.id,
+
           passengerId: userId,
           passengerEmail: userEmail,
-          driverId: finalDriverId,
-          driverEmail: finalDriverEmail,
+          passengerEmailLower: userEmail.toLowerCase(),
+
+          driverId: liveRide.driverId || ride.driverId || "",
+          driverEmail: liveRide.driverEmail || ride.driverEmail || "",
+
+          from: liveRide.from || ride.from || "",
+          to: liveRide.to || ride.to || "",
+          date: liveRide.date || ride.date || "",
+          time: liveRide.time || ride.time || "",
+
+          price: amount,
+          amount,
+          platformFee,
+          driverAmount,
+          currency: "USD",
+          seatsBooked: 1,
+
+          distanceText: liveRide.distanceText || ride.distanceText || "",
+          durationText: liveRide.durationText || ride.durationText || "",
+          distanceMiles: Number(liveRide.distanceMiles || ride.distanceMiles || 0),
+          durationMinutes: Number(liveRide.durationMinutes || ride.durationMinutes || 0),
+          mapUrl: liveRide.mapUrl || routeMapUrl(ride),
+
+          status: "reserved",
+          paymentStatus: "unpaid",
+          paymentId: "",
+          stripeCheckoutSessionId: "",
+
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        transaction.set(bookingRef, payload);
+
+        transaction.update(rideRef, {
+          seats: newSeats,
+          status: newSeats <= 0 ? "full" : "active",
+          updatedAt: now,
+        });
+
+        return payload;
+      });
+
+      if (bookingPayload.driverId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: bookingPayload.driverId,
+          email: bookingPayload.driverEmail,
+          type: "booking",
+          title: "New Ride Booking",
+          message: `${userEmail} reserved a seat from ${bookingPayload.from} to ${bookingPayload.to}.`,
+          rideId: ride.id,
+          bookingId: bookingRef.id,
+          passengerId: userId,
+          passengerEmail: userEmail,
+          driverId: bookingPayload.driverId,
+          driverEmail: bookingPayload.driverEmail,
           read: false,
           createdAt: now,
           actionUrl: `/ride-passengers?rideId=${ride.id}`,
         });
       }
 
-      const newSeats = Number(ride.seats || 0) - 1;
-
-      await updateDoc(doc(db, "rides", ride.id), {
-        seats: newSeats,
-        status: newSeats <= 0 ? "full" : "active",
-        updatedAt: now,
+      await addDoc(collection(db, "auditLogs"), {
+        action: "Ride Seat Reserved",
+        targetId: bookingRef.id,
+        targetType: "booking",
+        details: `${userEmail} reserved ${bookingPayload.from} to ${bookingPayload.to}`,
+        severity: "success",
+        createdAt: now,
       });
 
       setReservedRideIds((previous) =>
         previous.includes(ride.id) ? previous : [...previous, ride.id]
       );
 
-      setMessage("Seat reserved successfully. The driver has been notified.");
-      await refreshPageData(userId);
+      setMessage("Seat reserved. Continue to My Bookings to pay.");
+      await refreshPageData(userId, userEmail);
+
+      router.push("/my-bookings");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "Could not reserve this ride.");
     } finally {
       setLoadingRideId("");
     }
@@ -258,10 +330,12 @@ export default function FindRidePage() {
         return;
       }
 
-      setUserId(user.uid);
-      setUserEmail(user.email || "");
+      const email = user.email || "";
 
-      await refreshPageData(user.uid);
+      setUserId(user.uid);
+      setUserEmail(email);
+
+      await refreshPageData(user.uid, email);
     });
 
     return () => unsubscribe();
@@ -288,8 +362,7 @@ export default function FindRidePage() {
         <h1>Find a <span>Ride</span></h1>
 
         <p className="subtitle">
-          Discover available long-distance rides, preview routes, check trip details,
-          and reserve your seat instantly.
+          Discover available rides, preview routes, reserve your seat and continue to secure payment.
         </p>
 
         <div className="mainActions">
@@ -300,7 +373,7 @@ export default function FindRidePage() {
           <button
             type="button"
             className="secondaryTopButton"
-            onClick={() => refreshPageData(userId)}
+            onClick={() => refreshPageData(userId, userEmail)}
             disabled={loading || !userId}
           >
             {loading ? "Refreshing..." : "Refresh Rides"}
@@ -368,10 +441,7 @@ export default function FindRidePage() {
               {isOwnRide && <p className="warning">This is your own ride.</p>}
 
               <div className="cardButtons">
-                <Link
-                  href={`/driver-profile?driverId=${ride.driverId || ""}`}
-                  className="outlineButton"
-                >
+                <Link href={`/driver-profile?driverId=${ride.driverId || ""}`} className="outlineButton">
                   View Driver Profile
                 </Link>
 
@@ -393,7 +463,7 @@ export default function FindRidePage() {
                   ? "Your Own Ride"
                   : noSeats
                   ? "No Seats Available"
-                  : "Reserve Seat"}
+                  : "Reserve Seat & Continue to Pay"}
               </button>
             </div>
           );
