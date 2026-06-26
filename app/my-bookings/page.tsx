@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { addDoc, collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 
 type Booking = {
@@ -35,7 +43,8 @@ export default function MyBookingsPage() {
   const [payingId, setPayingId] = useState("");
 
   useEffect(() => {
-    let unsubscribeBookings: (() => void) | undefined;
+    let unsubscribeByUid: (() => void) | undefined;
+    let unsubscribeByEmail: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
@@ -44,39 +53,74 @@ export default function MyBookingsPage() {
         return;
       }
 
-      setUserId(user.uid);
-      setUserEmail(user.email || "");
+      const email = user.email || "";
 
-      const bookingsQuery = query(
+      setUserId(user.uid);
+      setUserEmail(email);
+
+      const mergeBookings = (uidBookings: Booking[], emailBookings: Booking[]) => {
+        const map = new Map<string, Booking>();
+
+        [...uidBookings, ...emailBookings].forEach((booking) => {
+          map.set(booking.id, booking);
+        });
+
+        const merged = Array.from(map.values()).sort(
+          (a, b) =>
+            new Date(b.createdAt || "").getTime() -
+            new Date(a.createdAt || "").getTime()
+        );
+
+        setBookings(merged);
+        setMessage("");
+      };
+
+      let uidResults: Booking[] = [];
+      let emailResults: Booking[] = [];
+
+      const uidQuery = query(
         collection(db, "bookings"),
         where("passengerId", "==", user.uid)
       );
 
-      unsubscribeBookings = onSnapshot(
-        bookingsQuery,
+      unsubscribeByUid = onSnapshot(
+        uidQuery,
         (snapshot) => {
-          const data = snapshot.docs.map((item) => ({
+          uidResults = snapshot.docs.map((item) => ({
             id: item.id,
             ...item.data(),
           })) as Booking[];
 
-          setBookings(
-            data.sort(
-              (a, b) =>
-                new Date(b.createdAt || "").getTime() -
-                new Date(a.createdAt || "").getTime()
-            )
-          );
-
-          setMessage("");
+          mergeBookings(uidResults, emailResults);
         },
         (error) => setMessage(error.message)
       );
+
+      if (email) {
+        const emailQuery = query(
+          collection(db, "bookings"),
+          where("passengerEmail", "==", email)
+        );
+
+        unsubscribeByEmail = onSnapshot(
+          emailQuery,
+          (snapshot) => {
+            emailResults = snapshot.docs.map((item) => ({
+              id: item.id,
+              ...item.data(),
+            })) as Booking[];
+
+            mergeBookings(uidResults, emailResults);
+          },
+          (error) => setMessage(error.message)
+        );
+      }
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeBookings) unsubscribeBookings();
+      if (unsubscribeByUid) unsubscribeByUid();
+      if (unsubscribeByEmail) unsubscribeByEmail();
     };
   }, []);
 
