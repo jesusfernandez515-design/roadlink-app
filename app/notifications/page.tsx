@@ -34,6 +34,65 @@ type NotificationItem = {
   actionUrl?: string;
 };
 
+type CategoryKey =
+  | "message"
+  | "payout"
+  | "support"
+  | "emergency"
+  | "booking"
+  | "cancelled"
+  | "completed";
+
+const categories: {
+  key: CategoryKey;
+  title: string;
+  icon: string;
+  description: string;
+}[] = [
+  {
+    key: "message",
+    title: "New Messages",
+    icon: "💬",
+    description: "All direct chat and message notifications.",
+  },
+  {
+    key: "payout",
+    title: "Payout Update",
+    icon: "🏦",
+    description: "Driver wallet, payout requests and payout status updates.",
+  },
+  {
+    key: "support",
+    title: "Support Ticket Created",
+    icon: "🎧",
+    description: "Support requests submitted through RoadLink.",
+  },
+  {
+    key: "emergency",
+    title: "Emergency Alert Sent",
+    icon: "🚨",
+    description: "SOS and emergency alerts sent from the platform.",
+  },
+  {
+    key: "booking",
+    title: "New Ride Booking",
+    icon: "🎟️",
+    description: "New passenger reservations and ride booking activity.",
+  },
+  {
+    key: "cancelled",
+    title: "Booking Cancelled",
+    icon: "❌",
+    description: "Cancelled passenger bookings and ride reservation changes.",
+  },
+  {
+    key: "completed",
+    title: "Ride Completed",
+    icon: "✅",
+    description: "Completed trips and finished ride confirmations.",
+  },
+];
+
 export default function NotificationsPage() {
   const router = useRouter();
 
@@ -41,6 +100,7 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [status, setStatus] = useState("Loading notifications...");
   const [saving, setSaving] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>("message");
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -87,21 +147,47 @@ export default function NotificationsPage() {
     return () => unsubscribe();
   }, [userId]);
 
-  const unreadNotifications = useMemo(() => {
-    return notifications.filter((notification) => !notification.read);
+  const categorized = useMemo(() => {
+    const groups: Record<CategoryKey, NotificationItem[]> = {
+      message: [],
+      payout: [],
+      support: [],
+      emergency: [],
+      booking: [],
+      cancelled: [],
+      completed: [],
+    };
+
+    notifications.forEach((notification) => {
+      const category = getCategory(notification);
+      groups[category].push(notification);
+    });
+
+    return groups;
   }, [notifications]);
 
-  const totalUnread = unreadNotifications.length;
+  const totalUnread = useMemo(() => {
+    return notifications.filter((notification) => !notification.read).length;
+  }, [notifications]);
 
-  function getIcon(type?: string) {
-    if (type === "booking") return "🎟️";
-    if (type === "message") return "💬";
-    if (type === "ride") return "🚘";
-    if (type === "review") return "⭐";
-    if (type === "verification") return "🛡️";
-    if (type === "payment") return "💳";
-    if (type === "payout") return "🏦";
-    return "🔔";
+  const activeNotifications = categorized[activeCategory] || [];
+  const activeUnread = activeNotifications.filter((item) => !item.read).length;
+
+  function getCategory(notification: NotificationItem): CategoryKey {
+    const title = String(notification.title || "").toLowerCase();
+    const message = String(notification.message || "").toLowerCase();
+    const type = String(notification.type || "").toLowerCase();
+    const combined = `${title} ${message} ${type}`;
+
+    if (combined.includes("message")) return "message";
+    if (combined.includes("payout") || combined.includes("payment")) return "payout";
+    if (combined.includes("support")) return "support";
+    if (combined.includes("emergency") || combined.includes("sos")) return "emergency";
+    if (combined.includes("cancel")) return "cancelled";
+    if (combined.includes("completed") || combined.includes("ride completed")) return "completed";
+    if (combined.includes("booking") || type === "booking") return "booking";
+
+    return "booking";
   }
 
   function formatTime(value?: any) {
@@ -126,40 +212,26 @@ export default function NotificationsPage() {
   function getNotificationUrl(notification: NotificationItem) {
     if (notification.actionUrl) return notification.actionUrl;
 
-    if (notification.type === "payout" || notification.type === "payment") {
-      return "/wallet";
-    }
+    const category = getCategory(notification);
 
-    if (notification.type === "verification") {
-      return "/driver-verification";
-    }
-
-    if (notification.type === "message") {
+    if (category === "message") {
       if (notification.chatId) {
         return `/chat?chatId=${notification.chatId}&rideId=${notification.rideId || ""}&driverId=${notification.driverId || ""}&passengerId=${notification.passengerId || ""}`;
-      }
-
-      if (notification.rideId || notification.driverId || notification.passengerId) {
-        return `/chat?rideId=${notification.rideId || ""}&driverId=${notification.driverId || ""}&passengerId=${notification.passengerId || ""}`;
       }
 
       return "/messages";
     }
 
-    if (notification.type === "booking") {
+    if (category === "payout") return "/wallet";
+    if (category === "support") return "/support";
+    if (category === "emergency") return "/sos";
+    if (category === "booking") {
       if (notification.rideId) return `/ride-passengers?rideId=${notification.rideId}`;
       return "/my-rides";
     }
 
-    if (notification.type === "ride") {
-      if (notification.rideId) return `/ride-details?rideId=${notification.rideId}`;
-      return "/my-bookings";
-    }
-
-    if (notification.type === "review") {
-      if (notification.driverId) return `/driver-profile?driverId=${notification.driverId}`;
-      return "/reviews";
-    }
+    if (category === "cancelled") return "/my-rides";
+    if (category === "completed") return "/my-rides";
 
     return "/dashboard";
   }
@@ -177,25 +249,7 @@ export default function NotificationsPage() {
 
   async function openNotification(notification: NotificationItem) {
     try {
-      if (notification.type === "message" && notification.chatId) {
-        const batch = writeBatch(db);
-
-        notifications
-          .filter(
-            (item) =>
-              item.type === "message" &&
-              item.chatId === notification.chatId &&
-              !item.read
-          )
-          .forEach((item) => {
-            batch.update(doc(db, "notifications", item.id), {
-              read: true,
-              readAt: new Date().toISOString(),
-            });
-          });
-
-        await batch.commit();
-      } else if (!notification.read) {
+      if (!notification.read) {
         await markOneAsRead(notification.id);
       }
 
@@ -206,6 +260,7 @@ export default function NotificationsPage() {
   }
 
   async function markAllAsRead() {
+    const unreadNotifications = notifications.filter((notification) => !notification.read);
     if (!unreadNotifications.length) return;
 
     try {
@@ -230,38 +285,52 @@ export default function NotificationsPage() {
     }
   }
 
+  async function markCategoryAsRead() {
+    const unreadCategory = activeNotifications.filter((notification) => !notification.read);
+    if (!unreadCategory.length) return;
+
+    try {
+      setSaving(true);
+      setStatus("");
+
+      const batch = writeBatch(db);
+
+      unreadCategory.forEach((notification) => {
+        batch.update(doc(db, "notifications", notification.id), {
+          read: true,
+          readAt: new Date().toISOString(),
+        });
+      });
+
+      await batch.commit();
+      setStatus(`${getActiveCategoryTitle()} marked as read.`);
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not update category.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function getActiveCategoryTitle() {
+    return categories.find((category) => category.key === activeCategory)?.title || "Notifications";
+  }
+
   return (
     <main className="page">
       <section className="container">
         <div className="topBar">
-          <Link href="/dashboard" className="backButton">
-            ← Dashboard
-          </Link>
-
-          <Link href="/messages" className="backButton">
-            Messages
-          </Link>
-
-          <Link href="/my-rides" className="backButton">
-            My Rides
-          </Link>
-
-          <Link href="/profile" className="backButton">
-            Profile
-          </Link>
+          <Link href="/dashboard" className="backButton">← Dashboard</Link>
+          <Link href="/messages" className="backButton">Messages</Link>
+          <Link href="/my-rides" className="backButton">My Rides</Link>
+          <Link href="/profile" className="backButton">Profile</Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Notifications</p>
-
-            <h1>
-              Notification <span>Center</span>
-            </h1>
-
+            <h1>Notification <span>Center</span></h1>
             <p className="subtitle">
-              Track bookings, messages, ride updates, reviews, payout updates,
-              verification alerts, and important RoadLink activity.
+              View your activity by category. Tap a notification type to expand its full content.
             </p>
           </div>
 
@@ -290,40 +359,82 @@ export default function NotificationsPage() {
           </div>
         </section>
 
-        <section className="card">
+        <section className="categoryPanel">
           <div className="header">
             <div>
-              <p className="eyebrow">Recent Activity</p>
-              <h2>Notifications</h2>
+              <p className="eyebrow">Notification Types</p>
+              <h2>Activity Buttons</h2>
             </div>
 
-            <button
-              className="readButton"
-              onClick={markAllAsRead}
-              disabled={saving || totalUnread === 0}
-            >
+            <button className="readButton" onClick={markAllAsRead} disabled={saving || totalUnread === 0}>
               {saving ? "Updating..." : "Mark all as read"}
             </button>
           </div>
 
-          {notifications.length === 0 ? (
-            <div className="empty">
-              <div className="emptyIcon">🔕</div>
+          <div className="categoryGrid">
+            {categories.map((category) => {
+              const items = categorized[category.key] || [];
+              const unread = items.filter((item) => !item.read).length;
+              const isActive = activeCategory === category.key;
 
-              <h3>No notifications yet</h3>
+              return (
+                <button
+                  key={category.key}
+                  type="button"
+                  className={isActive ? "categoryButton activeCategory" : "categoryButton"}
+                  onClick={() => setActiveCategory(category.key)}
+                >
+                  <div className="categoryIcon">{category.icon}</div>
+
+                  <div className="categoryContent">
+                    <strong>{category.title}</strong>
+                    <span>{category.description}</span>
+                  </div>
+
+                  <div className="categoryCount">
+                    <b>{items.length}</b>
+                    {unread > 0 && <small>{unread} new</small>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="header">
+            <div>
+              <p className="eyebrow">Expanded Content</p>
+              <h2>{getActiveCategoryTitle()}</h2>
+              <p className="categorySummary">
+                {activeNotifications.length} total · {activeUnread} unread
+              </p>
+            </div>
+
+            <button
+              className="readButton"
+              onClick={markCategoryAsRead}
+              disabled={saving || activeUnread === 0}
+            >
+              {saving ? "Updating..." : "Mark category read"}
+            </button>
+          </div>
+
+          {activeNotifications.length === 0 ? (
+            <div className="empty">
+              <div className="emptyIcon">
+                {categories.find((category) => category.key === activeCategory)?.icon || "🔕"}
+              </div>
+
+              <h3>No {getActiveCategoryTitle()} yet</h3>
 
               <p>
-                Bookings, messages, ride updates, payouts, verification updates,
-                and reviews will appear here.
+                When RoadLink creates this type of notification, it will appear inside this category.
               </p>
-
-              <Link href="/dashboard" className="mainButton">
-                Back to Dashboard
-              </Link>
             </div>
           ) : (
             <div className="list">
-              {notifications.map((notification) => {
+              {activeNotifications.map((notification) => {
                 const isUnread = !notification.read;
 
                 return (
@@ -333,7 +444,9 @@ export default function NotificationsPage() {
                     className={isUnread ? "notification unread" : "notification"}
                     onClick={() => openNotification(notification)}
                   >
-                    <div className="icon">{getIcon(notification.type)}</div>
+                    <div className="icon">
+                      {categories.find((category) => category.key === activeCategory)?.icon || "🔔"}
+                    </div>
 
                     <div className="content">
                       <div className="titleRow">
@@ -346,10 +459,15 @@ export default function NotificationsPage() {
                         )}
                       </div>
 
-                      <p>
-                        {notification.message ||
-                          "You have a new RoadLink notification."}
-                      </p>
+                      <p>{notification.message || "You have a new RoadLink notification."}</p>
+
+                      <div className="detailsGrid">
+                        {notification.rideId && <Detail label="Ride ID" value={notification.rideId} />}
+                        {notification.bookingId && <Detail label="Booking ID" value={notification.bookingId} />}
+                        {notification.chatId && <Detail label="Chat ID" value={notification.chatId} />}
+                        {notification.driverId && <Detail label="Driver ID" value={notification.driverId} />}
+                        {notification.passengerId && <Detail label="Passenger ID" value={notification.passengerId} />}
+                      </div>
 
                       <div className="metaRow">
                         <span>{formatTime(notification.createdAt)}</span>
@@ -365,14 +483,12 @@ export default function NotificationsPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
           padding: 24px;
-          padding-bottom: 110px;
+          padding-bottom: 120px;
           color: white;
           font-family: Arial, sans-serif;
           background:
@@ -382,7 +498,7 @@ export default function NotificationsPage() {
         }
 
         .container {
-          max-width: 1000px;
+          max-width: 1100px;
           margin: auto;
         }
 
@@ -405,7 +521,8 @@ export default function NotificationsPage() {
 
         .hero,
         .stat,
-        .card {
+        .card,
+        .categoryPanel {
           background: rgba(8,13,25,0.9);
           border: 1px solid rgba(255,255,255,0.1);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -464,10 +581,6 @@ export default function NotificationsPage() {
           border: 1px solid rgba(34,197,94,0.3);
         }
 
-        .activeBell {
-          animation: pulse 1.6s infinite;
-        }
-
         .bell span {
           position: absolute;
           top: -6px;
@@ -484,6 +597,10 @@ export default function NotificationsPage() {
           font-size: 14px;
           font-weight: 900;
           border: 2px solid #020617;
+        }
+
+        .activeBell {
+          animation: pulse 1.6s infinite;
         }
 
         @keyframes pulse {
@@ -511,7 +628,8 @@ export default function NotificationsPage() {
           border-radius: 24px;
         }
 
-        .stat span {
+        .stat span,
+        .categorySummary {
           color: #a1a1aa;
           font-weight: 900;
         }
@@ -522,9 +640,11 @@ export default function NotificationsPage() {
           font-size: 34px;
         }
 
+        .categoryPanel,
         .card {
           padding: 30px;
           border-radius: 30px;
+          margin-bottom: 20px;
         }
 
         .header {
@@ -551,8 +671,80 @@ export default function NotificationsPage() {
           cursor: not-allowed;
         }
 
+        .categoryGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 14px;
+        }
+
+        .categoryButton {
+          width: 100%;
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 14px;
+          align-items: center;
+          text-align: left;
+          padding: 18px;
+          border-radius: 22px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+          color: white;
+          cursor: pointer;
+        }
+
+        .activeCategory {
+          background: rgba(34,197,94,0.1);
+          border-color: rgba(34,197,94,0.45);
+        }
+
+        .categoryIcon {
+          width: 54px;
+          height: 54px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 25px;
+        }
+
+        .categoryContent strong {
+          display: block;
+          font-size: 18px;
+          margin-bottom: 5px;
+        }
+
+        .categoryContent span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 13px;
+          line-height: 1.35;
+        }
+
+        .categoryCount {
+          text-align: right;
+        }
+
+        .categoryCount b {
+          display: block;
+          color: #22c55e;
+          font-size: 28px;
+        }
+
+        .categoryCount small {
+          display: inline-flex;
+          margin-top: 5px;
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.14);
+          color: #22c55e;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
         .empty {
-          min-height: 330px;
+          min-height: 260px;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -583,17 +775,6 @@ export default function NotificationsPage() {
           max-width: 520px;
           line-height: 1.5;
           margin: 0;
-        }
-
-        .mainButton {
-          display: inline-flex;
-          margin-top: 22px;
-          padding: 16px 28px;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          font-weight: 900;
-          text-decoration: none;
         }
 
         .list {
@@ -650,12 +831,41 @@ export default function NotificationsPage() {
           line-height: 1.5;
         }
 
+        .detailsGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .detail {
+          padding: 10px;
+          border-radius: 12px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .detail span {
+          display: block;
+          color: #94a3b8;
+          font-size: 11px;
+          font-weight: 900;
+          margin-bottom: 4px;
+        }
+
+        .detail strong {
+          display: block;
+          color: #e5e7eb;
+          font-size: 12px;
+          overflow-wrap: anywhere;
+        }
+
         .metaRow {
           display: flex;
           justify-content: space-between;
           gap: 12px;
           align-items: center;
-          margin-top: 10px;
+          margin-top: 12px;
         }
 
         .metaRow span,
@@ -685,10 +895,10 @@ export default function NotificationsPage() {
           border: 1px solid rgba(255,255,255,0.1);
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 760px) {
           .page {
             padding: 16px;
-            padding-bottom: 110px;
+            padding-bottom: 120px;
           }
 
           .hero {
@@ -701,10 +911,13 @@ export default function NotificationsPage() {
             font-size: 42px;
           }
 
-          .stats {
+          .stats,
+          .categoryGrid,
+          .detailsGrid {
             grid-template-columns: 1fr;
           }
 
+          .categoryPanel,
           .card {
             padding: 22px;
           }
@@ -716,6 +929,18 @@ export default function NotificationsPage() {
 
           .readButton {
             width: 100%;
+          }
+
+          .categoryButton {
+            grid-template-columns: auto 1fr;
+          }
+
+          .categoryCount {
+            grid-column: 1 / -1;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 10px;
           }
 
           .titleRow {
@@ -736,3 +961,12 @@ export default function NotificationsPage() {
     </main>
   );
 }
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detail">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+        }
