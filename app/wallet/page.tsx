@@ -16,13 +16,35 @@ import {
 type Booking = {
   id: string;
   passengerEmail?: string;
+  driverId?: string;
   from?: string;
   to?: string;
   status?: string;
+  paymentStatus?: string;
   price?: number;
+  amount?: number;
+  platformFee?: number;
+  driverAmount?: number;
   seatsBooked?: number;
   createdAt?: string;
   completedAt?: string;
+  paidAt?: string;
+};
+
+type WalletTransaction = {
+  id: string;
+  bookingId?: string;
+  rideId?: string;
+  driverId?: string;
+  driverEmail?: string;
+  passengerEmail?: string;
+  amount?: number;
+  grossAmount?: number;
+  platformFee?: number;
+  type?: string;
+  status?: string;
+  description?: string;
+  createdAt?: string;
 };
 
 type PayoutRequest = {
@@ -51,6 +73,7 @@ export default function WalletPage() {
   const [userEmail, setUserEmail] = useState("");
   const [banking, setBanking] = useState<BankingInfo>({});
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [message, setMessage] = useState("Loading wallet...");
   const [requesting, setRequesting] = useState(false);
@@ -58,6 +81,7 @@ export default function WalletPage() {
   useEffect(() => {
     let unsubscribeUser: (() => void) | undefined;
     let unsubscribeBookings: (() => void) | undefined;
+    let unsubscribeWallet: (() => void) | undefined;
     let unsubscribePayouts: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -66,6 +90,7 @@ export default function WalletPage() {
         setUserEmail("");
         setBanking({});
         setBookings([]);
+        setWalletTransactions([]);
         setPayouts([]);
         setMessage("Please sign in to view your wallet.");
         return;
@@ -87,9 +112,9 @@ export default function WalletPage() {
       unsubscribeBookings = onSnapshot(
         query(collection(db, "bookings"), where("driverId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
+          const data = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
           })) as Booking[];
 
           setBookings(data);
@@ -97,12 +122,31 @@ export default function WalletPage() {
         (error) => setMessage(error.message)
       );
 
+      unsubscribeWallet = onSnapshot(
+        query(collection(db, "walletTransactions"), where("driverId", "==", user.uid)),
+        (snapshot) => {
+          const data = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as WalletTransaction[];
+
+          data.sort((a, b) =>
+            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          );
+
+          setWalletTransactions(data);
+        },
+        () => {
+          setWalletTransactions([]);
+        }
+      );
+
       unsubscribePayouts = onSnapshot(
         query(collection(db, "payoutRequests"), where("userId", "==", user.uid)),
         (snapshot) => {
-          const data = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
+          const data = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
           })) as PayoutRequest[];
 
           data.sort((a, b) =>
@@ -119,12 +163,34 @@ export default function WalletPage() {
       unsubscribeAuth();
       if (unsubscribeUser) unsubscribeUser();
       if (unsubscribeBookings) unsubscribeBookings();
+      if (unsubscribeWallet) unsubscribeWallet();
       if (unsubscribePayouts) unsubscribePayouts();
     };
   }, []);
 
+  function bookingGross(booking: Booking) {
+    return (
+      Number(booking.amount || booking.price || 0) *
+      Number(booking.seatsBooked || 1)
+    );
+  }
+
+  function bookingFee(booking: Booking) {
+    return Number(booking.platformFee || Math.round(bookingGross(booking) * 0.12 * 100) / 100);
+  }
+
+  function bookingNet(booking: Booking) {
+    return Number(booking.driverAmount || Math.max(bookingGross(booking) - bookingFee(booking), 0));
+  }
+
   const completedBookings = useMemo(
-    () => bookings.filter((item) => item.status === "completed"),
+    () =>
+      bookings.filter(
+        (item) =>
+          item.status === "completed" ||
+          item.paymentStatus === "paid" ||
+          item.status === "paid"
+      ),
     [bookings]
   );
 
@@ -134,34 +200,53 @@ export default function WalletPage() {
         (item) =>
           item.status === "reserved" ||
           item.status === "confirmed" ||
-          item.status === "pending"
+          item.status === "payment_pending" ||
+          item.paymentStatus === "pending" ||
+          item.paymentStatus === "unpaid"
       ),
     [bookings]
   );
 
-  const lifetimeEarnings = useMemo(
+  const walletPendingTransactions = useMemo(
     () =>
-      completedBookings.reduce(
-        (total, item) =>
-          total + Number(item.price || 0) * Number(item.seatsBooked || 1),
-        0
+      walletTransactions.filter(
+        (item) => item.status === "pending_payout" || item.status === "available"
       ),
+    [walletTransactions]
+  );
+
+  const walletPaidTransactions = useMemo(
+    () => walletTransactions.filter((item) => item.status === "paid"),
+    [walletTransactions]
+  );
+
+  const lifetimeGross = useMemo(
+    () => completedBookings.reduce((total, item) => total + bookingGross(item), 0),
     [completedBookings]
   );
 
-  const pendingBalance = useMemo(
-    () =>
-      pendingBookings.reduce(
-        (total, item) =>
-          total + Number(item.price || 0) * Number(item.seatsBooked || 1),
-        0
-      ),
-    [pendingBookings]
+  const lifetimeFees = useMemo(
+    () => completedBookings.reduce((total, item) => total + bookingFee(item), 0),
+    [completedBookings]
   );
 
-  const roadLinkFee = useMemo(
-    () => Math.round(lifetimeEarnings * 0.12),
-    [lifetimeEarnings]
+  const lifetimeNetFromBookings = useMemo(
+    () => completedBookings.reduce((total, item) => total + bookingNet(item), 0),
+    [completedBookings]
+  );
+
+  const walletNet = useMemo(
+    () =>
+      walletPendingTransactions.reduce(
+        (total, item) => total + Number(item.amount || 0),
+        0
+      ),
+    [walletPendingTransactions]
+  );
+
+  const pendingBalance = useMemo(
+    () => pendingBookings.reduce((total, item) => total + bookingNet(item), 0),
+    [pendingBookings]
   );
 
   const totalPaidOut = useMemo(
@@ -181,7 +266,7 @@ export default function WalletPage() {
   );
 
   const currentBalance = Math.max(
-    lifetimeEarnings - roadLinkFee - totalPaidOut,
+    (walletTransactions.length ? walletNet : lifetimeNetFromBookings) - totalPaidOut,
     0
   );
 
@@ -194,38 +279,45 @@ export default function WalletPage() {
     Boolean(banking.accountNumberLast4);
 
   const walletActivity = useMemo(() => {
-    const rideActivity = completedBookings.map((booking) => {
-      const amount = Number(booking.price || 0) * Number(booking.seatsBooked || 1);
+    const transactionActivity = walletTransactions.map((item) => ({
+      id: `wallet-${item.id}`,
+      title: item.type === "ride_payment" ? "Ride Payment" : "Wallet Transaction",
+      subtitle: item.description || "RoadLink wallet activity",
+      detail: String(item.status || "pending").toUpperCase(),
+      amount: Number(item.amount || 0),
+      sign: "+",
+      date: item.createdAt || "",
+      icon: "💰",
+    }));
 
-      return {
-        id: `booking-${booking.id}`,
-        title: "Ride Completed",
-        subtitle: `${booking.from || "Origin"} → ${booking.to || "Destination"}`,
-        detail: booking.passengerEmail || "Passenger",
-        amount,
-        sign: "+",
-        date: booking.completedAt || booking.createdAt || "",
-        icon: "✅",
-      };
-    });
+    const rideActivity = completedBookings.map((booking) => ({
+      id: `booking-${booking.id}`,
+      title: "Ride Earning",
+      subtitle: `${booking.from || "Origin"} → ${booking.to || "Destination"}`,
+      detail: booking.passengerEmail || "Passenger",
+      amount: bookingNet(booking),
+      sign: "+",
+      date: booking.completedAt || booking.paidAt || booking.createdAt || "",
+      icon: "✅",
+    }));
 
-    const payoutActivity = payouts
-      .filter((payout) => payout.status === "paid")
-      .map((payout) => ({
-        id: `payout-${payout.id}`,
-        title: "Payout Sent",
-        subtitle: "Money sent to driver",
-        detail: "PAID",
-        amount: Number(payout.amount || 0),
-        sign: "-",
-        date: payout.paidAt || payout.updatedAt || payout.createdAt || "",
-        icon: "🏦",
-      }));
+    const payoutActivity = payouts.map((payout) => ({
+      id: `payout-${payout.id}`,
+      title: payout.status === "paid" ? "Payout Sent" : "Payout Request",
+      subtitle: "Driver payout activity",
+      detail: String(payout.status || "pending").toUpperCase(),
+      amount: Number(payout.amount || 0),
+      sign: payout.status === "paid" ? "-" : "hold",
+      date: payout.paidAt || payout.updatedAt || payout.createdAt || "",
+      icon: "🏦",
+    }));
 
-    return [...rideActivity, ...payoutActivity].sort((a, b) =>
+    const source = transactionActivity.length ? transactionActivity : rideActivity;
+
+    return [...source, ...payoutActivity].sort((a, b) =>
       String(b.date || "").localeCompare(String(a.date || ""))
     );
-  }, [completedBookings, payouts]);
+  }, [completedBookings, payouts, walletTransactions]);
 
   async function requestPayout() {
     if (!userId) {
@@ -276,8 +368,18 @@ export default function WalletPage() {
         userId,
         type: "payout",
         title: "Payout Requested",
-        message: `Your payout request for $${availableBalance} was submitted.`,
+        message: `Your payout request for ${money(availableBalance)} was submitted.`,
         read: false,
+        createdAt: now,
+        actionUrl: "/wallet",
+      });
+
+      await addDoc(collection(db, "auditLogs"), {
+        action: "Payout Requested",
+        targetId: userId,
+        targetType: "wallet",
+        details: `${userEmail} requested payout for ${money(availableBalance)}`,
+        severity: "info",
         createdAt: now,
       });
 
@@ -289,25 +391,39 @@ export default function WalletPage() {
     }
   }
 
+  function money(value?: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  function formatDate(value?: string) {
+    if (!value) return "Recently";
+
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return "Recently";
+    }
+  }
+
   return (
     <main className="page">
       <section className="hero">
         <div className="topNav">
-          <Link href="/profile" className="miniButton">Profile</Link>
+          <Link href="/dashboard" className="miniButton">Dashboard</Link>
           <Link href="/dashboard/driver" className="miniButton">Driver Dashboard</Link>
           <Link href="/my-rides" className="miniButton">My Rides</Link>
           <Link href="/wallet/settings" className="miniButton">Banking</Link>
         </div>
 
-        <p className="eyebrow">RoadLink Wallet</p>
+        <p className="eyebrow">RoadLink Wallet Center</p>
         <h1>Driver <span>Wallet</span></h1>
         <p className="subtitle">
-          Track completed earnings, RoadLink fees, paid payouts, and current available balance.
+          Track driver earnings, RoadLink fees, pending payouts, paid payouts, wallet transactions and available balance.
         </p>
 
         <div className="balanceBox">
-          <span>Current Balance</span>
-          <strong>${currentBalance}</strong>
+          <span>Available Balance</span>
+          <strong>{money(availableBalance)}</strong>
           <small>
             {latestPayout
               ? `Latest payout: ${String(latestPayout.status || "pending").toUpperCase()}`
@@ -347,22 +463,22 @@ export default function WalletPage() {
       </section>
 
       <section className="stats">
-        <Metric icon="💰" label="Lifetime Earnings" value={`$${lifetimeEarnings}`} />
-        <Metric icon="🏦" label="Total Paid Out" value={`$${totalPaidOut}`} />
-        <Metric icon="✅" label="Current Balance" value={`$${currentBalance}`} />
-        <Metric icon="⏳" label="Pending Balance" value={`$${pendingBalance}`} />
-        <Metric icon="🧾" label="RoadLink Fee" value={`$${roadLinkFee}`} />
+        <Metric icon="💰" label="Gross Earnings" value={money(lifetimeGross)} />
+        <Metric icon="🧾" label="RoadLink Fee" value={money(lifetimeFees)} />
+        <Metric icon="🏦" label="Driver Net" value={money(lifetimeNetFromBookings)} />
+        <Metric icon="✅" label="Available" value={money(availableBalance)} />
+        <Metric icon="⏳" label="Pending Trips" value={money(pendingBalance)} />
+        <Metric icon="📤" label="Requested" value={money(activePayoutRequests)} />
+        <Metric icon="💸" label="Paid Out" value={money(totalPaidOut)} />
         <Metric icon="🚗" label="Completed Trips" value={String(completedBookings.length)} />
       </section>
 
       <section className="payoutCard">
         <div>
-          <p className="eyebrow">Payout Status</p>
+          <p className="eyebrow">Payout Center</p>
           <h2>Request your balance</h2>
-          <p>Available to request: <strong>${availableBalance}</strong></p>
-          <p>
-            Pending or approved payout requests are already reserved and are not counted as available money.
-          </p>
+          <p>Available to request: <strong>{money(availableBalance)}</strong></p>
+          <p>Pending or approved payout requests are reserved and not counted as available money.</p>
         </div>
 
         <button onClick={requestPayout} disabled={requesting || availableBalance <= 0}>
@@ -386,12 +502,12 @@ export default function WalletPage() {
 
               <div>
                 <strong>{payout.status === "paid" ? "Payout Sent" : "Payout Request"}</strong>
-                <p>{payout.createdAt ? new Date(payout.createdAt).toLocaleString() : "Recently"}</p>
+                <p>{formatDate(payout.createdAt)}</p>
                 <small>Status: {String(payout.status || "pending").toUpperCase()}</small>
               </div>
 
               <div className={`amount ${payout.status || "pending"}`}>
-                {payout.status === "paid" ? "-" : ""}${Number(payout.amount || 0)}
+                {money(payout.amount)}
               </div>
             </div>
           ))
@@ -399,13 +515,13 @@ export default function WalletPage() {
       </section>
 
       <section className="history">
-        <p className="eyebrow">Transaction History</p>
-        <h2>Wallet Activity</h2>
+        <p className="eyebrow">Wallet Transactions</p>
+        <h2>Activity History</h2>
 
         {walletActivity.length === 0 ? (
           <div className="emptyCard">
             <h3>No wallet activity yet</h3>
-            <p>Completed ride earnings and paid payouts will appear here.</p>
+            <p>Completed ride earnings, wallet transactions and payouts will appear here.</p>
           </div>
         ) : (
           walletActivity.map((activity) => (
@@ -417,12 +533,21 @@ export default function WalletPage() {
                 <p>{activity.subtitle}</p>
                 <small>
                   {activity.detail}
-                  {activity.date ? ` • ${new Date(activity.date).toLocaleString()}` : ""}
+                  {activity.date ? ` • ${formatDate(activity.date)}` : ""}
                 </small>
               </div>
 
-              <div className={activity.sign === "+" ? "amount good" : "amount paidOut"}>
-                {activity.sign}${activity.amount}
+              <div
+                className={
+                  activity.sign === "+"
+                    ? "amount good"
+                    : activity.sign === "-"
+                    ? "amount paidOut"
+                    : "amount pending"
+                }
+              >
+                {activity.sign === "+" ? "+" : activity.sign === "-" ? "-" : ""}
+                {money(activity.amount)}
               </div>
             </div>
           ))
@@ -440,7 +565,7 @@ export default function WalletPage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 20px;
-          padding-bottom: 110px;
+          padding-bottom: 120px;
           font-family: Arial, sans-serif;
         }
 
@@ -449,7 +574,7 @@ export default function WalletPage() {
         .bankCard,
         .payoutCard,
         .history {
-          max-width: 860px;
+          max-width: 980px;
           margin-left: auto;
           margin-right: auto;
         }
@@ -540,7 +665,7 @@ export default function WalletPage() {
         }
 
         .message {
-          max-width: 860px;
+          max-width: 980px;
           margin: 0 auto 18px;
           color: #22c55e;
           font-weight: 900;
@@ -594,7 +719,7 @@ export default function WalletPage() {
 
         .stats {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 14px;
           margin-bottom: 18px;
         }
@@ -625,8 +750,9 @@ export default function WalletPage() {
         }
 
         .metricValue {
-          font-size: 26px;
+          font-size: 24px;
           font-weight: 900;
+          overflow-wrap: anywhere;
         }
 
         .payoutCard,
@@ -710,6 +836,7 @@ export default function WalletPage() {
         .amount {
           font-size: 20px;
           font-weight: 900;
+          white-space: nowrap;
         }
 
         .amount.good,
@@ -732,10 +859,21 @@ export default function WalletPage() {
           padding: 24px;
         }
 
+        @media (max-width: 900px) {
+          .stats {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .bankCard,
+          .payoutCard {
+            grid-template-columns: 1fr;
+          }
+        }
+
         @media (max-width: 760px) {
           .page {
             padding: 16px;
-            padding-bottom: 110px;
+            padding-bottom: 120px;
           }
 
           .hero,
@@ -751,9 +889,7 @@ export default function WalletPage() {
           }
 
           .stats,
-          .bankCard,
           .bankRows,
-          .payoutCard,
           .transaction {
             grid-template-columns: 1fr;
           }
@@ -796,4 +932,4 @@ function BankInfo({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-}
+            }
