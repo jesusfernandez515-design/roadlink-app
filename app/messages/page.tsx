@@ -26,12 +26,16 @@ type Chat = {
   };
 };
 
+type InboxFilter = "all" | "unread" | "driver" | "passenger";
+
 export default function MessagesPage() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [driverChats, setDriverChats] = useState<Chat[]>([]);
   const [passengerChats, setPassengerChats] = useState<Chat[]>([]);
-  const [status, setStatus] = useState("Loading messages...");
+  const [status, setStatus] = useState("Loading Messages Center...");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<InboxFilter>("all");
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -53,15 +57,8 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!userId) return;
 
-    const driverChatsQuery = query(
-      collection(db, "chats"),
-      where("driverId", "==", userId)
-    );
-
-    const passengerChatsQuery = query(
-      collection(db, "chats"),
-      where("passengerId", "==", userId)
-    );
+    const driverChatsQuery = query(collection(db, "chats"), where("driverId", "==", userId));
+    const passengerChatsQuery = query(collection(db, "chats"), where("passengerId", "==", userId));
 
     const unsubscribeDriver = onSnapshot(
       driverChatsQuery,
@@ -165,43 +162,51 @@ export default function MessagesPage() {
       merged.set(key, {
         ...olderChat,
         ...newestChat,
-        unreadCount: Math.max(
-          Number(existing.unreadCount || 0),
-          Number(chat.unreadCount || 0)
-        ),
-        unreadByDriver: Math.max(
-          Number(existing.unreadByDriver || 0),
-          Number(chat.unreadByDriver || 0)
-        ),
-        unreadByPassenger: Math.max(
-          Number(existing.unreadByPassenger || 0),
-          Number(chat.unreadByPassenger || 0)
-        ),
+        unreadCount: Math.max(Number(existing.unreadCount || 0), Number(chat.unreadCount || 0)),
+        unreadByDriver: Math.max(Number(existing.unreadByDriver || 0), Number(chat.unreadByDriver || 0)),
+        unreadByPassenger: Math.max(Number(existing.unreadByPassenger || 0), Number(chat.unreadByPassenger || 0)),
         unread: {
           ...(olderChat.unread || {}),
           ...(newestChat.unread || {}),
         },
         driverEmail: newestChat.driverEmail || olderChat.driverEmail || "",
-        passengerEmail:
-          newestChat.passengerEmail || olderChat.passengerEmail || "",
+        passengerEmail: newestChat.passengerEmail || olderChat.passengerEmail || "",
         lastMessage: newestChat.lastMessage || olderChat.lastMessage || "",
-        lastMessageTime:
-          newestChat.lastMessageTime || olderChat.lastMessageTime || "",
+        lastMessageTime: newestChat.lastMessageTime || olderChat.lastMessageTime || "",
         lastSenderId: newestChat.lastSenderId || olderChat.lastSenderId || "",
-        lastSenderEmail:
-          newestChat.lastSenderEmail || olderChat.lastSenderEmail || "",
+        lastSenderEmail: newestChat.lastSenderEmail || olderChat.lastSenderEmail || "",
       });
     });
 
-    return Array.from(merged.values()).sort(
-      (a, b) => getChatTime(b) - getChatTime(a)
-    );
+    return Array.from(merged.values()).sort((a, b) => getChatTime(b) - getChatTime(a));
   }, [driverChats, passengerChats, userId]);
 
-  const totalUnread = conversations.reduce(
-    (total, chat) => total + getUnreadForUser(chat),
-    0
-  );
+  const totalUnread = conversations.reduce((total, chat) => total + getUnreadForUser(chat), 0);
+  const driverInboxCount = conversations.filter((chat) => chat.driverId === userId).length;
+  const passengerInboxCount = conversations.filter((chat) => chat.passengerId === userId).length;
+
+  const filteredConversations = useMemo(() => {
+    const searchText = search.trim().toLowerCase();
+
+    return conversations.filter((chat) => {
+      const unread = getUnreadForUser(chat);
+      const otherUser = getOtherUser(chat).toLowerCase();
+      const lastMessage = String(chat.lastMessage || "").toLowerCase();
+      const rideId = String(chat.rideId || "").toLowerCase();
+
+      if (filter === "unread" && unread <= 0) return false;
+      if (filter === "driver" && chat.driverId !== userId) return false;
+      if (filter === "passenger" && chat.passengerId !== userId) return false;
+
+      if (!searchText) return true;
+
+      return (
+        otherUser.includes(searchText) ||
+        lastMessage.includes(searchText) ||
+        rideId.includes(searchText)
+      );
+    });
+  }, [conversations, filter, search, userId]);
 
   function getOtherUser(chat: Chat) {
     const isDriver = chat.driverId === userId;
@@ -218,7 +223,7 @@ export default function MessagesPage() {
   }
 
   function getRole(chat: Chat) {
-    return chat.driverId === userId ? "Driver inbox" : "Passenger inbox";
+    return chat.driverId === userId ? "Driver Inbox" : "Passenger Inbox";
   }
 
   function getOpenChatUrl(chat: Chat) {
@@ -244,13 +249,18 @@ export default function MessagesPage() {
       }
 
       const today = new Date();
-      const isToday = date.toDateString() === today.toDateString();
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
 
-      if (isToday) {
+      if (date.toDateString() === today.toDateString()) {
         return date.toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         });
+      }
+
+      if (date.toDateString() === yesterday.toDateString()) {
+        return "Yesterday";
       }
 
       return date.toLocaleDateString([], {
@@ -266,56 +276,53 @@ export default function MessagesPage() {
     <main className="page">
       <section className="inbox">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">
-            ← Dashboard
-          </Link>
-
-          <Link href="/find-ride" className="miniButton">
-            Find Ride
-          </Link>
-
-          <Link href="/offer-ride" className="miniButton">
-            Offer Ride
-          </Link>
-
-          <Link href="/notifications" className="miniButton">
-            Notifications
-          </Link>
+          <Link href="/dashboard" className="miniButton">← Dashboard</Link>
+          <Link href="/find-ride" className="miniButton">Find Ride</Link>
+          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
+          <Link href="/notifications" className="miniButton">Notifications</Link>
         </div>
 
         <section className="heroCard">
           <div>
-            <p className="eyebrow">RoadLink Inbox</p>
-
-            <h1>
-              Your <span>messages.</span>
-            </h1>
-
+            <p className="eyebrow">RoadLink Messages</p>
+            <h1>Messages <span>Center</span></h1>
             <p className="subtitle">
-              Manage ride conversations, unread messages, and trip coordination
-              from one premium inbox.
+              Premium conversation inbox with unread counters, ride context, search, filters and direct chat access.
             </p>
           </div>
 
-          <div className="heroBubble">💬</div>
+          <div className={totalUnread > 0 ? "heroBubble hotBubble" : "heroBubble"}>
+            💬
+            {totalUnread > 0 && <span>{totalUnread}</span>}
+          </div>
         </section>
 
         {status && <p className="status">{status}</p>}
 
         <section className="summaryGrid">
-          <div className="summaryCard">
-            <p>Conversations</p>
-            <h2>{conversations.length}</h2>
+          <Summary label="Conversations" value={String(conversations.length)} />
+          <Summary label="Unread" value={String(totalUnread)} />
+          <Summary label="Driver Inbox" value={String(driverInboxCount)} />
+          <Summary label="Passenger Inbox" value={String(passengerInboxCount)} />
+        </section>
+
+        <section className="controlPanel">
+          <div>
+            <p className="eyebrow">Inbox Controls</p>
+            <h2>Search & Filters</h2>
           </div>
 
-          <div className="summaryCard">
-            <p>Unread</p>
-            <h2>{totalUnread}</h2>
-          </div>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by user, message or ride ID..."
+          />
 
-          <div className="summaryCard">
-            <p>Account</p>
-            <h2>{userEmail ? userEmail.charAt(0).toUpperCase() : "R"}</h2>
+          <div className="filterGrid">
+            <FilterButton label="All" value="all" current={filter} setFilter={setFilter} count={conversations.length} />
+            <FilterButton label="Unread" value="unread" current={filter} setFilter={setFilter} count={totalUnread} />
+            <FilterButton label="Driver" value="driver" current={filter} setFilter={setFilter} count={driverInboxCount} />
+            <FilterButton label="Passenger" value="passenger" current={filter} setFilter={setFilter} count={passengerInboxCount} />
           </div>
         </section>
 
@@ -326,33 +333,21 @@ export default function MessagesPage() {
               <h2>Inbox</h2>
             </div>
 
-            <div
-              className={
-                totalUnread > 0 ? "statusPill unreadLive" : "statusPill"
-              }
-            >
+            <div className={totalUnread > 0 ? "statusPill unreadLive" : "statusPill"}>
               {totalUnread > 0 ? `${totalUnread} New` : "Live"}
             </div>
           </div>
 
-          {conversations.length === 0 ? (
+          {filteredConversations.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">💬</div>
-
-              <h3>No conversations yet</h3>
-
-              <p>
-                When someone messages you about a ride, the conversation will
-                appear here.
-              </p>
-
-              <Link href="/find-ride" className="mainButton">
-                Find a Ride
-              </Link>
+              <h3>No conversations found</h3>
+              <p>When someone messages you about a ride, the conversation will appear here.</p>
+              <Link href="/find-ride" className="mainButton">Find a Ride</Link>
             </div>
           ) : (
             <div className="conversationList">
-              {conversations.map((conversation) => {
+              {filteredConversations.map((conversation) => {
                 const unread = getUnreadForUser(conversation);
                 const otherUser = getOtherUser(conversation);
                 const openChatUrl = getOpenChatUrl(conversation);
@@ -361,11 +356,7 @@ export default function MessagesPage() {
                 return (
                   <Link
                     href={openChatUrl}
-                    className={
-                      unread > 0
-                        ? "conversation unreadConversation"
-                        : "conversation"
-                    }
+                    className={unread > 0 ? "conversation unreadConversation" : "conversation"}
                     key={getConversationKey(conversation)}
                   >
                     <div className="conversationAvatar">
@@ -378,24 +369,14 @@ export default function MessagesPage() {
                         <span>{formatTime(conversation.lastMessageTime)}</span>
                       </div>
 
-                      <p
-                        className={
-                          unread > 0
-                            ? "messagePreview strong"
-                            : "messagePreview"
-                        }
-                      >
+                      <p className={unread > 0 ? "messagePreview strong" : "messagePreview"}>
                         {isLastMessageMine ? "You: " : ""}
                         {conversation.lastMessage || "New conversation"}
                       </p>
 
                       <div className="conversationMeta">
                         <span>{getRole(conversation)}</span>
-
-                        {conversation.rideId && (
-                          <span>Ride #{conversation.rideId.slice(0, 6)}</span>
-                        )}
-
+                        {conversation.rideId && <span>Ride #{conversation.rideId.slice(0, 6)}</span>}
                         {unread > 0 ? (
                           <span className="unreadBadge">{unread} new</span>
                         ) : (
@@ -414,9 +395,7 @@ export default function MessagesPage() {
       </section>
 
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .page {
           min-height: 100vh;
@@ -426,12 +405,13 @@ export default function MessagesPage() {
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 24px;
+          padding-bottom: 130px;
           font-family: Arial, sans-serif;
         }
 
         .inbox {
           width: 100%;
-          max-width: 980px;
+          max-width: 1050px;
           margin: 0 auto;
         }
 
@@ -460,7 +440,8 @@ export default function MessagesPage() {
 
         .heroCard,
         .summaryCard,
-        .messagesCard {
+        .messagesCard,
+        .controlPanel {
           background: rgba(8, 13, 25, 0.9);
           border: 1px solid rgba(255,255,255,0.12);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -493,8 +474,14 @@ export default function MessagesPage() {
           letter-spacing: -1px;
         }
 
-        h1 span {
+        h1 span,
+        h2 {
           color: #22c55e;
+        }
+
+        h2 {
+          margin: 0;
+          font-size: 30px;
         }
 
         .subtitle {
@@ -506,8 +493,9 @@ export default function MessagesPage() {
         }
 
         .heroBubble {
-          min-width: 90px;
-          height: 90px;
+          position: relative;
+          min-width: 96px;
+          height: 96px;
           border-radius: 50%;
           background: linear-gradient(135deg, #22c55e, #16a34a);
           display: flex;
@@ -515,6 +503,33 @@ export default function MessagesPage() {
           justify-content: center;
           font-size: 40px;
           box-shadow: 0 18px 55px rgba(34,197,94,0.35);
+        }
+
+        .heroBubble span {
+          position: absolute;
+          top: -7px;
+          right: -7px;
+          min-width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          background: #ef4444;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 13px;
+          font-weight: 900;
+          border: 2px solid #020617;
+        }
+
+        .hotBubble {
+          animation: pulse 1.7s infinite;
+        }
+
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.35); }
+          70% { box-shadow: 0 0 0 16px rgba(239,68,68,0); }
+          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
         }
 
         .status {
@@ -526,7 +541,7 @@ export default function MessagesPage() {
 
         .summaryGrid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
           margin-bottom: 20px;
         }
@@ -546,6 +561,64 @@ export default function MessagesPage() {
           color: #22c55e;
           font-size: 34px;
           margin: 0;
+        }
+
+        .controlPanel {
+          display: grid;
+          gap: 16px;
+          border-radius: 28px;
+          padding: 26px;
+          margin-bottom: 20px;
+        }
+
+        input {
+          width: 100%;
+          padding: 16px;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.05);
+          color: white;
+          outline: none;
+          font-size: 16px;
+        }
+
+        input:focus {
+          border-color: rgba(34,197,94,0.55);
+          box-shadow: 0 0 0 4px rgba(34,197,94,0.08);
+        }
+
+        .filterGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+        }
+
+        .filterButton {
+          padding: 14px;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.04);
+          color: white;
+          cursor: pointer;
+          font-weight: 900;
+          text-align: left;
+        }
+
+        .filterButton.activeFilter {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.12);
+        }
+
+        .filterButton span {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          margin-bottom: 6px;
+        }
+
+        .filterButton strong {
+          color: #22c55e;
+          font-size: 22px;
         }
 
         .messagesCard {
@@ -739,9 +812,26 @@ export default function MessagesPage() {
           font-weight: 300;
         }
 
+        @media (max-width: 850px) {
+          .summaryGrid,
+          .filterGrid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .heroCard {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          h1 {
+            font-size: 46px;
+          }
+        }
+
         @media (max-width: 700px) {
           .page {
             padding: 16px;
+            padding-bottom: 130px;
           }
 
           .topNav {
@@ -757,25 +847,21 @@ export default function MessagesPage() {
           }
 
           .heroCard {
-            flex-direction: column;
-            align-items: flex-start;
             padding: 28px;
             border-radius: 28px;
-          }
-
-          h1 {
-            font-size: 46px;
           }
 
           .subtitle {
             font-size: 17px;
           }
 
-          .summaryGrid {
+          .summaryGrid,
+          .filterGrid {
             grid-template-columns: 1fr;
           }
 
-          .messagesCard {
+          .messagesCard,
+          .controlPanel {
             padding: 22px;
             border-radius: 28px;
           }
@@ -813,3 +899,37 @@ export default function MessagesPage() {
     </main>
   );
 }
+
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="summaryCard">
+      <p>{label}</p>
+      <h2>{value}</h2>
+    </div>
+  );
+}
+
+function FilterButton({
+  label,
+  value,
+  current,
+  setFilter,
+  count,
+}: {
+  label: string;
+  value: InboxFilter;
+  current: InboxFilter;
+  setFilter: (value: InboxFilter) => void;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      className={current === value ? "filterButton activeFilter" : "filterButton"}
+      onClick={() => setFilter(value)}
+    >
+      <span>{label}</span>
+      <strong>{count}</strong>
+    </button>
+  );
+        }
