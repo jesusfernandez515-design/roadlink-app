@@ -681,6 +681,186 @@ export default function RateDriverPage() {
           .star {
             font-size: 42px;
           }
+          .driverBox p {
+          margin: 0 0 5px;
+          color: #a1a1aa;
+          overflow-wrap: anywhere;
+        }
+
+        .driverBox small {
+          color: #22c55e;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
+
+        .stars {
+          display: flex;
+          gap: 8px;
+          margin: 10px 0 8px;
+        }
+
+        .starButton {
+          border: none;
+          background: transparent;
+          color: #facc15;
+          font-size: 44px;
+          cursor: pointer;
+          padding: 0;
+          line-height: 1;
+        }
+
+        .ratingLabel {
+          font-weight: 900;
+          margin-bottom: 18px;
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin: 18px 0;
+        }
+
+        .category {
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .categoryTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 10px;
+          font-weight: 900;
+        }
+
+        .categoryTop span {
+          color: #22c55e;
+        }
+
+        .categoryStars {
+          display: flex;
+          gap: 5px;
+        }
+
+        .categoryStars button {
+          border: none;
+          background: transparent;
+          color: #facc15;
+          font-size: 24px;
+          cursor: pointer;
+          padding: 0;
+        }
+
+        .scoreCard {
+          padding: 18px;
+          border-radius: 22px;
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.3);
+          margin: 18px 0;
+        }
+
+        .scoreCard small {
+          display: block;
+          color: #a1a1aa;
+          font-weight: 900;
+          margin-bottom: 6px;
+        }
+
+        .scoreCard strong {
+          display: block;
+          font-size: 34px;
+          margin-bottom: 4px;
+        }
+
+        .scoreCard span {
+          color: #facc15;
+          letter-spacing: 2px;
+          font-size: 22px;
+        }
+
+        .submitButton {
+          width: 100%;
+          margin-top: 22px;
+          border: none;
+          border-radius: 999px;
+          padding: 18px;
+          background: linear-gradient(135deg, #22c55e, #16a34a);
+          color: white;
+          font-size: 17px;
+          font-weight: 900;
+          cursor: pointer;
+          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
+        }
+
+        .submitButton:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+
+        @media (max-width: 720px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 130px;
+          }
+
+          .hero,
+          .card {
+            padding: 24px;
+            border-radius: 28px;
+          }
+
+          h1 {
+            font-size: 44px;
+          }
+
+          .driverBox,
+          .grid {
+            grid-template-columns: 1fr;
+          }
+
+          .starButton {
+            font-size: 38px;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function Category({
+  title,
+  value,
+  setValue,
+}: {
+  title: string;
+  value: number;
+  setValue: (value: number) => void;
+}) {
+  return (
+    <div className="category">
+      <div className="categoryTop">
+        <strong>{title}</strong>
+        <span>{value}/5</span>
+      </div>
+
+      <div className="categoryStars">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            onClick={() => setValue(star)}
+          >
+            {value >= star ? "★" : "☆"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
           .scoreOrb {
             min-width: 100px;
