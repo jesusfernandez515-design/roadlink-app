@@ -9,7 +9,6 @@ import {
   arrayUnion,
   collection,
   doc,
-  getDoc,
   onSnapshot,
   query,
   updateDoc,
@@ -74,26 +73,22 @@ export default function DriverProfilePage() {
     let unsubscribeRatings: (() => void) | undefined;
     let unsubscribeRides: (() => void) | undefined;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       const params = new URLSearchParams(window.location.search);
       const paramDriverId = params.get("driverId") || "";
       const finalDriverId = paramDriverId || user?.uid || "";
 
       setDriverId(finalDriverId);
 
-      if (user) {
-        setCurrentUserId(user.uid);
-      }
+      if (user) setCurrentUserId(user.uid);
 
       if (!finalDriverId) {
         setMessage("Please sign in or select a driver profile.");
         return;
       }
 
-      const driverRef = doc(db, "users", finalDriverId);
-
       unsubscribeProfile = onSnapshot(
-        driverRef,
+        doc(db, "users", finalDriverId),
         (snapshot) => {
           if (!snapshot.exists()) {
             setDriverProfile(null);
@@ -111,17 +106,12 @@ export default function DriverProfilePage() {
         (error) => setMessage(error.message)
       );
 
-      const ratingsQuery = query(
-        collection(db, "ratings"),
-        where("driverId", "==", finalDriverId)
-      );
-
       unsubscribeRatings = onSnapshot(
-        ratingsQuery,
+        query(collection(db, "ratings"), where("driverId", "==", finalDriverId)),
         (snapshot) => {
-          const ratingsData = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
+          const ratingsData = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
           })) as Rating[];
 
           ratingsData.sort((a, b) =>
@@ -129,22 +119,16 @@ export default function DriverProfilePage() {
           );
 
           setRatings(ratingsData);
-          setMessage("");
         },
         (error) => setMessage(error.message)
       );
 
-      const ridesQuery = query(
-        collection(db, "rides"),
-        where("driverId", "==", finalDriverId)
-      );
-
       unsubscribeRides = onSnapshot(
-        ridesQuery,
+        query(collection(db, "rides"), where("driverId", "==", finalDriverId)),
         (snapshot) => {
-          const ridesData = snapshot.docs.map((document) => ({
-            id: document.id,
-            ...document.data(),
+          const ridesData = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
           })) as Ride[];
 
           setRides(ridesData);
@@ -185,24 +169,12 @@ export default function DriverProfilePage() {
       const driverRef = doc(db, "users", driverId);
 
       if (isFollowing) {
-        await updateDoc(currentUserRef, {
-          following: arrayRemove(driverId),
-        });
-
-        await updateDoc(driverRef, {
-          followers: arrayRemove(currentUserId),
-        });
-
+        await updateDoc(currentUserRef, { following: arrayRemove(driverId) });
+        await updateDoc(driverRef, { followers: arrayRemove(currentUserId) });
         setIsFollowing(false);
       } else {
-        await updateDoc(currentUserRef, {
-          following: arrayUnion(driverId),
-        });
-
-        await updateDoc(driverRef, {
-          followers: arrayUnion(currentUserId),
-        });
-
+        await updateDoc(currentUserRef, { following: arrayUnion(driverId) });
+        await updateDoc(driverRef, { followers: arrayUnion(currentUserId) });
         setIsFollowing(true);
       }
     } catch (error: unknown) {
@@ -226,7 +198,6 @@ export default function DriverProfilePage() {
 
     try {
       const date = value?.toDate ? value.toDate() : new Date(value);
-
       if (Number.isNaN(date.getTime())) return "Recently";
 
       return date.toLocaleString([], {
@@ -242,9 +213,7 @@ export default function DriverProfilePage() {
 
   const averageRating = useMemo(() => {
     if (ratings.length === 0) return 0;
-
     const total = ratings.reduce((sum, item) => sum + getRatingValue(item), 0);
-
     return total / ratings.length;
   }, [ratings]);
 
@@ -253,23 +222,16 @@ export default function DriverProfilePage() {
 
   const fiveStarReviews = ratings.filter((item) => getRatingValue(item) === 5).length;
   const positiveReviews = ratings.filter((item) => getRatingValue(item) >= 4).length;
-  const excellentRate =
-    ratings.length > 0 ? Math.round((positiveReviews / ratings.length) * 100) : 0;
+  const excellentRate = ratings.length > 0 ? Math.round((positiveReviews / ratings.length) * 100) : 0;
 
-  const activeRides = rides.filter(
-    (ride) => ride.status === "active" || ride.status === "full"
-  ).length;
-
-  const completedRidesFromCollection = rides.filter(
-    (ride) => ride.status === "completed"
-  ).length;
+  const activeRides = rides.filter((ride) => ride.status === "active" || ride.status === "full").length;
+  const completedRidesFromCollection = rides.filter((ride) => ride.status === "completed").length;
 
   const displayName = driverProfile?.name || "RoadLink Driver";
-  const displayEmail =
-    driverProfile?.email || ratings[0]?.driverEmail || "Verified RoadLink Driver";
+  const displayEmail = driverProfile?.email || ratings[0]?.driverEmail || "Verified RoadLink Driver";
   const displayPhoto = driverProfile?.photoURL || "";
-  const displayBio =
-    driverProfile?.bio || "Trusted RoadLink member ready to connect with passengers.";
+  const displayBio = driverProfile?.bio || "Trusted RoadLink member ready to connect with passengers.";
+
   const location =
     driverProfile?.city || driverProfile?.state
       ? `${driverProfile.city || ""}${driverProfile.city && driverProfile.state ? ", " : ""}${driverProfile.state || ""}`
@@ -277,10 +239,12 @@ export default function DriverProfilePage() {
 
   const followersCount = driverProfile?.followers?.length || 0;
   const followingCount = driverProfile?.following?.length || 0;
+
   const tripsCompleted = Math.max(
     Number(driverProfile?.tripsCompleted || 0),
     completedRidesFromCollection
   );
+
   const totalTrips = Math.max(
     Number(driverProfile?.totalTrips || 0),
     rides.length,
@@ -314,7 +278,6 @@ export default function DriverProfilePage() {
       : "New";
 
   const memberSince = formatDate(driverProfile?.createdAt || driverProfile?.joinedAt);
-
   const chatUrl = `/chat?driverId=${driverId}`;
 
   return (
@@ -341,7 +304,9 @@ export default function DriverProfilePage() {
           </div>
 
           <div className="driverIntro">
-            <p className="eyebrow">{verified ? "Verified RoadLink Driver" : "RoadLink Driver"}</p>
+            <p className="eyebrow">
+              {verified ? "Verified RoadLink Driver" : "RoadLink Driver"}
+            </p>
 
             <h1>
               {displayName} <span>{verified ? "✓" : ""}</span>
@@ -1105,4 +1070,4 @@ function Info({
       <div className="infoValue">{value}</div>
     </div>
   );
-}
+              }
