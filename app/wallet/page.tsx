@@ -932,4 +932,4 @@ function BankInfo({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-            }
+}
