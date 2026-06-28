@@ -1,0 +1,851 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
+
+type FeedItem = {
+  id: string;
+  source: string;
+  icon: string;
+  title: string;
+  message: string;
+  category: string;
+  createdAt?: any;
+  actionUrl?: string;
+  userId?: string;
+  userEmail?: string;
+  rideId?: string;
+  bookingId?: string;
+  driverId?: string;
+  passengerId?: string;
+};
+
+type Ride = {
+  id: string;
+  from?: string;
+  to?: string;
+  driverId?: string;
+  driverEmail?: string;
+  status?: string;
+  price?: number;
+  seats?: number;
+  createdAt?: any;
+};
+
+type Booking = {
+  id: string;
+  from?: string;
+  to?: string;
+  passengerId?: string;
+  passengerEmail?: string;
+  driverId?: string;
+  driverEmail?: string;
+  rideId?: string;
+  status?: string;
+  createdAt?: any;
+};
+
+type Rating = {
+  id: string;
+  driverId?: string;
+  driverEmail?: string;
+  passengerEmail?: string;
+  stars?: number;
+  rating?: number;
+  from?: string;
+  to?: string;
+  createdAt?: any;
+};
+
+type NotificationItem = {
+  id: string;
+  title?: string;
+  message?: string;
+  type?: string;
+  userId?: string;
+  rideId?: string;
+  bookingId?: string;
+  driverId?: string;
+  passengerId?: string;
+  createdAt?: any;
+  actionUrl?: string;
+};
+
+type FilterKey = "all" | "rides" | "bookings" | "reviews" | "wallet" | "system";
+
+export default function ActivityFeedPage() {
+  const router = useRouter();
+
+  const [userId, setUserId] = useState("");
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [ratings, setRatings] = useState<Rating[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [status, setStatus] = useState("Loading activity feed...");
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setUserId("");
+        setStatus("Please sign in to view the activity feed.");
+        router.push("/login");
+        return;
+      }
+
+      setUserId(user.uid);
+      setStatus("");
+
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          online: true,
+          lastSeen: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    });
+
+    return () => unsubscribeAuth();
+  }, [router]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const ridesQuery = query(collection(db, "rides"), orderBy("createdAt", "desc"));
+    const bookingsQuery = query(collection(db, "bookings"), where("driverId", "==", userId));
+    const ratingsQuery = query(collection(db, "ratings"), where("driverId", "==", userId));
+    const notificationsQuery = query(
+      collection(db, "notifications"),
+      where("userId", "==", userId),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribeRides = onSnapshot(
+      ridesQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })) as Ride[];
+
+        setRides(data);
+      },
+      (error) => setStatus(error.message)
+    );
+
+    const unsubscribeBookings = onSnapshot(
+      bookingsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })) as Booking[];
+
+        setBookings(data);
+      },
+      (error) => setStatus(error.message)
+    );
+
+    const unsubscribeRatings = onSnapshot(
+      ratingsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })) as Rating[];
+
+        setRatings(data);
+      },
+      (error) => setStatus(error.message)
+    );
+
+    const unsubscribeNotifications = onSnapshot(
+      notificationsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })) as NotificationItem[];
+
+        setNotifications(data);
+      },
+      (error) => setStatus(error.message)
+    );
+
+    return () => {
+      unsubscribeRides();
+      unsubscribeBookings();
+      unsubscribeRatings();
+      unsubscribeNotifications();
+    };
+  }, [userId]);
+
+  function getDate(value?: any) {
+    if (!value) return new Date(0);
+
+    try {
+      const date = value?.toDate ? value.toDate() : new Date(value);
+      return Number.isNaN(date.getTime()) ? new Date(0) : date;
+    } catch {
+      return new Date(0);
+    }
+  }
+
+  function formatTime(value?: any) {
+    const date = getDate(value);
+
+    if (date.getTime() === 0) return "Recently";
+
+    const now = Date.now();
+    const diff = now - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    if (hours < 24) return `${hours} hr ago`;
+    if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+
+    return date.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function notificationCategory(item: NotificationItem): FilterKey {
+    const text = `${item.title || ""} ${item.message || ""} ${item.type || ""}`.toLowerCase();
+
+    if (text.includes("payout") || text.includes("payment") || text.includes("wallet")) return "wallet";
+    if (text.includes("review") || text.includes("rating")) return "reviews";
+    if (text.includes("booking")) return "bookings";
+    if (text.includes("ride")) return "rides";
+
+    return "system";
+  }
+
+  const feedItems = useMemo(() => {
+    const rideItems: FeedItem[] = rides.map((ride) => ({
+      id: `ride-${ride.id}`,
+      source: "rides",
+      icon: "🚗",
+      title: "New Ride Published",
+      message: `${ride.driverEmail || "A driver"} posted a ride from ${ride.from || "Origin"} to ${ride.to || "Destination"}.`,
+      category: "rides",
+      createdAt: ride.createdAt,
+      actionUrl: `/ride-details?rideId=${ride.id}`,
+      rideId: ride.id,
+      driverId: ride.driverId,
+      userEmail: ride.driverEmail,
+    }));
+
+    const bookingItems: FeedItem[] = bookings.map((booking) => ({
+      id: `booking-${booking.id}`,
+      source: "bookings",
+      icon: booking.status === "cancelled" ? "❌" : "🎟️",
+      title: booking.status === "cancelled" ? "Booking Cancelled" : "New Ride Booking",
+      message: `${booking.passengerEmail || "A passenger"} ${booking.status === "cancelled" ? "cancelled" : "reserved"} ${booking.from || "Origin"} → ${booking.to || "Destination"}.`,
+      category: "bookings",
+      createdAt: booking.createdAt,
+      actionUrl: booking.rideId ? `/ride-passengers?rideId=${booking.rideId}` : "/my-rides",
+      rideId: booking.rideId,
+      bookingId: booking.id,
+      driverId: booking.driverId,
+      passengerId: booking.passengerId,
+      userEmail: booking.passengerEmail,
+    }));
+
+    const ratingItems: FeedItem[] = ratings.map((rating) => {
+      const stars = Number(rating.stars || rating.rating || 0);
+
+      return {
+        id: `rating-${rating.id}`,
+        source: "ratings",
+        icon: stars >= 5 ? "🏆" : "⭐",
+        title: stars >= 5 ? "New 5-Star Review" : "New Review",
+        message: `${rating.passengerEmail || "A passenger"} rated ${rating.driverEmail || "driver"} ${stars}/5 for ${rating.from || "Origin"} → ${rating.to || "Destination"}.`,
+        category: "reviews",
+        createdAt: rating.createdAt,
+        actionUrl: rating.driverId ? `/driver-profile?driverId=${rating.driverId}` : "/reviews",
+        driverId: rating.driverId,
+        userEmail: rating.passengerEmail,
+      };
+    });
+
+    const notificationItems: FeedItem[] = notifications.map((item) => ({
+      id: `notification-${item.id}`,
+      source: "notifications",
+      icon:
+        notificationCategory(item) === "wallet"
+          ? "🏦"
+          : notificationCategory(item) === "reviews"
+          ? "⭐"
+          : notificationCategory(item) === "bookings"
+          ? "🎟️"
+          : notificationCategory(item) === "rides"
+          ? "🚘"
+          : "🔔",
+      title: item.title || "RoadLink Update",
+      message: item.message || "New RoadLink activity.",
+      category: notificationCategory(item),
+      createdAt: item.createdAt,
+      actionUrl: item.actionUrl || "/notifications",
+      userId: item.userId,
+      rideId: item.rideId,
+      bookingId: item.bookingId,
+      driverId: item.driverId,
+      passengerId: item.passengerId,
+    }));
+
+    return [...rideItems, ...bookingItems, ...ratingItems, ...notificationItems]
+      .sort((a, b) => getDate(b.createdAt).getTime() - getDate(a.createdAt).getTime())
+      .slice(0, 80);
+  }, [rides, bookings, ratings, notifications]);
+
+  const visibleItems = filter === "all" ? feedItems : feedItems.filter((item) => item.category === filter);
+
+  const todayCount = feedItems.filter((item) => {
+    const date = getDate(item.createdAt);
+    const now = new Date();
+    return date.toDateString() === now.toDateString();
+  }).length;
+
+  const filters: { key: FilterKey; label: string; icon: string }[] = [
+    { key: "all", label: "All", icon: "🌐" },
+    { key: "rides", label: "Rides", icon: "🚗" },
+    { key: "bookings", label: "Bookings", icon: "🎟️" },
+    { key: "reviews", label: "Reviews", icon: "⭐" },
+    { key: "wallet", label: "Wallet", icon: "🏦" },
+    { key: "system", label: "System", icon: "🔔" },
+  ];
+
+  return (
+    <main className="page">
+      <section className="container">
+        <div className="topBar">
+          <Link href="/dashboard" className="navButton">← Dashboard</Link>
+          <Link href="/find-ride" className="navButton">Find Ride</Link>
+          <Link href="/offer-ride" className="navButton">Offer Ride</Link>
+          <Link href="/notifications" className="navButton">Notifications</Link>
+          <Link href="/profile" className="navButton">Profile</Link>
+        </div>
+
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Live</p>
+            <h1>Activity <span>Feed</span></h1>
+            <p className="subtitle">
+              A real-time premium feed for rides, bookings, reviews, payouts and RoadLink activity.
+            </p>
+          </div>
+
+          <div className="liveOrb">
+            <strong>LIVE</strong>
+            <span>{feedItems.length} events</span>
+          </div>
+        </section>
+
+        {status && <p className="status">{status}</p>}
+
+        <section className="stats">
+          <Metric icon="🌐" label="Total Events" value={String(feedItems.length)} />
+          <Metric icon="📅" label="Today" value={String(todayCount)} />
+          <Metric icon="🚗" label="Rides" value={String(feedItems.filter((i) => i.category === "rides").length)} />
+          <Metric icon="🎟️" label="Bookings" value={String(feedItems.filter((i) => i.category === "bookings").length)} />
+          <Metric icon="⭐" label="Reviews" value={String(feedItems.filter((i) => i.category === "reviews").length)} />
+          <Metric icon="🏦" label="Wallet" value={String(feedItems.filter((i) => i.category === "wallet").length)} />
+        </section>
+
+        <section className="filterPanel">
+          <div>
+            <p className="eyebrow">Feed Filters</p>
+            <h2>Explore Activity</h2>
+          </div>
+
+          <div className="filterGrid">
+            {filters.map((item) => {
+              const count =
+                item.key === "all"
+                  ? feedItems.length
+                  : feedItems.filter((feedItem) => feedItem.category === item.key).length;
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={filter === item.key ? "filterButton activeFilter" : "filterButton"}
+                  onClick={() => setFilter(item.key)}
+                >
+                  <span>{item.icon}</span>
+                  <strong>{item.label}</strong>
+                  <small>{count}</small>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="feedPanel">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Live Timeline</p>
+              <h2>{filters.find((item) => item.key === filter)?.label || "Activity"}</h2>
+            </div>
+
+            <div className="feedPill">{visibleItems.length} showing</div>
+          </div>
+
+          {visibleItems.length === 0 ? (
+            <section className="empty">
+              <div className="emptyIcon">📡</div>
+              <h3>No activity yet</h3>
+              <p>RoadLink live activity will appear here in real time.</p>
+            </section>
+          ) : (
+            <div className="feedList">
+              {visibleItems.map((item) => (
+                <article key={item.id} className="feedItem">
+                  <div className="feedIcon">{item.icon}</div>
+
+                  <div className="feedContent">
+                    <div className="feedTop">
+                      <h3>{item.title}</h3>
+                      <span>{formatTime(item.createdAt)}</span>
+                    </div>
+
+                    <p>{item.message}</p>
+
+                    <div className="meta">
+                      <span>{item.source}</span>
+                      <span>{item.category}</span>
+                      {item.rideId && <span>Ride #{item.rideId.slice(0, 6)}</span>}
+                      {item.bookingId && <span>Booking #{item.bookingId.slice(0, 6)}</span>}
+                    </div>
+
+                    {item.actionUrl && (
+                      <Link href={item.actionUrl} className="openButton">
+                        Open Activity
+                      </Link>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+
+      <style>{`
+        * { box-sizing: border-box; }
+
+        .page {
+          min-height: 100vh;
+          padding: 24px;
+          padding-bottom: 120px;
+          color: white;
+          font-family: Arial, sans-serif;
+          background:
+            radial-gradient(circle at top right, rgba(34,197,94,0.25), transparent 35%),
+            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+            linear-gradient(135deg, #020617, #030712, #0f172a);
+        }
+
+        .container {
+          max-width: 1100px;
+          margin: auto;
+        }
+
+        .topBar {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .navButton {
+          color: white;
+          text-decoration: none;
+          font-weight: 900;
+          padding: 12px 18px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .hero,
+        .metric,
+        .filterPanel,
+        .feedPanel,
+        .feedItem,
+        .empty {
+          background: rgba(8,13,25,0.9);
+          border: 1px solid rgba(255,255,255,0.1);
+          box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+          backdrop-filter: blur(16px);
+        }
+
+        .hero {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 24px;
+          padding: 35px;
+          border-radius: 32px;
+          margin-bottom: 20px;
+        }
+
+        .eyebrow {
+          color: #22c55e;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-size: 13px;
+          margin: 0 0 10px;
+        }
+
+        h1 {
+          margin: 0 0 16px;
+          font-size: 60px;
+          line-height: 1;
+        }
+
+        h1 span,
+        h2,
+        .metricValue,
+        .liveOrb strong {
+          color: #22c55e;
+        }
+
+        .subtitle {
+          color: #a1a1aa;
+          max-width: 680px;
+          line-height: 1.5;
+          font-size: 18px;
+          margin: 0;
+        }
+
+        .liveOrb {
+          min-width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          border: 1px solid rgba(34,197,94,0.35);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          flex-direction: column;
+          box-shadow: 0 18px 55px rgba(34,197,94,0.25);
+        }
+
+        .liveOrb strong {
+          font-size: 24px;
+        }
+
+        .liveOrb span {
+          color: #d4d4d8;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .status {
+          text-align: center;
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 14px;
+          margin-bottom: 20px;
+        }
+
+        .metric {
+          padding: 18px;
+          border-radius: 22px;
+        }
+
+        .metricIcon {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 23px;
+          margin-bottom: 12px;
+        }
+
+        .metricLabel {
+          display: block;
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 7px;
+        }
+
+        .metricValue {
+          font-size: 24px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
+
+        .filterPanel,
+        .feedPanel {
+          border-radius: 30px;
+          padding: 30px;
+          margin-bottom: 20px;
+        }
+
+        .filterGrid {
+          display: grid;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 12px;
+          margin-top: 18px;
+        }
+
+        .filterButton {
+          padding: 16px;
+          border-radius: 20px;
+          border: 1px solid rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.04);
+          color: white;
+          cursor: pointer;
+          text-align: left;
+        }
+
+        .activeFilter {
+          border-color: rgba(34,197,94,0.45);
+          background: rgba(34,197,94,0.11);
+        }
+
+        .filterButton span {
+          display: block;
+          font-size: 24px;
+          margin-bottom: 8px;
+        }
+
+        .filterButton strong {
+          display: block;
+          color: #e5e7eb;
+          margin-bottom: 6px;
+        }
+
+        .filterButton small {
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+
+        .feedPill {
+          padding: 10px 15px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          font-weight: 900;
+        }
+
+        .feedList {
+          display: grid;
+          gap: 14px;
+        }
+
+        .feedItem {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 16px;
+          border-radius: 24px;
+          padding: 20px;
+          box-shadow: none;
+        }
+
+        .feedIcon,
+        .emptyIcon {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 26px;
+        }
+
+        .feedTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          margin-bottom: 8px;
+        }
+
+        .feedTop h3 {
+          margin: 0;
+          font-size: 20px;
+        }
+
+        .feedTop span {
+          color: #22c55e;
+          font-size: 12px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .feedContent p {
+          color: #d4d4d8;
+          line-height: 1.5;
+          margin: 0 0 12px;
+        }
+
+        .meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .meta span {
+          padding: 7px 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.1);
+          color: #a1a1aa;
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: capitalize;
+        }
+
+        .openButton {
+          display: inline-flex;
+          margin-top: 14px;
+          padding: 11px 15px;
+          border-radius: 999px;
+          background: rgba(34,197,94,0.12);
+          border: 1px solid rgba(34,197,94,0.35);
+          color: #22c55e;
+          text-decoration: none;
+          font-weight: 900;
+        }
+
+        .empty {
+          min-height: 280px;
+          border-radius: 24px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          text-align: center;
+          padding: 28px;
+        }
+
+        .emptyIcon {
+          width: 82px;
+          height: 82px;
+          font-size: 38px;
+          margin-bottom: 18px;
+        }
+
+        .empty h3 {
+          margin: 0 0 8px;
+          font-size: 28px;
+        }
+
+        .empty p {
+          color: #a1a1aa;
+          margin: 0;
+        }
+
+        @media (max-width: 980px) {
+          .stats {
+            grid-template-columns: repeat(3, 1fr);
+          }
+
+          .filterGrid {
+            grid-template-columns: repeat(3, 1fr);
+          }
+        }
+
+        @media (max-width: 760px) {
+          .page {
+            padding: 16px;
+            padding-bottom: 120px;
+          }
+
+          .hero {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 26px;
+          }
+
+          h1 {
+            font-size: 44px;
+          }
+
+          .stats,
+          .filterGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .filterPanel,
+          .feedPanel {
+            padding: 22px;
+            border-radius: 26px;
+          }
+
+          .sectionHeader,
+          .feedTop {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          .feedItem {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function Metric({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="metric">
+      <div className="metricIcon">{icon}</div>
+      <span className="metricLabel">{label}</span>
+      <div className="metricValue">{value}</div>
+    </div>
+  );
+}
