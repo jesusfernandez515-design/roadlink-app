@@ -1,562 +1,956 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { auth, db } from "../../lib/firebase";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
-  getDocs,
-  limit,
   onSnapshot,
   query,
   setDoc,
+  updateDoc,
   where,
 } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
+
+type TripStatus =
+  | "driver_assigned"
+  | "driver_arriving"
+  | "passenger_picked_up"
+  | "trip_started"
+  | "near_destination"
+  | "completed"
+  | "cancelled";
 
 type Ride = {
+  id: string;
   from?: string;
   to?: string;
   date?: string;
   time?: string;
   driverId?: string;
   driverEmail?: string;
+  vehicle?: string;
+  mapUrl?: string;
+  status?: string;
+  distanceText?: string;
+  durationText?: string;
 };
 
 type Booking = {
+  id: string;
+  rideId?: string;
   passengerId?: string;
   passengerEmail?: string;
+  driverId?: string;
+  driverEmail?: string;
+  status?: string;
+  from?: string;
+  to?: string;
 };
 
-type Profile = {
-  name: string;
-  email: string;
-  photoURL: string;
-};
-
-type LocationData = {
-  latitude?: number;
-  longitude?: number;
+type LiveTrip = {
+  id?: string;
+  rideId?: string;
+  bookingId?: string;
+  driverId?: string;
+  passengerId?: string;
+  driverEmail?: string;
+  passengerEmail?: string;
+  status?: TripStatus;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracy?: number | null;
+  etaMinutes?: number;
+  currentSpeed?: number | null;
+  note?: string;
+  createdAt?: string;
   updatedAt?: string;
 };
 
+const tripSteps: {
+  key: TripStatus;
+  title: string;
+  icon: string;
+  description: string;
+}[] = [
+  {
+    key: "driver_assigned",
+    title: "Driver Assigned",
+    icon: "👤",
+    description: "The driver and passenger are connected.",
+  },
+  {
+    key: "driver_arriving",
+    title: "Driver Arriving",
+    icon: "🚗",
+    description: "Driver is heading to pickup.",
+  },
+  {
+    key: "passenger_picked_up",
+    title: "Passenger Picked Up",
+    icon: "✅",
+    description: "Passenger is now inside the vehicle.",
+  },
+  {
+    key: "trip_started",
+    title: "Trip Started",
+    icon: "🛣️",
+    description: "The trip is actively in progress.",
+  },
+  {
+    key: "near_destination",
+    title: "Near Destination",
+    icon: "📍",
+    description: "The trip is close to the destination.",
+  },
+  {
+    key: "completed",
+    title: "Completed",
+    icon: "🏁",
+    description: "Trip completed successfully.",
+  },
+  {
+    key: "cancelled",
+    title: "Cancelled",
+    icon: "❌",
+    description: "Trip was cancelled.",
+  },
+];
+
 export default function LiveTripPage() {
-  const [rideId, setRideId] = useState("");
-  const [ride, setRide] = useState<Ride | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  return (
+    <Suspense fallback={<Loading />}>
+      <LiveTripContent />
+    </Suspense>
+  );
+}
 
-  const [driverProfile, setDriverProfile] = useState<Profile>({
-    name: "RoadLink Driver",
-    email: "",
-    photoURL: "",
-  });
-
-  const [passengerProfile, setPassengerProfile] = useState<Profile>({
-    name: "RoadLink Passenger",
-    email: "",
-    photoURL: "",
-  });
-
-  const [driverLocation, setDriverLocation] = useState<LocationData | null>(null);
-  const [passengerLocation, setPassengerLocation] = useState<LocationData | null>(null);
-
-  const [message, setMessage] = useState("Loading live trip...");
-  const [sharing, setSharing] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const currentRideId = params.get("rideId") || "";
-
-    setRideId(currentRideId);
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-
-      if (!currentUser) {
-        setMessage("Please sign in to view live trip.");
-        return;
-      }
-
-      if (!currentRideId) {
-        setMessage("No ride selected.");
-        return;
-      }
-
-      try {
-        const rideRef = doc(db, "rides", currentRideId);
-        const rideSnap = await getDoc(rideRef);
-
-        if (!rideSnap.exists()) {
-          setMessage("Ride not found.");
-          return;
-        }
-
-        const rideData = rideSnap.data() as Ride;
-        setRide(rideData);
-
-        const bookingsQuery = query(
-          collection(db, "bookings"),
-          where("rideId", "==", currentRideId),
-          where("status", "==", "reserved"),
-          limit(1)
-        );
-
-        const bookingsSnap = await getDocs(bookingsQuery);
-        const bookingData = bookingsSnap.empty
-          ? null
-          : (bookingsSnap.docs[0].data() as Booking);
-
-        if (rideData.driverId) {
-          const driver = await loadProfile(
-            rideData.driverId,
-            rideData.driverEmail || "RoadLink Driver"
-          );
-          setDriverProfile(driver);
-        }
-
-        if (bookingData?.passengerId) {
-          const passenger = await loadProfile(
-            bookingData.passengerId,
-            bookingData.passengerEmail || "RoadLink Passenger"
-          );
-          setPassengerProfile(passenger);
-        } else if (currentUser.uid !== rideData.driverId) {
-          setPassengerProfile({
-            name: currentUser.displayName || "RoadLink Passenger",
-            email: currentUser.email || "",
-            photoURL: currentUser.photoURL || "",
-          });
-        }
-
-        setMessage("");
-      } catch (error: unknown) {
-        setMessage(error instanceof Error ? error.message : "Something went wrong.");
-      }
-    });
-
-    return () => unsubscribeAuth();
-  }, []);
-
-  useEffect(() => {
-    if (!rideId || !ride?.driverId) return;
-
-    const driverLocationRef = doc(db, "locations", `${rideId}_${ride.driverId}`);
-
-    const unsubscribeDriver = onSnapshot(driverLocationRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setDriverLocation(snapshot.data() as LocationData);
-      }
-    });
-
-    return () => unsubscribeDriver();
-  }, [rideId, ride?.driverId]);
-
-  useEffect(() => {
-    if (!rideId || !user?.uid) return;
-
-    const passengerLocationRef = doc(db, "locations", `${rideId}_${user.uid}`);
-
-    const unsubscribePassenger = onSnapshot(passengerLocationRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setPassengerLocation(snapshot.data() as LocationData);
-      }
-    });
-
-    return () => unsubscribePassenger();
-  }, [rideId, user?.uid]);
-
-  async function loadProfile(userId: string, fallbackEmail: string): Promise<Profile> {
-    try {
-      const userRef = doc(db, "users", userId);
-      const userSnap = await getDoc(userRef);
-
-      if (userSnap.exists()) {
-        const data = userSnap.data();
-
-        return {
-          name: String(data.name || data.displayName || "RoadLink User"),
-          email: String(data.email || fallbackEmail),
-          photoURL: String(data.photoURL || data.profilePhoto || data.avatarUrl || ""),
-        };
-      }
-
-      return {
-        name: "RoadLink User",
-        email: fallbackEmail,
-        photoURL: "",
-      };
-    } catch {
-      return {
-        name: "RoadLink User",
-        email: fallbackEmail,
-        photoURL: "",
-      };
-    }
-  }
-
-  async function shareLocation() {
-    if (!user || !rideId) {
-      setMessage("Please sign in and select a ride first.");
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      setMessage("GPS is not supported on this device.");
-      return;
-    }
-
-    setSharing(true);
-    setMessage("Requesting GPS permission...");
-
-    navigator.geolocation.watchPosition(
-      async (position) => {
-        try {
-          await setDoc(doc(db, "locations", `${rideId}_${user.uid}`), {
-            rideId,
-            userId: user.uid,
-            userEmail: user.email || "",
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            updatedAt: new Date().toISOString(),
-          });
-
-          setMessage("Live location is being shared.");
-        } catch (error: unknown) {
-          setMessage(error instanceof Error ? error.message : "Something went wrong.");
-        }
-      },
-      () => {
-        setSharing(false);
-        setMessage("Location permission was denied.");
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 5000,
-        timeout: 10000,
-      }
-    );
-  }
-
+function Loading() {
   return (
     <main className="page">
-      <section className="hero">
-        <div className="topActions">
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/find-ride" className="miniButton">Find Ride</Link>
-          <Link href="/chat" className="miniButton">Chat</Link>
-        </div>
-
-        <div className="logo">Road<span>Link</span></div>
-
-        <h1>Live <span>Trip</span></h1>
-
-        <p className="subtitle">
-          Track your ride, view driver and passenger profiles, and share GPS location safely.
-        </p>
-      </section>
-
-      {message && <p className="message">{message}</p>}
-
-      <section className="routeCard">
-        <p className="eyebrow">Trip Route</p>
-
-        <h2>
-          {ride?.from || "Starting point"} <span>→</span> {ride?.to || "Destination"}
-        </h2>
-
-        <div className="chips">
-          <span>📅 {ride?.date || "Date"}</span>
-          <span>🕒 {ride?.time || "Time"}</span>
-          <span>🟢 Live Tracking</span>
-        </div>
-      </section>
-
-      <section className="profiles">
-        <ProfileCard title="Driver" profile={driverProfile} location={driverLocation} />
-        <ProfileCard title="Passenger" profile={passengerProfile} location={passengerLocation} />
-      </section>
-
-      <section className="mapCard">
-        <p className="eyebrow">GPS Status</p>
-        <h2>Live Location</h2>
-
-        <div className="mapVisual">
-          <div className="pulse">📍</div>
-          <p>GPS tracking active when users share their location.</p>
-        </div>
-
-        <button onClick={shareLocation} disabled={sharing} className="shareButton">
-          {sharing ? "Sharing Location..." : "Share My Location"}
-        </button>
-      </section>
-
-      <style>{`
-        * { box-sizing: border-box; }
-
-        .page {
-          min-height: 100vh;
-          background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.18), transparent 34%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
-          color: white;
-          padding: 24px;
-          font-family: Arial, sans-serif;
-        }
-
-        .hero, .routeCard, .profiles, .mapCard {
-          max-width: 900px;
-          margin-left: auto;
-          margin-right: auto;
-        }
-
-        .hero, .routeCard, .profileCard, .mapCard {
-          background: rgba(8, 13, 25, 0.88);
-          border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          backdrop-filter: blur(14px);
-          border-radius: 32px;
-        }
-
-        .hero {
-          padding: 30px;
-          margin-bottom: 22px;
-        }
-
-        .topActions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 28px;
-        }
-
-        .miniButton {
-          padding: 11px 18px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          text-decoration: none;
-          font-weight: 900;
-        }
-
-        .logo {
-          font-size: 36px;
-          font-weight: 900;
-          margin-bottom: 26px;
-        }
-
-        .logo span, h1 span, h2 span, .eyebrow, .message {
-          color: #22c55e;
-        }
-
-        h1 {
-          font-size: 58px;
-          line-height: 1;
-          margin: 0 0 16px;
-        }
-
-        h2 {
-          font-size: 34px;
-          line-height: 1.15;
-          margin: 0 0 18px;
-        }
-
-        .subtitle, .message {
-          color: #a1a1aa;
-          font-size: 18px;
-          line-height: 1.5;
-        }
-
-        .message {
-          text-align: center;
-          color: #22c55e;
-          font-weight: 900;
-        }
-
-        .routeCard, .mapCard {
-          padding: 28px;
-          margin-bottom: 22px;
-        }
-
-        .eyebrow {
-          margin: 0 0 10px;
-          font-size: 13px;
-          font-weight: 900;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        .chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-
-        .chips span {
-          padding: 10px 14px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.12);
-          font-weight: 800;
-        }
-
-        .profiles {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
-          margin-bottom: 22px;
-        }
-
-        .profileCard {
-          padding: 24px;
-        }
-
-        .photo {
-          width: 86px;
-          height: 86px;
-          border-radius: 50%;
-          object-fit: cover;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          border: 2px solid rgba(34,197,94,0.45);
-          box-shadow: 0 16px 50px rgba(34,197,94,0.28);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 34px;
-          font-weight: 900;
-          margin-bottom: 18px;
-        }
-
-        .profileCard h3 {
-          font-size: 26px;
-          margin: 0 0 8px;
-        }
-
-        .profileCard p {
-          color: #a1a1aa;
-          margin: 6px 0;
-          overflow-wrap: anywhere;
-        }
-
-        .locationBox {
-          margin-top: 16px;
-          padding: 14px;
-          border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-        }
-
-        .locationBox strong {
-          color: #22c55e;
-        }
-
-        .mapVisual {
-          min-height: 240px;
-          border-radius: 26px;
-          background:
-            radial-gradient(circle at center, rgba(34,197,94,0.20), transparent 30%),
-            rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.12);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          padding: 24px;
-        }
-
-        .pulse {
-          width: 86px;
-          height: 86px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.15);
-          border: 1px solid rgba(34,197,94,0.45);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 38px;
-          margin-bottom: 18px;
-        }
-
-        .mapVisual p {
-          color: #a1a1aa;
-          max-width: 520px;
-          line-height: 1.5;
-        }
-
-        .shareButton {
-          width: 100%;
-          margin-top: 20px;
-          padding: 20px;
-          border-radius: 999px;
-          border: none;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
-          font-size: 18px;
-          font-weight: 900;
-          cursor: pointer;
-        }
-
-        .shareButton:disabled {
-          opacity: 0.65;
-        }
-
-        @media (max-width: 700px) {
-          .page { padding: 16px; }
-
-          .hero, .routeCard, .profileCard, .mapCard {
-            padding: 24px;
-            border-radius: 28px;
-          }
-
-          h1 { font-size: 48px; }
-          h2 { font-size: 30px; }
-
-          .profiles {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
+      <p className="status">Loading live trip...</p>
+      <PageStyles />
     </main>
   );
 }
 
-function ProfileCard({
-  title,
-  profile,
-  location,
-}: {
-  title: string;
-  profile: Profile;
-  location: LocationData | null;
-}) {
-  const firstLetter = profile.name?.charAt(0).toUpperCase() || "R";
+function LiveTripContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [userId, setUserId] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+
+  const [rideId, setRideId] = useState("");
+  const [bookingId, setBookingId] = useState("");
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [liveTrip, setLiveTrip] = useState<LiveTrip | null>(null);
+  const [liveTripId, setLiveTripId] = useState("");
+
+  const [status, setStatus] = useState("Loading live trip...");
+  const [saving, setSaving] = useState(false);
+  const [tracking, setTracking] = useState(false);
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    const urlRideId = searchParams.get("rideId") || "";
+    const urlBookingId = searchParams.get("bookingId") || "";
+
+    setRideId(urlRideId);
+    setBookingId(urlBookingId);
+
+    if (!urlRideId && !urlBookingId) {
+      setStatus("Missing rideId or bookingId in URL.");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    let unsubscribeLiveTrip: (() => void) | undefined;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      setUserId(user.uid);
+      setUserEmail(user.email || "");
+      setStatus("");
+
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          email: user.email || "",
+          online: true,
+          lastSeen: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeLiveTrip) unsubscribeLiveTrip();
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!userId || (!rideId && !bookingId)) return;
+
+    let unsubscribeLive: (() => void) | undefined;
+
+    async function loadData() {
+      try {
+        setStatus("");
+
+        let finalRideId = rideId;
+        let finalBookingId = bookingId;
+        let finalBooking: Booking | null = null;
+
+        if (finalBookingId) {
+          const bookingSnap = await getDoc(doc(db, "bookings", finalBookingId));
+
+          if (bookingSnap.exists()) {
+            finalBooking = {
+              id: bookingSnap.id,
+              ...bookingSnap.data(),
+            } as Booking;
+
+            setBooking(finalBooking);
+            finalRideId = finalRideId || finalBooking.rideId || "";
+          }
+        }
+
+        if (finalRideId) {
+          const rideSnap = await getDoc(doc(db, "rides", finalRideId));
+
+          if (rideSnap.exists()) {
+            const rideData = {
+              id: rideSnap.id,
+              ...rideSnap.data(),
+            } as Ride;
+
+            setRide(rideData);
+          }
+        }
+
+        setRideId(finalRideId);
+        setBookingId(finalBookingId);
+
+        const liveQuery = finalBookingId
+          ? query(collection(db, "liveTrips"), where("bookingId", "==", finalBookingId))
+          : query(collection(db, "liveTrips"), where("rideId", "==", finalRideId));
+
+        unsubscribeLive = onSnapshot(
+          liveQuery,
+          async (snapshot) => {
+            if (snapshot.empty) {
+              const now = new Date().toISOString();
+
+              const driverId = finalBooking?.driverId || ride?.driverId || "";
+              const passengerId = finalBooking?.passengerId || "";
+
+              const created = await addDoc(collection(db, "liveTrips"), {
+                rideId: finalRideId,
+                bookingId: finalBookingId,
+                driverId,
+                passengerId,
+                driverEmail: finalBooking?.driverEmail || ride?.driverEmail || "",
+                passengerEmail: finalBooking?.passengerEmail || "",
+                status: "driver_assigned",
+                latitude: null,
+                longitude: null,
+                accuracy: null,
+                etaMinutes: 0,
+                currentSpeed: null,
+                note: "",
+                createdAt: now,
+                updatedAt: now,
+              });
+
+              setLiveTripId(created.id);
+              return;
+            }
+
+            const document = snapshot.docs[0];
+            const data = {
+              id: document.id,
+              ...document.data(),
+            } as LiveTrip;
+
+            setLiveTrip(data);
+            setLiveTripId(document.id);
+            setNote(data.note || "");
+          },
+          (error) => setStatus(error.message)
+        );
+      } catch (error: unknown) {
+        setStatus(error instanceof Error ? error.message : "Could not load live trip.");
+      }
+    }
+
+    loadData();
+
+    return () => {
+      if (unsubscribeLive) unsubscribeLive();
+    };
+  }, [userId, rideId, bookingId, ride?.driverId, ride?.driverEmail]);
+
+  const currentStatus: TripStatus = liveTrip?.status || "driver_assigned";
+  const currentIndex = tripSteps.findIndex((step) => step.key === currentStatus);
+  const progress = currentIndex >= 0 ? Math.round(((currentIndex + 1) / tripSteps.length) * 100) : 0;
+
+  const isDriver = Boolean(userId && (ride?.driverId === userId || booking?.driverId === userId));
+  const isPassenger = Boolean(userId && booking?.passengerId === userId);
+  const canControl = isDriver;
+
+  const currentStep = useMemo(() => {
+    return tripSteps.find((step) => step.key === currentStatus) || tripSteps[0];
+  }, [currentStatus]);
+
+  const mapUrl =
+    liveTrip?.latitude && liveTrip?.longitude
+      ? `https://www.google.com/maps?q=${liveTrip.latitude},${liveTrip.longitude}`
+      : ride?.mapUrl || "";
+
+  async function getLocation() {
+    if (!navigator.geolocation) {
+      setStatus("GPS is not available.");
+      return null;
+    }
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        });
+      });
+
+      return {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        speed: position.coords.speed,
+      };
+    } catch {
+      setStatus("GPS permission denied or unavailable.");
+      return null;
+    }
+  }
+
+  async function updateLiveLocation() {
+    if (!liveTripId) return;
+
+    try {
+      setTracking(true);
+      setStatus("");
+
+      const location = await getLocation();
+
+      if (!location) return;
+
+      await updateDoc(doc(db, "liveTrips", liveTripId), {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracy: location.accuracy,
+        currentSpeed: location.speed,
+        updatedAt: new Date().toISOString(),
+      });
+
+      setStatus("Live location updated.");
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not update location.");
+    } finally {
+      setTracking(false);
+    }
+  }
+
+  async function updateTripStatus(nextStatus: TripStatus) {
+    if (!liveTripId) return;
+
+    try {
+      setSaving(true);
+      setStatus("");
+
+      const now = new Date().toISOString();
+
+      await updateDoc(doc(db, "liveTrips", liveTripId), {
+        status: nextStatus,
+        updatedAt: now,
+      });
+
+      if (rideId) {
+        await updateDoc(doc(db, "rides", rideId), {
+          liveStatus: nextStatus,
+          status:
+            nextStatus === "completed"
+              ? "completed"
+              : nextStatus === "cancelled"
+              ? "cancelled"
+              : ride?.status || "active",
+          updatedAt: now,
+        });
+      }
+
+      if (bookingId) {
+        await updateDoc(doc(db, "bookings", bookingId), {
+          liveStatus: nextStatus,
+          status:
+            nextStatus === "completed"
+              ? "completed"
+              : nextStatus === "cancelled"
+              ? "cancelled"
+              : booking?.status || "confirmed",
+          updatedAt: now,
+        });
+      }
+
+      const receiverId = isDriver ? booking?.passengerId : ride?.driverId || booking?.driverId;
+
+      if (receiverId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: receiverId,
+          type: "ride",
+          title: "Live Trip Update",
+          message: `Trip status updated to ${tripSteps.find((step) => step.key === nextStatus)?.title || nextStatus}.`,
+          rideId,
+          bookingId,
+          read: false,
+          createdAt: now,
+          actionUrl: `/live-trip?rideId=${rideId}&bookingId=${bookingId}`,
+        });
+      }
+
+      setStatus("Live trip updated.");
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not update live trip.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveNote() {
+    if (!liveTripId) return;
+
+    try {
+      setSaving(true);
+
+      await updateDoc(doc(db, "liveTrips", liveTripId), {
+        note: note.trim(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      setStatus("Trip note saved.");
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : "Could not save note.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="profileCard">
-      {profile.photoURL ? (
-        <img src={profile.photoURL} alt={profile.name} className="photo" />
-      ) : (
-        <div className="photo">{firstLetter}</div>
-      )}
+    <main className="page">
+      <section className="container">
+        <div className="topBar">
+          <Link href="/dashboard" className="navButton">← Dashboard</Link>
+          <Link href="/my-bookings" className="navButton">My Bookings</Link>
+          <Link href="/my-rides" className="navButton">My Rides</Link>
+          <Link href="/sos" className="navButton">SOS</Link>
+          <Link href="/notifications" className="navButton">Notifications</Link>
+        </div>
 
-      <p className="eyebrow">{title}</p>
-      <h3>{profile.name}</h3>
-      <p>{profile.email || "No email available"}</p>
+        <section className="hero">
+          <div>
+            <p className="eyebrow">RoadLink Live Trip</p>
+            <h1>Live <span>Trip Status</span></h1>
+            <p className="subtitle">
+              Track the trip status, GPS location, ETA, safety notes and route progress in real time.
+            </p>
+          </div>
 
-      <div className="locationBox">
-        {location?.latitude && location?.longitude ? (
-          <>
-            <p><strong>GPS Active</strong></p>
-            <p>Lat: {location.latitude.toFixed(5)}</p>
-            <p>Lng: {location.longitude.toFixed(5)}</p>
-          </>
-        ) : (
-          <p>GPS not shared yet.</p>
-        )}
-      </div>
+          <div className="liveOrb">
+            <strong>{currentStep.icon}</strong>
+            <span>{currentStep.title}</span>
+          </div>
+        </section>
+
+        {status && <p className="status">{status}</p>}
+
+        <section className="stats">
+          <Metric icon="📍" label="Route" value={`${ride?.from || booking?.from || "Origin"} → ${ride?.to || booking?.to || "Destination"}`} />
+          <Metric icon="🚗" label="Vehicle" value={ride?.vehicle || "Vehicle pending"} />
+          <Metric icon="⏱️" label="ETA" value={liveTrip?.etaMinutes ? `${liveTrip.etaMinutes} min` : ride?.durationText || "Pending"} />
+          <Metric icon="🛡️" label="Role" value={isDriver ? "Driver" : isPassenger ? "Passenger" : "Viewer"} />
+        </section>
+
+        <section className="progressPanel">
+          <div className="sectionHeader">
+            <div>
+              <p className="eyebrow">Trip Progress</p>
+              <h2>{currentStep.title}</h2>
+              <p>{currentStep.description}</p>
+            </div>
+
+            <div className="progressPill">{progress}%</div>
+          </div>
+
+          <div className="bar">
+            <div style={{ width: `${progress}%` }} />
+          </div>
+
+          <div className="steps">
+            {tripSteps.map((step, index) => {
+              const active = index <= currentIndex;
+
+              return (
+                <div key={step.key} className={active ? "step activeStep" : "step"}>
+                  <span>{step.icon}</span>
+                  <strong>{step.title}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mainGrid">
+          <section className="card">
+            <p className="eyebrow">Live Controls</p>
+            <h2>Driver Status Updates</h2>
+
+            {canControl ? (
+              <div className="controlGrid">
+                {tripSteps.map((step) => (
+                  <button
+                    key={step.key}
+                    onClick={() => updateTripStatus(step.key)}
+                    disabled={saving || currentStatus === step.key}
+                    className={currentStatus === step.key ? "activeButton" : ""}
+                  >
+                    {step.icon} {step.title}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="lockedBox">
+                <h3>View Only</h3>
+                <p>Only the assigned driver can update the live trip status.</p>
+              </div>
+            )}
+          </section>
+
+          <section className="card">
+            <p className="eyebrow">Location</p>
+            <h2>GPS Tracking</h2>
+
+            <div className="locationGrid">
+              <Info label="Latitude" value={liveTrip?.latitude ? String(liveTrip.latitude) : "Pending"} />
+              <Info label="Longitude" value={liveTrip?.longitude ? String(liveTrip.longitude) : "Pending"} />
+              <Info label="Accuracy" value={liveTrip?.accuracy ? `${Math.round(liveTrip.accuracy)} meters` : "Unknown"} />
+              <Info label="Speed" value={liveTrip?.currentSpeed ? `${Math.round(liveTrip.currentSpeed)} m/s` : "Unknown"} />
+            </div>
+
+            <button className="locationButton" onClick={updateLiveLocation} disabled={tracking}>
+              {tracking ? "Updating..." : "Update Live Location"}
+            </button>
+
+            {mapUrl && (
+              <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="mapButton">
+                Open Map
+              </a>
+            )}
+          </section>
+        </section>
+
+        <section className="card">
+          <p className="eyebrow">Trip Note</p>
+          <h2>Safety / Pickup Notes</h2>
+
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Add pickup, safety, or trip notes..."
+          />
+
+          <button className="saveButton" onClick={saveNote} disabled={saving}>
+            {saving ? "Saving..." : "Save Note"}
+          </button>
+        </section>
+      </section>
+
+      <PageStyles />
+    </main>
+  );
+}
+
+function Metric({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <div className="metric">
+      <div className="metricIcon">{icon}</div>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="info">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PageStyles() {
+  return (
+    <style>{`
+      * { box-sizing: border-box; }
+
+      .page {
+        min-height: 100vh;
+        padding: 24px;
+        padding-bottom: 120px;
+        color: white;
+        font-family: Arial, sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(34,197,94,0.25), transparent 35%),
+          radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+          linear-gradient(135deg, #020617, #030712, #0f172a);
       }
+
+      .container {
+        max-width: 1120px;
+        margin: auto;
+      }
+
+      .topBar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .navButton,
+      .mapButton {
+        color: white;
+        text-decoration: none;
+        font-weight: 900;
+        padding: 12px 18px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        display: inline-flex;
+        justify-content: center;
+      }
+
+      .hero,
+      .metric,
+      .progressPanel,
+      .card {
+        background: rgba(8,13,25,0.9);
+        border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+        backdrop-filter: blur(16px);
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 24px;
+        padding: 35px;
+        border-radius: 32px;
+        margin-bottom: 20px;
+      }
+
+      .eyebrow {
+        color: #22c55e;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 13px;
+        margin: 0 0 10px;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: 60px;
+        line-height: 1;
+      }
+
+      h1 span,
+      h2,
+      .metric strong,
+      .liveOrb strong,
+      .progressPill {
+        color: #22c55e;
+      }
+
+      .subtitle {
+        color: #a1a1aa;
+        max-width: 720px;
+        line-height: 1.5;
+        font-size: 18px;
+        margin: 0;
+      }
+
+      .liveOrb {
+        min-width: 128px;
+        height: 128px;
+        border-radius: 50%;
+        background: rgba(34,197,94,0.13);
+        border: 1px solid rgba(34,197,94,0.35);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        text-align: center;
+      }
+
+      .liveOrb strong {
+        font-size: 36px;
+      }
+
+      .liveOrb span {
+        color: #d4d4d8;
+        font-size: 12px;
+        font-weight: 900;
+        max-width: 90px;
+      }
+
+      .status {
+        text-align: center;
+        color: #22c55e;
+        font-weight: 900;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+
+      .metric {
+        padding: 18px;
+        border-radius: 22px;
+      }
+
+      .metricIcon {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+
+      .metric span {
+        display: block;
+        color: #a1a1aa;
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 6px;
+      }
+
+      .metric strong {
+        font-size: 20px;
+        overflow-wrap: anywhere;
+      }
+
+      .progressPanel,
+      .card {
+        border-radius: 30px;
+        padding: 30px;
+        margin-bottom: 20px;
+      }
+
+      .sectionHeader {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .sectionHeader p {
+        color: #a1a1aa;
+      }
+
+      .progressPill {
+        padding: 11px 16px;
+        border-radius: 999px;
+        background: rgba(34,197,94,0.12);
+        border: 1px solid rgba(34,197,94,0.35);
+        font-weight: 900;
+      }
+
+      .bar {
+        height: 14px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        overflow: hidden;
+        margin-bottom: 18px;
+      }
+
+      .bar div {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+      }
+
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 10px;
+      }
+
+      .step {
+        padding: 12px;
+        border-radius: 16px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.09);
+        opacity: 0.6;
+      }
+
+      .activeStep {
+        opacity: 1;
+        background: rgba(34,197,94,0.11);
+        border-color: rgba(34,197,94,0.35);
+      }
+
+      .step span {
+        display: block;
+        font-size: 24px;
+        margin-bottom: 6px;
+      }
+
+      .step strong {
+        display: block;
+        color: #e5e7eb;
+        font-size: 12px;
+      }
+
+      .mainGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+
+      .controlGrid,
+      .locationGrid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .controlGrid button,
+      .locationButton,
+      .saveButton {
+        width: 100%;
+        padding: 15px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.06);
+        color: white;
+        font-weight: 900;
+        cursor: pointer;
+      }
+
+      .controlGrid .activeButton,
+      .locationButton,
+      .saveButton {
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        border: none;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .lockedBox,
+      .info {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.09);
+      }
+
+      .lockedBox p {
+        color: #a1a1aa;
+      }
+
+      .info span {
+        display: block;
+        color: #a1a1aa;
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 6px;
+      }
+
+      .info strong {
+        overflow-wrap: anywhere;
+      }
+
+      .mapButton {
+        width: 100%;
+        margin-top: 12px;
+        color: #22c55e;
+        background: rgba(34,197,94,0.12);
+        border-color: rgba(34,197,94,0.35);
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 120px;
+        padding: 15px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.05);
+        color: white;
+        font-size: 16px;
+        outline: none;
+        resize: vertical;
+        font-family: Arial, sans-serif;
+        margin-bottom: 14px;
+      }
+
+      @media (max-width: 1000px) {
+        .stats,
+        .mainGrid,
+        .steps {
+          grid-template-columns: 1fr;
+        }
+
+        .hero,
+        .sectionHeader {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        h1 {
+          font-size: 44px;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .page {
+          padding: 16px;
+          padding-bottom: 120px;
+        }
+
+        .hero,
+        .progressPanel,
+        .card {
+          padding: 22px;
+          border-radius: 26px;
+        }
+      }
+    `}</style>
+  );
+                }
