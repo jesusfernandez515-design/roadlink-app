@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -15,6 +14,7 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
+import { auth, db } from "../../lib/firebase";
 
 type NotificationItem = {
   id: string;
@@ -36,14 +36,13 @@ type NotificationItem = {
 
 type CategoryKey =
   | "message"
+  | "payout"
+  | "support"
+  | "emergency"
   | "booking"
   | "cancelled"
   | "completed"
-  | "payout"
-  | "emergency"
-  | "support";
-
-type TimeGroupKey = "today" | "yesterday" | "week" | "older";
+  | "all";
 
 const categories: {
   key: CategoryKey;
@@ -53,72 +52,51 @@ const categories: {
 }[] = [
   {
     key: "message",
-    title: "New Messages",
+    title: "Mensajes nuevos",
     icon: "💬",
-    description: "Chats and direct messages.",
-  },
-  {
-    key: "booking",
-    title: "New Ride Booking",
-    icon: "🎟️",
-    description: "New reservations and passenger booking activity.",
-  },
-  {
-    key: "cancelled",
-    title: "Booking Cancelled",
-    icon: "❌",
-    description: "Cancelled bookings and ride changes.",
-  },
-  {
-    key: "completed",
-    title: "Ride Completed",
-    icon: "✅",
-    description: "Completed rides and finished trip updates.",
+    description: "Chats y mensajes directos.",
   },
   {
     key: "payout",
     title: "Payout Update",
     icon: "🏦",
-    description: "Wallet, payouts and payment status.",
-  },
-  {
-    key: "emergency",
-    title: "Emergency Alert Sent",
-    icon: "🚨",
-    description: "SOS and emergency activity.",
+    description: "Wallet, pagos y retiros.",
   },
   {
     key: "support",
     title: "Support Ticket Created",
     icon: "🎧",
-    description: "Support requests and ticket updates.",
-  },
-];
-
-const timeGroups: {
-  key: TimeGroupKey;
-  title: string;
-  subtitle: string;
-}[] = [
-  {
-    key: "today",
-    title: "Today",
-    subtitle: "Activity from today",
+    description: "Tickets y soporte.",
   },
   {
-    key: "yesterday",
-    title: "Yesterday",
-    subtitle: "Activity from yesterday",
+    key: "emergency",
+    title: "Emergency Alert Sent",
+    icon: "🚨",
+    description: "Alertas SOS y emergencias.",
   },
   {
-    key: "week",
-    title: "This Week",
-    subtitle: "Recent activity from this week",
+    key: "booking",
+    title: "New Ride Booking",
+    icon: "🎟️",
+    description: "Reservas nuevas.",
   },
   {
-    key: "older",
-    title: "Older",
-    subtitle: "Older RoadLink activity",
+    key: "cancelled",
+    title: "Booking cancelled",
+    icon: "❌",
+    description: "Reservas o viajes cancelados.",
+  },
+  {
+    key: "completed",
+    title: "Ride Completed",
+    icon: "✅",
+    description: "Viajes completados.",
+  },
+  {
+    key: "all",
+    title: "Todas",
+    icon: "🔔",
+    description: "Toda la actividad.",
   },
 ];
 
@@ -127,10 +105,9 @@ export default function NotificationsPage() {
 
   const [userId, setUserId] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [status, setStatus] = useState("Loading Activity Center...");
+  const [status, setStatus] = useState("Loading notifications...");
   const [saving, setSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("message");
-  const [activeTimeGroup, setActiveTimeGroup] = useState<TimeGroupKey>("today");
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -161,97 +138,40 @@ export default function NotificationsPage() {
     const unsubscribe = onSnapshot(
       notificationsQuery,
       (snapshot) => {
-        const data = snapshot.docs.map((document) => ({
-          ...document.data(),
-          id: document.id,
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
         })) as NotificationItem[];
 
         setNotifications(data);
         setStatus("");
       },
-      (error) => {
-        setStatus(error.message);
-      }
+      (error) => setStatus(error.message)
     );
 
     return () => unsubscribe();
   }, [userId]);
-
-  const categorized = useMemo(() => {
-    const groups: Record<CategoryKey, NotificationItem[]> = {
-      message: [],
-      booking: [],
-      cancelled: [],
-      completed: [],
-      payout: [],
-      emergency: [],
-      support: [],
-    };
-
-    notifications.forEach((notification) => {
-      const category = getCategory(notification);
-      groups[category].push(notification);
-    });
-
-    return groups;
-  }, [notifications]);
-
-  const timeline = useMemo(() => {
-    const groups: Record<TimeGroupKey, NotificationItem[]> = {
-      today: [],
-      yesterday: [],
-      week: [],
-      older: [],
-    };
-
-    notifications.forEach((notification) => {
-      groups[getTimeGroup(notification.createdAt)].push(notification);
-    });
-
-    return groups;
-  }, [notifications]);
-
-  const totalUnread = useMemo(() => {
-    return notifications.filter((notification) => !notification.read).length;
-  }, [notifications]);
-
-  const activeNotifications = categorized[activeCategory] || [];
-  const activeUnread = activeNotifications.filter((item) => !item.read).length;
-  const timelineNotifications = timeline[activeTimeGroup] || [];
-  const timelineUnread = timelineNotifications.filter((item) => !item.read).length;
-
-  const todayHighlights = timeline.today;
-  const yesterdayHighlights = timeline.yesterday;
-  const weekHighlights = timeline.week;
 
   function getDate(value?: any) {
     if (!value) return new Date();
 
     try {
       const date = value?.toDate ? value.toDate() : new Date(value);
-      if (Number.isNaN(date.getTime())) return new Date();
-      return date;
+      return Number.isNaN(date.getTime()) ? new Date() : date;
     } catch {
       return new Date();
     }
   }
 
-  function getTimeGroup(value?: any): TimeGroupKey {
+  function formatTime(value?: any) {
     const date = getDate(value);
-    const now = new Date();
 
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startYesterday = new Date(startToday);
-    startYesterday.setDate(startYesterday.getDate() - 1);
-
-    const startWeek = new Date(startToday);
-    startWeek.setDate(startWeek.getDate() - 7);
-
-    if (date >= startToday) return "today";
-    if (date >= startYesterday && date < startToday) return "yesterday";
-    if (date >= startWeek) return "week";
-
-    return "older";
+    return date.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   function getCategory(notification: NotificationItem): CategoryKey {
@@ -260,35 +180,15 @@ export default function NotificationsPage() {
     const type = String(notification.type || "").toLowerCase();
     const combined = `${title} ${message} ${type}`;
 
-    if (combined.includes("message") || type === "chat") return "message";
+    if (combined.includes("message") || combined.includes("chat")) return "message";
+    if (combined.includes("payout") || combined.includes("payment") || combined.includes("wallet")) return "payout";
+    if (combined.includes("support") || combined.includes("ticket")) return "support";
+    if (combined.includes("emergency") || combined.includes("sos")) return "emergency";
     if (combined.includes("cancel")) return "cancelled";
     if (combined.includes("completed") || combined.includes("ride completed")) return "completed";
-    if (combined.includes("payout") || combined.includes("payment") || combined.includes("wallet")) return "payout";
-    if (combined.includes("emergency") || combined.includes("sos")) return "emergency";
-    if (combined.includes("support") || combined.includes("ticket")) return "support";
     if (combined.includes("booking") || type === "booking") return "booking";
 
     return "booking";
-  }
-
-  function getCategoryIcon(notification: NotificationItem) {
-    const category = categories.find((item) => item.key === getCategory(notification));
-    return category?.icon || "🔔";
-  }
-
-  function formatTime(value?: any) {
-    try {
-      const date = getDate(value);
-
-      return date.toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return "Recently";
-    }
   }
 
   function getNotificationUrl(notification: NotificationItem) {
@@ -297,10 +197,7 @@ export default function NotificationsPage() {
     const category = getCategory(notification);
 
     if (category === "message") {
-      if (notification.chatId) {
-        return `/chat?chatId=${notification.chatId}&rideId=${notification.rideId || ""}&driverId=${notification.driverId || ""}&passengerId=${notification.passengerId || ""}`;
-      }
-
+      if (notification.chatId) return `/chat?chatId=${notification.chatId}`;
       return "/messages";
     }
 
@@ -313,21 +210,42 @@ export default function NotificationsPage() {
       return "/my-rides";
     }
 
-    if (category === "cancelled") return "/my-rides";
-    if (category === "completed") return "/my-rides";
+    if (category === "cancelled") return "/my-bookings";
+    if (category === "completed") return "/my-bookings";
 
     return "/dashboard";
   }
 
+  const grouped = useMemo(() => {
+    const result: Record<CategoryKey, NotificationItem[]> = {
+      message: [],
+      payout: [],
+      support: [],
+      emergency: [],
+      booking: [],
+      cancelled: [],
+      completed: [],
+      all: [],
+    };
+
+    notifications.forEach((item) => {
+      const category = getCategory(item);
+      result[category].push(item);
+      result.all.push(item);
+    });
+
+    return result;
+  }, [notifications]);
+
+  const totalUnread = notifications.filter((item) => !item.read).length;
+  const activeItems = grouped[activeCategory] || [];
+  const activeUnread = activeItems.filter((item) => !item.read).length;
+
   async function markOneAsRead(notificationId: string) {
-    try {
-      await updateDoc(doc(db, "notifications", notificationId), {
-        read: true,
-        readAt: new Date().toISOString(),
-      });
-    } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : "Could not update notification.");
-    }
+    await updateDoc(doc(db, "notifications", notificationId), {
+      read: true,
+      readAt: new Date().toISOString(),
+    });
   }
 
   async function openNotification(notification: NotificationItem) {
@@ -343,8 +261,8 @@ export default function NotificationsPage() {
   }
 
   async function markAllAsRead() {
-    const unreadNotifications = notifications.filter((notification) => !notification.read);
-    if (!unreadNotifications.length) return;
+    const unread = notifications.filter((item) => !item.read);
+    if (!unread.length) return;
 
     try {
       setSaving(true);
@@ -352,8 +270,8 @@ export default function NotificationsPage() {
 
       const batch = writeBatch(db);
 
-      unreadNotifications.forEach((notification) => {
-        batch.update(doc(db, "notifications", notification.id), {
+      unread.forEach((item) => {
+        batch.update(doc(db, "notifications", item.id), {
           read: true,
           readAt: new Date().toISOString(),
         });
@@ -362,15 +280,15 @@ export default function NotificationsPage() {
       await batch.commit();
       setStatus("All notifications marked as read.");
     } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : "Could not mark notifications as read.");
+      setStatus(error instanceof Error ? error.message : "Could not update notifications.");
     } finally {
       setSaving(false);
     }
   }
 
   async function markCategoryAsRead() {
-    const unreadCategory = activeNotifications.filter((notification) => !notification.read);
-    if (!unreadCategory.length) return;
+    const unread = activeItems.filter((item) => !item.read);
+    if (!unread.length) return;
 
     try {
       setSaving(true);
@@ -378,15 +296,15 @@ export default function NotificationsPage() {
 
       const batch = writeBatch(db);
 
-      unreadCategory.forEach((notification) => {
-        batch.update(doc(db, "notifications", notification.id), {
+      unread.forEach((item) => {
+        batch.update(doc(db, "notifications", item.id), {
           read: true,
           readAt: new Date().toISOString(),
         });
       });
 
       await batch.commit();
-      setStatus(`${getActiveCategoryTitle()} marked as read.`);
+      setStatus("Category marked as read.");
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : "Could not update category.");
     } finally {
@@ -394,58 +312,26 @@ export default function NotificationsPage() {
     }
   }
 
-  async function markTimelineAsRead() {
-    const unreadTimeline = timelineNotifications.filter((notification) => !notification.read);
-    if (!unreadTimeline.length) return;
-
-    try {
-      setSaving(true);
-      setStatus("");
-
-      const batch = writeBatch(db);
-
-      unreadTimeline.forEach((notification) => {
-        batch.update(doc(db, "notifications", notification.id), {
-          read: true,
-          readAt: new Date().toISOString(),
-        });
-      });
-
-      await batch.commit();
-      setStatus(`${getActiveTimelineTitle()} marked as read.`);
-    } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : "Could not update timeline.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function getActiveCategoryTitle() {
-    return categories.find((category) => category.key === activeCategory)?.title || "Notifications";
-  }
-
-  function getActiveTimelineTitle() {
-    return timeGroups.find((group) => group.key === activeTimeGroup)?.title || "Timeline";
-  }
+  const activeCategoryData =
+    categories.find((item) => item.key === activeCategory) || categories[0];
 
   return (
     <main className="page">
       <section className="container">
         <div className="topBar">
-          <Link href="/dashboard" className="backButton">← Dashboard</Link>
-          <Link href="/messages" className="backButton">Messages</Link>
-          <Link href="/my-rides" className="backButton">My Rides</Link>
-          <Link href="/wallet" className="backButton">Wallet</Link>
-          <Link href="/profile" className="backButton">Profile</Link>
+          <Link href="/dashboard" className="navButton">← Dashboard</Link>
+          <Link href="/messages" className="navButton">Messages</Link>
+          <Link href="/my-rides" className="navButton">My Rides</Link>
+          <Link href="/wallet" className="navButton">Wallet</Link>
+          <Link href="/profile" className="navButton">Profile</Link>
         </div>
 
         <section className="hero">
           <div>
             <p className="eyebrow">RoadLink Activity</p>
-            <h1>Activity <span>Center</span></h1>
+            <h1>Notification <span>Center</span></h1>
             <p className="subtitle">
-              See RoadLink activity by time and category: messages, bookings, cancellations,
-              payouts, emergency alerts, completed rides and support tickets.
+              Activity grouped by buttons. Tap a category to desplegar todo el contenido.
             </p>
           </div>
 
@@ -458,125 +344,44 @@ export default function NotificationsPage() {
         {status && <p className="status">{status}</p>}
 
         <section className="stats">
-          <div className="stat">
-            <span>Total</span>
-            <h2>{notifications.length}</h2>
-          </div>
-
-          <div className="stat">
-            <span>Unread</span>
-            <h2>{totalUnread}</h2>
-          </div>
-
-          <div className="stat">
-            <span>Today</span>
-            <h2>{todayHighlights.length}</h2>
-          </div>
-
-          <div className="stat">
-            <span>This Week</span>
-            <h2>{weekHighlights.length + todayHighlights.length + yesterdayHighlights.length}</h2>
-          </div>
-        </section>
-
-        <section className="timelinePanel">
-          <div className="header">
-            <div>
-              <p className="eyebrow">Timeline</p>
-              <h2>Activity by Time</h2>
-            </div>
-
-            <button className="readButton" onClick={markAllAsRead} disabled={saving || totalUnread === 0}>
-              {saving ? "Updating..." : "Mark all read"}
-            </button>
-          </div>
-
-          <div className="timeGrid">
-            {timeGroups.map((group) => {
-              const items = timeline[group.key] || [];
-              const unread = items.filter((item) => !item.read).length;
-              const active = activeTimeGroup === group.key;
-
-              return (
-                <button
-                  key={group.key}
-                  type="button"
-                  className={active ? "timeButton activeTime" : "timeButton"}
-                  onClick={() => setActiveTimeGroup(group.key)}
-                >
-                  <span>{group.title}</span>
-                  <strong>{items.length}</strong>
-                  {unread > 0 && <small>{unread} new</small>}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="header">
-            <div>
-              <p className="eyebrow">Timeline Content</p>
-              <h2>{getActiveTimelineTitle()}</h2>
-              <p className="categorySummary">
-                {timelineNotifications.length} total · {timelineUnread} unread
-              </p>
-            </div>
-
-            <button
-              className="readButton"
-              onClick={markTimelineAsRead}
-              disabled={saving || timelineUnread === 0}
-            >
-              {saving ? "Updating..." : "Mark time read"}
-            </button>
-          </div>
-
-          {timelineNotifications.length === 0 ? (
-            <EmptyState icon="🕒" title={`No activity for ${getActiveTimelineTitle()}`} />
-          ) : (
-            <div className="list compactList">
-              {timelineNotifications.slice(0, 6).map((notification) => (
-                <NotificationCard
-                  key={notification.id}
-                  notification={notification}
-                  icon={getCategoryIcon(notification)}
-                  formatTime={formatTime}
-                  openNotification={openNotification}
-                />
-              ))}
-            </div>
-          )}
+          <Metric label="Total" value={String(notifications.length)} />
+          <Metric label="Unread" value={String(totalUnread)} />
+          <Metric label="Active Group" value={activeCategoryData.title} />
+          <Metric label="Group Unread" value={String(activeUnread)} />
         </section>
 
         <section className="categoryPanel">
           <div className="header">
             <div>
-              <p className="eyebrow">Notification Types</p>
-              <h2>Category Centers</h2>
+              <p className="eyebrow">Notification Buttons</p>
+              <h2>Selecciona una categoría</h2>
             </div>
 
-            <button className="readButton" onClick={markCategoryAsRead} disabled={saving || activeUnread === 0}>
-              {saving ? "Updating..." : "Mark category read"}
+            <button
+              className="readButton"
+              onClick={markAllAsRead}
+              disabled={saving || totalUnread === 0}
+            >
+              {saving ? "Updating..." : "Mark all read"}
             </button>
           </div>
 
           <div className="categoryGrid">
             {categories.map((category) => {
-              const items = categorized[category.key] || [];
+              const items = grouped[category.key] || [];
               const unread = items.filter((item) => !item.read).length;
-              const isActive = activeCategory === category.key;
+              const active = activeCategory === category.key;
 
               return (
                 <button
                   key={category.key}
                   type="button"
-                  className={isActive ? "categoryButton activeCategory" : "categoryButton"}
+                  className={active ? "categoryButton activeCategory" : "categoryButton"}
                   onClick={() => setActiveCategory(category.key)}
                 >
                   <div className="categoryIcon">{category.icon}</div>
 
-                  <div className="categoryContent">
+                  <div className="categoryText">
                     <strong>{category.title}</strong>
                     <span>{category.description}</span>
                   </div>
@@ -591,32 +396,68 @@ export default function NotificationsPage() {
           </div>
         </section>
 
-        <section className="card">
+        <section className="contentPanel">
           <div className="header">
             <div>
-              <p className="eyebrow">Expanded Center</p>
-              <h2>{getActiveCategoryTitle()}</h2>
-              <p className="categorySummary">
-                {activeNotifications.length} total · {activeUnread} unread
+              <p className="eyebrow">Expanded Content</p>
+              <h2>{activeCategoryData.icon} {activeCategoryData.title}</h2>
+              <p className="summary">
+                {activeItems.length} total · {activeUnread} unread
               </p>
             </div>
+
+            <button
+              className="readButton"
+              onClick={markCategoryAsRead}
+              disabled={saving || activeUnread === 0}
+            >
+              {saving ? "Updating..." : "Mark group read"}
+            </button>
           </div>
 
-          {activeNotifications.length === 0 ? (
-            <EmptyState
-              icon={categories.find((category) => category.key === activeCategory)?.icon || "🔕"}
-              title={`No ${getActiveCategoryTitle()} yet`}
-            />
+          {activeItems.length === 0 ? (
+            <div className="empty">
+              <div className="emptyIcon">{activeCategoryData.icon}</div>
+              <h3>No activity yet</h3>
+              <p>When this type of RoadLink activity happens, it will appear here.</p>
+            </div>
           ) : (
             <div className="list">
-              {activeNotifications.map((notification) => (
-                <NotificationCard
+              {activeItems.map((notification) => (
+                <button
                   key={notification.id}
-                  notification={notification}
-                  icon={categories.find((category) => category.key === activeCategory)?.icon || "🔔"}
-                  formatTime={formatTime}
-                  openNotification={openNotification}
-                />
+                  type="button"
+                  className={!notification.read ? "notification unread" : "notification"}
+                  onClick={() => openNotification(notification)}
+                >
+                  <div className="icon">{activeCategoryData.icon}</div>
+
+                  <div className="content">
+                    <div className="titleRow">
+                      <h3>{notification.title || "RoadLink Update"}</h3>
+                      {!notification.read ? (
+                        <span className="unreadBadge">New</span>
+                      ) : (
+                        <span className="readBadge">Read</span>
+                      )}
+                    </div>
+
+                    <p>{notification.message || "You have a new RoadLink notification."}</p>
+
+                    <div className="detailsGrid">
+                      {notification.rideId && <Detail label="Ride ID" value={notification.rideId} />}
+                      {notification.bookingId && <Detail label="Booking ID" value={notification.bookingId} />}
+                      {notification.chatId && <Detail label="Chat ID" value={notification.chatId} />}
+                      {notification.driverId && <Detail label="Driver ID" value={notification.driverId} />}
+                      {notification.passengerId && <Detail label="Passenger ID" value={notification.passengerId} />}
+                    </div>
+
+                    <div className="metaRow">
+                      <span>{formatTime(notification.createdAt)}</span>
+                      <strong>Open</strong>
+                    </div>
+                  </div>
+                </button>
               ))}
             </div>
           )}
@@ -650,7 +491,7 @@ export default function NotificationsPage() {
           margin-bottom: 20px;
         }
 
-        .backButton {
+        .navButton {
           color: white;
           text-decoration: none;
           font-weight: 900;
@@ -661,10 +502,9 @@ export default function NotificationsPage() {
         }
 
         .hero,
-        .stat,
-        .card,
+        .metric,
         .categoryPanel,
-        .timelinePanel {
+        .contentPanel {
           background: rgba(8,13,25,0.9);
           border: 1px solid rgba(255,255,255,0.1);
           box-shadow: 0 24px 80px rgba(0,0,0,0.55);
@@ -694,7 +534,6 @@ export default function NotificationsPage() {
           margin: 10px 0 16px;
           font-size: 60px;
           line-height: 1;
-          letter-spacing: -1px;
         }
 
         h1 span,
@@ -729,10 +568,8 @@ export default function NotificationsPage() {
           right: -6px;
           min-width: 34px;
           height: 34px;
-          padding: 0 9px;
           border-radius: 999px;
           background: #ef4444;
-          color: white;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -755,7 +592,6 @@ export default function NotificationsPage() {
           text-align: center;
           color: #22c55e;
           font-weight: 900;
-          margin: 18px 0;
         }
 
         .stats {
@@ -765,26 +601,27 @@ export default function NotificationsPage() {
           margin-bottom: 20px;
         }
 
-        .stat {
-          padding: 25px;
+        .metric {
+          padding: 22px;
           border-radius: 24px;
         }
 
-        .stat span,
-        .categorySummary {
+        .metric span {
+          display: block;
           color: #a1a1aa;
+          font-size: 13px;
           font-weight: 900;
+          margin-bottom: 8px;
         }
 
-        .stat h2 {
+        .metric strong {
           color: #22c55e;
-          margin: 10px 0 0;
-          font-size: 34px;
+          font-size: 25px;
+          overflow-wrap: anywhere;
         }
 
-        .timelinePanel,
         .categoryPanel,
-        .card {
+        .contentPanel {
           padding: 30px;
           border-radius: 30px;
           margin-bottom: 20px;
@@ -799,7 +636,6 @@ export default function NotificationsPage() {
         }
 
         .readButton {
-          width: auto;
           padding: 12px 18px;
           border-radius: 999px;
           border: 1px solid rgba(34,197,94,0.35);
@@ -812,50 +648,6 @@ export default function NotificationsPage() {
         .readButton:disabled {
           opacity: 0.5;
           cursor: not-allowed;
-        }
-
-        .timeGrid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
-        }
-
-        .timeButton {
-          padding: 18px;
-          border-radius: 20px;
-          border: 1px solid rgba(255,255,255,0.1);
-          background: rgba(255,255,255,0.04);
-          color: white;
-          text-align: left;
-          cursor: pointer;
-        }
-
-        .activeTime {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.1);
-        }
-
-        .timeButton span {
-          display: block;
-          color: #a1a1aa;
-          font-weight: 900;
-          margin-bottom: 8px;
-        }
-
-        .timeButton strong {
-          display: block;
-          color: #22c55e;
-          font-size: 30px;
-        }
-
-        .timeButton small {
-          display: inline-flex;
-          margin-top: 8px;
-          padding: 5px 8px;
-          border-radius: 999px;
-          background: rgba(34,197,94,0.14);
-          color: #22c55e;
-          font-weight: 900;
         }
 
         .categoryGrid {
@@ -884,7 +676,9 @@ export default function NotificationsPage() {
           border-color: rgba(34,197,94,0.45);
         }
 
-        .categoryIcon {
+        .categoryIcon,
+        .icon,
+        .emptyIcon {
           width: 54px;
           height: 54px;
           border-radius: 50%;
@@ -896,17 +690,17 @@ export default function NotificationsPage() {
           font-size: 25px;
         }
 
-        .categoryContent strong {
+        .categoryText strong {
           display: block;
           font-size: 18px;
           margin-bottom: 5px;
         }
 
-        .categoryContent span {
-          display: block;
+        .categoryText span,
+        .summary,
+        .empty p {
           color: #a1a1aa;
-          font-size: 13px;
-          line-height: 1.35;
+          line-height: 1.4;
         }
 
         .categoryCount {
@@ -931,7 +725,7 @@ export default function NotificationsPage() {
         }
 
         .empty {
-          min-height: 240px;
+          min-height: 250px;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -940,39 +734,20 @@ export default function NotificationsPage() {
         }
 
         .emptyIcon {
+          font-size: 36px;
           width: 82px;
           height: 82px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 38px;
           margin-bottom: 18px;
         }
 
         .empty h3 {
+          margin: 0 0 8px;
           font-size: 28px;
-          margin: 0 0 10px;
-        }
-
-        .empty p {
-          color: #a1a1aa;
-          max-width: 520px;
-          line-height: 1.5;
-          margin: 0;
         }
 
         .list {
           display: grid;
           gap: 15px;
-        }
-
-        .compactList {
-          max-height: 620px;
-          overflow: auto;
-          padding-right: 4px;
         }
 
         .notification {
@@ -992,18 +767,6 @@ export default function NotificationsPage() {
         .unread {
           border-color: rgba(34,197,94,0.4);
           background: rgba(34,197,94,0.08);
-        }
-
-        .icon {
-          width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.3);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 24px;
         }
 
         .titleRow {
@@ -1090,24 +853,19 @@ export default function NotificationsPage() {
 
         @media (max-width: 850px) {
           .stats,
-          .timeGrid,
           .categoryGrid,
           .detailsGrid {
             grid-template-columns: 1fr;
           }
 
-          .hero {
+          .hero,
+          .header {
             flex-direction: column;
             align-items: flex-start;
           }
 
           h1 {
             font-size: 42px;
-          }
-
-          .header {
-            flex-direction: column;
-            align-items: flex-start;
           }
 
           .readButton {
@@ -1121,9 +879,6 @@ export default function NotificationsPage() {
           .categoryCount {
             grid-column: 1 / -1;
             text-align: left;
-            display: flex;
-            align-items: center;
-            gap: 10px;
           }
 
           .notification {
@@ -1144,9 +899,8 @@ export default function NotificationsPage() {
           }
 
           .hero,
-          .card,
           .categoryPanel,
-          .timelinePanel {
+          .contentPanel {
             padding: 22px;
             border-radius: 26px;
           }
@@ -1156,54 +910,12 @@ export default function NotificationsPage() {
   );
 }
 
-function NotificationCard({
-  notification,
-  icon,
-  formatTime,
-  openNotification,
-}: {
-  notification: NotificationItem;
-  icon: string;
-  formatTime: (value?: any) => string;
-  openNotification: (notification: NotificationItem) => void;
-}) {
-  const isUnread = !notification.read;
-
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <button
-      type="button"
-      className={isUnread ? "notification unread" : "notification"}
-      onClick={() => openNotification(notification)}
-    >
-      <div className="icon">{icon}</div>
-
-      <div className="content">
-        <div className="titleRow">
-          <h3>{notification.title || "RoadLink Update"}</h3>
-
-          {isUnread ? (
-            <span className="unreadBadge">New</span>
-          ) : (
-            <span className="readBadge">Read</span>
-          )}
-        </div>
-
-        <p>{notification.message || "You have a new RoadLink notification."}</p>
-
-        <div className="detailsGrid">
-          {notification.rideId && <Detail label="Ride ID" value={notification.rideId} />}
-          {notification.bookingId && <Detail label="Booking ID" value={notification.bookingId} />}
-          {notification.chatId && <Detail label="Chat ID" value={notification.chatId} />}
-          {notification.driverId && <Detail label="Driver ID" value={notification.driverId} />}
-          {notification.passengerId && <Detail label="Passenger ID" value={notification.passengerId} />}
-        </div>
-
-        <div className="metaRow">
-          <span>{formatTime(notification.createdAt)}</span>
-          <strong>Open</strong>
-        </div>
-      </div>
-    </button>
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -1215,13 +927,3 @@ function Detail({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
-function EmptyState({ icon, title }: { icon: string; title: string }) {
-  return (
-    <div className="empty">
-      <div className="emptyIcon">{icon}</div>
-      <h3>{title}</h3>
-      <p>When RoadLink creates this type of activity, it will appear here.</p>
-    </div>
-  );
-      }
