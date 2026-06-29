@@ -2,938 +2,1006 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query } from "firebase/firestore";
-import { db } from "../../../lib/firebase";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, doc, onSnapshot, query } from "firebase/firestore";
+import { auth, db } from "../../../lib/firebase";
 
-type BookingItem = {
+type UserProfile = {
   id: string;
-  status?: string;
-  price?: number;
-  amount?: number;
-  seatsBooked?: number;
+  email?: string;
+  role?: string;
+  admin?: boolean;
+};
+
+type Booking = {
+  id: string;
+  rideId?: string;
+  driverId?: string;
+  passengerId?: string;
   driverEmail?: string;
   passengerEmail?: string;
   from?: string;
   to?: string;
-  createdAt?: string;
-};
-
-type PayoutItem = {
-  id: string;
   status?: string;
-  amount?: number;
-  driverEmail?: string;
-  email?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  price?: number;
+  seatsBooked?: number;
+  distanceMiles?: number;
+  createdAt?: any;
+  completedAt?: any;
 };
 
-type RideItem = {
+type Ride = {
   id: string;
+  driverId?: string;
+  driverEmail?: string;
   from?: string;
   to?: string;
   status?: string;
   price?: number;
-  driverEmail?: string;
-  createdAt?: string;
+  distanceMiles?: number;
+  createdAt?: any;
 };
 
-type UserItem = {
+type Payout = {
   id: string;
-  email?: string;
-  name?: string;
-  driverVerified?: boolean;
-  verified?: boolean;
-  suspended?: boolean;
-  createdAt?: string;
+  driverId?: string;
+  driverEmail?: string;
+  amount?: number;
+  status?: string;
+  createdAt?: any;
+};
+
+type Refund = {
+  id: string;
+  userEmail?: string;
+  amount?: number;
+  status?: string;
+  createdAt?: any;
+};
+
+type RevenueRow = {
+  id: string;
+  driverEmail: string;
+  passengerEmail: string;
+  route: string;
+  city: string;
+  amount: number;
+  platformFee: number;
+  driverPayout: number;
+  status: string;
+  createdAt?: any;
 };
 
 export default function AdminRevenuePage() {
-  const [bookings, setBookings] = useState<BookingItem[]>([]);
-  const [payouts, setPayouts] = useState<PayoutItem[]>([]);
-  const [rides, setRides] = useState<RideItem[]>([]);
-  const [users, setUsers] = useState<UserItem[]>([]);
+  const router = useRouter();
+
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [rides, setRides] = useState<Ride[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [refunds, setRefunds] = useState<Refund[]>([]);
+  const [search, setSearch] = useState("");
+  const [period, setPeriod] = useState("all");
   const [message, setMessage] = useState("Loading revenue center...");
 
   useEffect(() => {
-    const unsubBookings = onSnapshot(
-      query(collection(db, "bookings")),
-      (snapshot) => {
-        setBookings(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as BookingItem[]);
-        setMessage("");
-      },
-      (error) => setMessage(error.message)
-    );
+    let unsubscribeMe: (() => void) | undefined;
 
-    const unsubPayouts = onSnapshot(
-      query(collection(db, "payoutRequests")),
-      (snapshot) => {
-        setPayouts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as PayoutItem[]);
-      },
-      () => setPayouts([])
-    );
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
 
-    const unsubRides = onSnapshot(
-      query(collection(db, "rides")),
-      (snapshot) => {
-        setRides(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as RideItem[]);
-      },
-      () => setRides([])
-    );
+      unsubscribeMe = onSnapshot(
+        doc(db, "users", user.uid),
+        (snapshot) => {
+          const data = snapshot.exists()
+            ? ({ id: snapshot.id, ...snapshot.data() } as UserProfile)
+            : ({ id: user.uid, email: user.email || "" } as UserProfile);
 
-    const unsubUsers = onSnapshot(
-      query(collection(db, "users")),
-      (snapshot) => {
-        setUsers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as UserItem[]);
-      },
-      () => setUsers([])
-    );
+          setCurrentUser(data);
+
+          const allowed =
+            data.admin === true ||
+            data.role === "admin" ||
+            user.email === "jesusfernandez515@gmail.com";
+
+          setMessage(allowed ? "" : "Access denied. Admin account required.");
+        },
+        (error) => setMessage(error.message)
+      );
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeMe) unsubscribeMe();
+    };
+  }, [router]);
+
+  const adminAllowed =
+    currentUser?.admin === true ||
+    currentUser?.role === "admin" ||
+    auth.currentUser?.email === "jesusfernandez515@gmail.com";
+
+  useEffect(() => {
+    if (!adminAllowed) return;
+
+    const unsubBookings = onSnapshot(query(collection(db, "bookings")), (snapshot) => {
+      setBookings(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as Booking[]);
+      setMessage("");
+    });
+
+    const unsubRides = onSnapshot(query(collection(db, "rides")), (snapshot) => {
+      setRides(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as Ride[]);
+    });
+
+    const unsubPayouts = onSnapshot(query(collection(db, "payoutRequests")), (snapshot) => {
+      setPayouts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as Payout[]);
+    });
+
+    const unsubRefunds = onSnapshot(query(collection(db, "refundRequests")), (snapshot) => {
+      setRefunds(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as Refund[]);
+    });
 
     return () => {
       unsubBookings();
-      unsubPayouts();
       unsubRides();
-      unsubUsers();
+      unsubPayouts();
+      unsubRefunds();
     };
-  }, []);
+  }, [adminAllowed]);
 
-  function money(value: number) {
-    return `$${Math.round(value).toLocaleString()}`;
+  function clean(value?: string) {
+    return String(value || "").toLowerCase();
   }
 
-  function bookingValue(booking: BookingItem) {
-    return Number(booking.price || booking.amount || 0) * Number(booking.seatsBooked || 1);
+  function money(value?: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
   }
 
-  function validDate(value?: string) {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return date;
+  function getDate(value?: any) {
+    if (!value) return new Date(0);
+    const date = value?.toDate ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date(0) : date;
   }
 
-  function isToday(value?: string) {
-    const date = validDate(value);
-    if (!date) return false;
-
+  function isToday(value?: any) {
+    const date = getDate(value);
     const now = new Date();
-
-    return (
-      date.getFullYear() === now.getFullYear() &&
-      date.getMonth() === now.getMonth() &&
-      date.getDate() === now.getDate()
-    );
+    return date.toDateString() === now.toDateString();
   }
 
-  function isThisWeek(value?: string) {
-    const date = validDate(value);
-    if (!date) return false;
-
+  function isThisWeek(value?: any) {
+    const date = getDate(value);
     const now = new Date();
-    const diff = now.getTime() - date.getTime();
-
-    return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000;
+    const start = new Date();
+    start.setDate(now.getDate() - 7);
+    return date >= start && date <= now;
   }
 
-  function isThisMonth(value?: string) {
-    const date = validDate(value);
-    if (!date) return false;
-
+  function isThisMonth(value?: any) {
+    const date = getDate(value);
     const now = new Date();
-
-    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
   }
 
-  function isThisYear(value?: string) {
-    const date = validDate(value);
-    if (!date) return false;
-
-    return date.getFullYear() === new Date().getFullYear();
+  function isThisYear(value?: any) {
+    const date = getDate(value);
+    const now = new Date();
+    return date.getFullYear() === now.getFullYear();
   }
 
-  function timeAgo(value?: string) {
-    if (!value) return "Recently";
-
-    try {
-      const date = new Date(value);
-      const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-
-      if (seconds < 60) return "Just now";
-
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes} min ago`;
-
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours} hr ago`;
-
-      const days = Math.floor(hours / 24);
-      return `${days} day${days === 1 ? "" : "s"} ago`;
-    } catch {
-      return "Recently";
-    }
+  function periodMatch(value?: any) {
+    if (period === "today") return isToday(value);
+    if (period === "week") return isThisWeek(value);
+    if (period === "month") return isThisMonth(value);
+    if (period === "year") return isThisYear(value);
+    return true;
   }
 
-  function shortText(value?: string, max = 34) {
-    if (!value) return "Not available";
-    if (value.length <= max) return value;
-    return `${value.slice(0, max)}...`;
+  function formatDate(value?: any) {
+    const date = getDate(value);
+    if (date.getTime() === 0) return "Not available";
+    return date.toLocaleString();
   }
 
   const revenue = useMemo(() => {
-    const completedBookings = bookings.filter((item) => item.status === "completed");
-    const confirmedBookings = bookings.filter((item) => item.status === "confirmed");
-    const reservedBookings = bookings.filter((item) => item.status === "reserved");
-    const pendingBookings = bookings.filter((item) => item.status === "pending");
-    const cancelledBookings = bookings.filter(
-      (item) => item.status === "cancelled" || item.status === "rejected"
+    const completedBookings = bookings.filter(
+      (item) => clean(item.status) === "completed" && periodMatch(item.completedAt || item.createdAt)
     );
 
-    const grossRevenue = completedBookings.reduce((total, item) => total + bookingValue(item), 0);
-    const confirmedValue = confirmedBookings.reduce((total, item) => total + bookingValue(item), 0);
-    const reservedValue = reservedBookings.reduce((total, item) => total + bookingValue(item), 0);
-    const pendingValue = pendingBookings.reduce((total, item) => total + bookingValue(item), 0);
+    const revenueRows: RevenueRow[] = completedBookings
+      .map((booking) => {
+        const amount = Number(booking.price || 0) * Number(booking.seatsBooked || 1);
+        const platformFee = Number((amount * 0.12).toFixed(2));
+        const driverPayout = Number((amount * 0.88).toFixed(2));
+        const route = `${booking.from || "Origin"} → ${booking.to || "Destination"}`;
+        const city = String(booking.from || "Unknown").split(",")[0] || "Unknown";
 
-    const todayRevenue = completedBookings
-      .filter((item) => isToday(item.createdAt))
-      .reduce((total, item) => total + bookingValue(item), 0);
+        return {
+          id: booking.id,
+          driverEmail: booking.driverEmail || "RoadLink Driver",
+          passengerEmail: booking.passengerEmail || "RoadLink Passenger",
+          route,
+          city,
+          amount,
+          platformFee,
+          driverPayout,
+          status: booking.status || "completed",
+          createdAt: booking.completedAt || booking.createdAt,
+        };
+      })
+      .sort((a, b) => getDate(b.createdAt).getTime() - getDate(a.createdAt).getTime());
 
-    const weekRevenue = completedBookings
-      .filter((item) => isThisWeek(item.createdAt))
-      .reduce((total, item) => total + bookingValue(item), 0);
+    const grossRevenue = revenueRows.reduce((total, item) => total + item.amount, 0);
+    const platformRevenue = revenueRows.reduce((total, item) => total + item.platformFee, 0);
+    const driverRevenue = revenueRows.reduce((total, item) => total + item.driverPayout, 0);
 
-    const monthRevenue = completedBookings
-      .filter((item) => isThisMonth(item.createdAt))
-      .reduce((total, item) => total + bookingValue(item), 0);
+    const todayRevenue = bookings
+      .filter((item) => clean(item.status) === "completed" && isToday(item.completedAt || item.createdAt))
+      .reduce((total, item) => total + Number(item.price || 0) * Number(item.seatsBooked || 1), 0);
 
-    const yearRevenue = completedBookings
-      .filter((item) => isThisYear(item.createdAt))
-      .reduce((total, item) => total + bookingValue(item), 0);
+    const weekRevenue = bookings
+      .filter((item) => clean(item.status) === "completed" && isThisWeek(item.completedAt || item.createdAt))
+      .reduce((total, item) => total + Number(item.price || 0) * Number(item.seatsBooked || 1), 0);
 
-    const roadLinkFeeRate = 0.12;
-    const roadLinkRevenue = grossRevenue * roadLinkFeeRate;
-    const driverRevenue = Math.max(grossRevenue - roadLinkRevenue, 0);
+    const monthRevenue = bookings
+      .filter((item) => clean(item.status) === "completed" && isThisMonth(item.completedAt || item.createdAt))
+      .reduce((total, item) => total + Number(item.price || 0) * Number(item.seatsBooked || 1), 0);
 
-    const pendingPayouts = payouts.filter(
-      (item) => item.status === "pending" || item.status === "approved"
-    );
+    const yearRevenue = bookings
+      .filter((item) => clean(item.status) === "completed" && isThisYear(item.completedAt || item.createdAt))
+      .reduce((total, item) => total + Number(item.price || 0) * Number(item.seatsBooked || 1), 0);
 
-    const paidPayouts = payouts.filter((item) => item.status === "paid");
-    const rejectedPayouts = payouts.filter((item) => item.status === "rejected");
+    const paidPayouts = payouts
+      .filter((item) => clean(item.status) === "paid")
+      .reduce((total, item) => total + Number(item.amount || 0), 0);
 
-    const pendingPayoutAmount = pendingPayouts.reduce(
-      (total, item) => total + Number(item.amount || 0),
-      0
-    );
+    const pendingPayouts = payouts
+      .filter((item) => ["pending", "approved"].includes(clean(item.status)))
+      .reduce((total, item) => total + Number(item.amount || 0), 0);
 
-    const paidPayoutAmount = paidPayouts.reduce(
-      (total, item) => total + Number(item.amount || 0),
-      0
-    );
+    const refundAmount = refunds
+      .filter((item) => ["paid", "approved", "refunded"].includes(clean(item.status)))
+      .reduce((total, item) => total + Number(item.amount || 0), 0);
 
-    const averageBooking =
-      completedBookings.length > 0 ? grossRevenue / completedBookings.length : 0;
+    const netRevenue = platformRevenue - refundAmount;
+    const averageBooking = revenueRows.length ? grossRevenue / revenueRows.length : 0;
 
-    const estimatedAnnualRevenue =
-      monthRevenue > 0 ? monthRevenue * 12 : weekRevenue > 0 ? weekRevenue * 52 : grossRevenue;
+    const cityRevenue = Object.entries(
+      revenueRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.city] = (acc[row.city] || 0) + row.amount;
+        return acc;
+      }, {})
+    )
+      .map(([city, amount]) => ({ city, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 8);
 
-    const completionRate =
-      bookings.length > 0 ? Math.round((completedBookings.length / bookings.length) * 100) : 0;
+    const routeRevenue = Object.entries(
+      revenueRows.reduce<Record<string, number>>((acc, row) => {
+        acc[row.route] = (acc[row.route] || 0) + row.amount;
+        return acc;
+      }, {})
+    )
+      .map(([route, amount]) => ({ route, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 8);
 
-    const cancellationRate =
-      bookings.length > 0 ? Math.round((cancelledBookings.length / bookings.length) * 100) : 0;
+    const driverLeaderboard = Object.entries(
+      revenueRows.reduce<Record<string, { trips: number; amount: number; platformFee: number }>>(
+        (acc, row) => {
+          if (!acc[row.driverEmail]) acc[row.driverEmail] = { trips: 0, amount: 0, platformFee: 0 };
+          acc[row.driverEmail].trips += 1;
+          acc[row.driverEmail].amount += row.amount;
+          acc[row.driverEmail].platformFee += row.platformFee;
+          return acc;
+        },
+        {}
+      )
+    )
+      .map(([driverEmail, data]) => ({ driverEmail, ...data }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 10);
 
-    let financialScore = 100;
+    const monthlyBuckets = Array.from({ length: 6 }).map((_, index) => {
+      const now = new Date();
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+      const label = date.toLocaleString([], { month: "short" });
 
-    if (grossRevenue === 0) financialScore -= 20;
-    if (pendingPayoutAmount > roadLinkRevenue && grossRevenue > 0) financialScore -= 20;
-    if (cancellationRate > 20) financialScore -= 15;
-    if (pendingBookings.length > completedBookings.length && bookings.length > 0) financialScore -= 10;
+      const amount = bookings
+        .filter((item) => {
+          const itemDate = getDate(item.completedAt || item.createdAt);
+          return (
+            clean(item.status) === "completed" &&
+            itemDate.getMonth() === date.getMonth() &&
+            itemDate.getFullYear() === date.getFullYear()
+          );
+        })
+        .reduce((total, item) => total + Number(item.price || 0) * Number(item.seatsBooked || 1), 0);
+
+      return { label, amount };
+    });
 
     return {
-      completedBookings,
-      confirmedBookings,
-      reservedBookings,
-      pendingBookings,
-      cancelledBookings,
+      rows: revenueRows,
       grossRevenue,
-      confirmedValue,
-      reservedValue,
-      pendingValue,
+      platformRevenue,
+      driverRevenue,
       todayRevenue,
       weekRevenue,
       monthRevenue,
       yearRevenue,
-      roadLinkRevenue,
-      driverRevenue,
-      pendingPayouts,
       paidPayouts,
-      rejectedPayouts,
-      pendingPayoutAmount,
-      paidPayoutAmount,
+      pendingPayouts,
+      refundAmount,
+      netRevenue,
       averageBooking,
-      estimatedAnnualRevenue,
-      completionRate,
-      cancellationRate,
-      financialScore: Math.max(financialScore, 0),
+      cityRevenue,
+      routeRevenue,
+      driverLeaderboard,
+      monthlyBuckets,
+      completedTrips: revenueRows.length,
+      activeRides: rides.filter((item) => ["active", "full"].includes(clean(item.status))).length,
     };
-  }, [bookings, payouts]);
+  }, [bookings, payouts, refunds, rides, period]);
 
-  const topDrivers = useMemo(() => {
-    const map = new Map<string, { email: string; revenue: number; bookings: number }>();
+  const filteredRows = useMemo(() => {
+    const value = search.trim().toLowerCase();
 
-    revenue.completedBookings.forEach((booking) => {
-      const email = booking.driverEmail || "Unknown Driver";
-      const current = map.get(email) || { email, revenue: 0, bookings: 0 };
+    if (!value) return revenue.rows;
 
-      current.revenue += bookingValue(booking);
-      current.bookings += 1;
+    return revenue.rows.filter(
+      (item) =>
+        item.id.toLowerCase().includes(value) ||
+        item.driverEmail.toLowerCase().includes(value) ||
+        item.passengerEmail.toLowerCase().includes(value) ||
+        item.route.toLowerCase().includes(value) ||
+        item.city.toLowerCase().includes(value) ||
+        item.status.toLowerCase().includes(value)
+    );
+  }, [revenue.rows, search]);
 
-      map.set(email, current);
-    });
+  if (!adminAllowed) {
+    return (
+      <main className="page">
+        <section className="locked">
+          <h1>Revenue <span>Center</span></h1>
+          <p>{message || "Checking admin access..."}</p>
+          <Link href="/dashboard" className="navButton">Back to Dashboard</Link>
+        </section>
+        <Styles />
+      </main>
+    );
+  }
 
-    return Array.from(map.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
-  }, [revenue.completedBookings]);
-
-  const topRoutes = useMemo(() => {
-    const map = new Map<string, { route: string; revenue: number; rides: number }>();
-
-    bookings.forEach((booking) => {
-      const route = `${booking.from || "Origin"} → ${booking.to || "Destination"}`;
-      const current = map.get(route) || { route, revenue: 0, rides: 0 };
-
-      current.revenue += bookingValue(booking);
-      current.rides += 1;
-
-      map.set(route, current);
-    });
-
-    rides.forEach((ride) => {
-      if (!ride.from && !ride.to) return;
-
-      const route = `${ride.from || "Origin"} → ${ride.to || "Destination"}`;
-      const current = map.get(route) || { route, revenue: 0, rides: 0 };
-
-      current.rides += 1;
-
-      map.set(route, current);
-    });
-
-    return Array.from(map.values())
-      .sort((a, b) => b.revenue - a.revenue || b.rides - a.rides)
-      .slice(0, 5);
-  }, [bookings, rides]);
-
-  const latestPayouts = useMemo(() => {
-    return [...payouts]
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt || b.updatedAt || 0).getTime() -
-          new Date(a.createdAt || a.updatedAt || 0).getTime()
-      )
-      .slice(0, 5);
-  }, [payouts]);
-
-  const verifiedDrivers = users.filter((user) => user.driverVerified || user.verified).length;
+  const maxMonth = Math.max(...revenue.monthlyBuckets.map((item) => item.amount), 1);
+  const maxCity = Math.max(...revenue.cityRevenue.map((item) => item.amount), 1);
+  const maxRoute = Math.max(...revenue.routeRevenue.map((item) => item.amount), 1);
 
   return (
     <main className="page">
       <section className="container">
-        <div className="topNav">
-          <Link href="/admin" className="miniButton">Admin</Link>
-          <Link href="/admin/analytics" className="miniButton">Analytics</Link>
-          <Link href="/admin/live" className="miniButton">Live</Link>
-          <Link href="/admin/payouts" className="miniButton">Payouts</Link>
+        <div className="topBar">
+          <Link href="/admin-console" className="navButton">← Admin Console</Link>
+          <Link href="/admin/finance" className="navButton">Finance</Link>
+          <Link href="/admin/invoices" className="navButton">Invoices</Link>
+          <Link href="/admin/pricing" className="navButton">Pricing</Link>
+          <Link href="/admin/analytics" className="navButton">Analytics</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Admin Finance</p>
+            <p className="eyebrow">RoadLink Revenue Intelligence</p>
             <h1>Revenue <span>Center</span></h1>
             <p className="subtitle">
-              Track gross revenue, RoadLink fees, driver earnings, payouts and financial health.
+              Track gross revenue, RoadLink commissions, driver payouts, refunds, top routes,
+              top cities and revenue performance by period.
             </p>
           </div>
 
-          <div className={revenue.financialScore < 80 ? "scoreOrb warningScore" : "scoreOrb"}>
-            <strong>{revenue.financialScore}</strong>
-            <span>Finance</span>
+          <div className={revenue.netRevenue >= 0 ? "revenueOrb" : "revenueOrb dangerOrb"}>
+            <strong>{money(revenue.netRevenue)}</strong>
+            <span>Net Revenue</span>
           </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
+        <section className="controls">
+          <div>
+            <p className="eyebrow">Filters</p>
+            <h2>Revenue Period</h2>
+          </div>
+
+          <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+            <option value="all">All time</option>
+            <option value="today">Today</option>
+            <option value="week">Last 7 days</option>
+            <option value="month">This month</option>
+            <option value="year">This year</option>
+          </select>
+
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search driver, passenger, route, city or booking ID..."
+          />
+        </section>
+
         <section className="stats">
           <Metric icon="💰" label="Gross Revenue" value={money(revenue.grossRevenue)} />
-          <Metric icon="🏦" label="RoadLink Fees" value={money(revenue.roadLinkRevenue)} />
-          <Metric icon="🚘" label="Driver Earnings" value={money(revenue.driverRevenue)} />
-          <Metric icon="📅" label="This Month" value={money(revenue.monthRevenue)} />
-          <Metric icon="⏳" label="Pending Payouts" value={money(revenue.pendingPayoutAmount)} danger={revenue.pendingPayoutAmount > 0} />
-          <Metric icon="✅" label="Paid Out" value={money(revenue.paidPayoutAmount)} />
+          <Metric icon="🏛️" label="RoadLink Revenue" value={money(revenue.platformRevenue)} />
+          <Metric icon="🚗" label="Driver Revenue" value={money(revenue.driverRevenue)} />
+          <Metric icon="📈" label="Net Revenue" value={money(revenue.netRevenue)} />
+          <Metric icon="📅" label="Today" value={money(revenue.todayRevenue)} />
+          <Metric icon="📆" label="Week" value={money(revenue.weekRevenue)} />
+          <Metric icon="🗓️" label="Month" value={money(revenue.monthRevenue)} />
+          <Metric icon="📊" label="Year" value={money(revenue.yearRevenue)} />
+          <Metric icon="🔄" label="Refunds" value={money(revenue.refundAmount)} />
+          <Metric icon="🏦" label="Paid Payouts" value={money(revenue.paidPayouts)} />
+          <Metric icon="⏳" label="Pending Payouts" value={money(revenue.pendingPayouts)} />
+          <Metric icon="🎟️" label="Avg Booking" value={money(revenue.averageBooking)} />
         </section>
 
-        <section className="gridTwo">
-          <Panel title="Revenue Timeline" eyebrow="Performance" icon="📈">
-            <Info label="Today" value={money(revenue.todayRevenue)} />
-            <Info label="This Week" value={money(revenue.weekRevenue)} />
-            <Info label="This Month" value={money(revenue.monthRevenue)} />
-            <Info label="This Year" value={money(revenue.yearRevenue)} />
-            <Info label="Estimated Annual Revenue" value={money(revenue.estimatedAnnualRevenue)} />
-          </Panel>
+        <section className="grid">
+          <section className="panel">
+            <p className="eyebrow">Growth</p>
+            <h2>Monthly Revenue</h2>
 
-          <Panel title="Booking Value" eyebrow="Sales" icon="🎟️">
-            <Info label="Completed Bookings" value={String(revenue.completedBookings.length)} />
-            <Info label="Confirmed Bookings" value={String(revenue.confirmedBookings.length)} />
-            <Info label="Reserved Value" value={money(revenue.reservedValue)} />
-            <Info label="Pending Value" value={money(revenue.pendingValue)} />
-            <Info label="Average Booking" value={money(revenue.averageBooking)} />
-          </Panel>
-        </section>
+            {revenue.monthlyBuckets.map((item) => (
+              <Bar key={item.label} label={item.label} value={item.amount} max={maxMonth} />
+            ))}
+          </section>
 
-        <section className="gridTwo">
-          <Panel title="Financial Health" eyebrow="Executive" icon="🧠">
-            <Info label="Completion Rate" value={`${revenue.completionRate}%`} />
-            <Info label="Cancellation Rate" value={`${revenue.cancellationRate}%`} />
-            <Info label="Verified Drivers" value={String(verifiedDrivers)} />
-            <Info label="Pending Payout Count" value={String(revenue.pendingPayouts.length)} />
-            <Info label="Rejected Payouts" value={String(revenue.rejectedPayouts.length)} />
-          </Panel>
+          <section className="panel">
+            <p className="eyebrow">City Revenue</p>
+            <h2>Top Origin Cities</h2>
 
-          <Panel title="Payout Stream" eyebrow="Driver Money" icon="🏦" danger={revenue.pendingPayouts.length > 0}>
-            {latestPayouts.length === 0 ? (
-              <div className="empty">
-                <h3>No payout requests</h3>
-                <p>Driver payout requests will appear here.</p>
-              </div>
+            {revenue.cityRevenue.length === 0 ? (
+              <Empty text="No city revenue yet." />
             ) : (
-              <div className="list">
-                {latestPayouts.map((payout) => (
-                  <Link href="/admin/payouts" key={payout.id} className="row linkRow">
-                    <div className="rowIcon">🏦</div>
-                    <div className="rowText">
-                      <strong>{shortText(payout.driverEmail || payout.email || "Driver payout")}</strong>
-                      <span>{payout.status || "pending"} • {timeAgo(payout.createdAt || payout.updatedAt)}</span>
+              revenue.cityRevenue.map((item) => (
+                <Bar key={item.city} label={item.city} value={item.amount} max={maxCity} />
+              ))
+            )}
+          </section>
+        </section>
+
+        <section className="grid">
+          <section className="panel">
+            <p className="eyebrow">Top Routes</p>
+            <h2>Most Profitable Routes</h2>
+
+            {revenue.routeRevenue.length === 0 ? (
+              <Empty text="No route revenue yet." />
+            ) : (
+              revenue.routeRevenue.map((item) => (
+                <Bar key={item.route} label={item.route} value={item.amount} max={maxRoute} />
+              ))
+            )}
+          </section>
+
+          <section className="panel">
+            <p className="eyebrow">Top Drivers</p>
+            <h2>Driver Revenue Leaders</h2>
+
+            {revenue.driverLeaderboard.length === 0 ? (
+              <Empty text="No driver revenue yet." />
+            ) : (
+              <div className="rankList">
+                {revenue.driverLeaderboard.map((driver, index) => (
+                  <article key={driver.driverEmail} className="rankItem">
+                    <div className="rankNumber">#{index + 1}</div>
+
+                    <div>
+                      <strong>{driver.driverEmail}</strong>
+                      <p>{driver.trips} completed trips</p>
                     </div>
-                    <em>{money(Number(payout.amount || 0))}</em>
-                  </Link>
+
+                    <span>{money(driver.amount)}</span>
+                  </article>
                 ))}
               </div>
             )}
-          </Panel>
+          </section>
         </section>
 
-        <section className="gridTwo">
-          <Panel title="Top Drivers" eyebrow="Earnings" icon="🏆">
-            {topDrivers.length === 0 ? (
-              <div className="empty">
-                <h3>No driver revenue yet</h3>
-                <p>Top drivers will appear after completed bookings.</p>
-              </div>
-            ) : (
-              <div className="list">
-                {topDrivers.map((driver) => (
-                  <div className="row" key={driver.email}>
-                    <div className="rowIcon">🚘</div>
-                    <div className="rowText">
-                      <strong>{shortText(driver.email)}</strong>
-                      <span>{driver.bookings} completed booking{driver.bookings === 1 ? "" : "s"}</span>
-                    </div>
-                    <em>{money(driver.revenue)}</em>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
+        <section className="panel">
+          <div className="sectionTop">
+            <div>
+              <p className="eyebrow">Revenue Rows</p>
+              <h2>{filteredRows.length} Completed Revenue Records</h2>
+            </div>
 
-          <Panel title="Top Routes" eyebrow="Demand" icon="🗺️">
-            {topRoutes.length === 0 ? (
-              <div className="empty">
-                <h3>No route revenue yet</h3>
-                <p>Top routes will appear after bookings or rides are created.</p>
-              </div>
-            ) : (
-              <div className="list">
-                {topRoutes.map((route) => (
-                  <div className="row" key={route.route}>
-                    <div className="rowIcon">🗺️</div>
-                    <div className="rowText">
-                      <strong>{shortText(route.route, 42)}</strong>
-                      <span>{route.rides} activity record{route.rides === 1 ? "" : "s"}</span>
-                    </div>
-                    <em>{money(route.revenue)}</em>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </section>
-
-        <section className="quickCard">
-          <p className="eyebrow">Financial Operations</p>
-          <h2>Quick Actions</h2>
-
-          <div className="quickLinks">
-            <Link href="/admin/payouts">🏦 Manage Payouts</Link>
-            <Link href="/admin/bookings">🎟️ View Bookings</Link>
-            <Link href="/admin/rides">🚘 View Rides</Link>
-            <Link href="/admin/analytics">📊 Analytics</Link>
-            <Link href="/admin/live">🟢 Live Center</Link>
-            <Link href="/admin/users">👥 Users</Link>
-            <Link href="/admin/activity">📡 Activity</Link>
-            <Link href="/admin">⚙️ Admin Home</Link>
+            <div className="exportBox">
+              <strong>Export Ready</strong>
+              <span>CSV / PDF / Excel prepared</span>
+            </div>
           </div>
+
+          {filteredRows.length === 0 ? (
+            <Empty text="No revenue records found." />
+          ) : (
+            <div className="revenueList">
+              {filteredRows.slice(0, 100).map((row) => (
+                <article key={row.id} className="revenueRow">
+                  <div className="rowIcon">💰</div>
+
+                  <div>
+                    <h3>{row.route}</h3>
+                    <p>Driver: {row.driverEmail}</p>
+                    <small>Passenger: {row.passengerEmail}</small>
+                    <small>{formatDate(row.createdAt)}</small>
+                  </div>
+
+                  <div className="rowMoney">
+                    <strong>{money(row.amount)}</strong>
+                    <span>Fee {money(row.platformFee)}</span>
+                    <small>Driver {money(row.driverPayout)}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </section>
 
-      <style>{`
-        * { box-sizing: border-box; }
-
-        html,
-        body {
-          overflow-x: hidden;
-        }
-
-        .page {
-          width: 100%;
-          min-height: 100vh;
-          color: white;
-          padding: 12px;
-          padding-bottom: 150px;
-          font-family: Arial, sans-serif;
-          background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 32%),
-            radial-gradient(circle at bottom left, rgba(245,158,11,0.12), transparent 36%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
-        }
-
-        .container {
-          width: 100%;
-          max-width: 1180px;
-          margin: auto;
-        }
-
-        .topNav {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-
-        .miniButton {
-          padding: 9px 12px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.12);
-          color: white;
-          text-decoration: none;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        .hero,
-        .metric,
-        .panel,
-        .quickCard {
-          background: rgba(8,13,25,0.92);
-          border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 16px 44px rgba(0,0,0,0.45);
-          backdrop-filter: blur(16px);
-        }
-
-        .hero {
-          border-radius: 24px;
-          padding: 18px;
-          margin-bottom: 12px;
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 14px;
-          align-items: center;
-        }
-
-        .eyebrow {
-          margin: 0 0 7px;
-          color: #22c55e;
-          font-size: 10px;
-          font-weight: 900;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        h1 {
-          font-size: 34px;
-          line-height: 0.98;
-          margin: 0 0 10px;
-        }
-
-        h1 span,
-        h2,
-        .metricValue {
-          color: #22c55e;
-        }
-
-        h2 {
-          margin: 0;
-          font-size: 24px;
-        }
-
-        .subtitle {
-          color: #a1a1aa;
-          font-size: 13px;
-          line-height: 1.45;
-          margin: 0;
-        }
-
-        .scoreOrb {
-          min-width: 74px;
-          width: 74px;
-          height: 74px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-direction: column;
-          text-align: center;
-        }
-
-        .warningScore {
-          background: rgba(250,204,21,0.12);
-          border-color: rgba(250,204,21,0.35);
-        }
-
-        .scoreOrb strong {
-          color: #22c55e;
-          font-size: 24px;
-          font-weight: 900;
-        }
-
-        .warningScore strong {
-          color: #fde68a;
-        }
-
-        .scoreOrb span {
-          color: #a1a1aa;
-          font-size: 9px;
-          font-weight: 900;
-        }
-
-        .message {
-          color: #22c55e;
-          font-size: 13px;
-          font-weight: 900;
-        }
-
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-
-        .metric {
-          border-radius: 16px;
-          padding: 11px;
-          min-height: 58px;
-          display: grid;
-          grid-template-columns: 34px 1fr auto;
-          gap: 8px;
-          align-items: center;
-        }
-
-        .dangerMetric {
-          border-color: rgba(239,68,68,0.35);
-          background: rgba(127,29,29,0.2);
-        }
-
-        .metricIcon {
-          width: 34px;
-          height: 34px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 17px;
-        }
-
-        .dangerMetric .metricIcon {
-          background: rgba(239,68,68,0.16);
-        }
-
-        .dangerMetric .metricValue {
-          color: #ef4444;
-        }
-
-        .metricLabel {
-          display: block;
-          color: #a1a1aa;
-          font-size: 10px;
-          font-weight: 900;
-        }
-
-        .metricValue {
-          display: block;
-          font-size: 20px;
-          font-weight: 900;
-          overflow-wrap: anywhere;
-        }
-
-        .gridTwo {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-
-        .panel,
-        .quickCard {
-          border-radius: 22px;
-          padding: 16px;
-          overflow: hidden;
-        }
-
-        .dangerPanel {
-          border-color: rgba(239,68,68,0.35);
-          background:
-            radial-gradient(circle at top right, rgba(239,68,68,0.12), transparent 40%),
-            rgba(8,13,25,0.92);
-        }
-
-        .panelHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-          margin-bottom: 14px;
-        }
-
-        .panelIcon {
-          width: 46px;
-          height: 46px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          border: 1px solid rgba(34,197,94,0.25);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 22px;
-        }
-
-        .infoStack,
-        .list {
-          display: grid;
-          gap: 8px;
-        }
-
-        .infoBox,
-        .row {
-          padding: 12px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .infoBox span {
-          display: block;
-          color: #a1a1aa;
-          font-size: 10px;
-          font-weight: 900;
-          margin-bottom: 5px;
-        }
-
-        .infoBox strong {
-          display: block;
-          color: white;
-          font-size: 14px;
-          overflow-wrap: anywhere;
-        }
-
-        .row {
-          display: grid;
-          grid-template-columns: 40px 1fr auto;
-          gap: 10px;
-          color: white;
-          text-decoration: none;
-          align-items: center;
-        }
-
-        .linkRow {
-          cursor: pointer;
-        }
-
-        .rowIcon {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: rgba(34,197,94,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 19px;
-        }
-
-        .rowText {
-          min-width: 0;
-        }
-
-        .rowText strong,
-        .rowText span {
-          display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .rowText strong {
-          font-size: 13px;
-        }
-
-        .rowText span,
-        .row em {
-          color: #a1a1aa;
-          font-size: 11px;
-          font-style: normal;
-        }
-
-        .row em {
-          color: #22c55e;
-          font-weight: 900;
-        }
-
-        .quickLinks {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 9px;
-          margin-top: 14px;
-        }
-
-        .quickLinks a {
-          padding: 13px;
-          border-radius: 14px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: white;
-          text-decoration: none;
-          font-size: 13px;
-          font-weight: 900;
-          text-align: center;
-        }
-
-        .empty {
-          padding: 18px;
-          border-radius: 18px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .empty h3 {
-          margin: 0 0 8px;
-          font-size: 18px;
-        }
-
-        .empty p {
-          color: #a1a1aa;
-          margin: 0;
-          line-height: 1.5;
-        }
-
-        @media (max-width: 430px) {
-          h1 {
-            font-size: 31px;
-          }
-
-          .row {
-            grid-template-columns: 40px 1fr;
-          }
-
-          .row em {
-            grid-column: 2;
-          }
-
-          .quickLinks {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (min-width: 900px) {
-          .page {
-            padding: 24px;
-            padding-bottom: 80px;
-          }
-
-          .stats {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-
-          .gridTwo {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .quickLinks {
-            grid-template-columns: repeat(4, 1fr);
-          }
-        }
-      `}</style>
+      <Styles />
     </main>
   );
 }
 
-function Metric({
-  icon,
-  label,
-  value,
-  danger,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  danger?: boolean;
-}) {
+function Metric({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
-    <div className={danger ? "metric dangerMetric" : "metric"}>
+    <div className="metric">
       <div className="metricIcon">{icon}</div>
-      <span className="metricLabel">{label}</span>
-      <strong className="metricValue">{value}</strong>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
 
-function Panel({
-  title,
-  eyebrow,
-  icon,
-  children,
-  danger,
-}: {
-  title: string;
-  eyebrow: string;
-  icon: string;
-  children: React.ReactNode;
-  danger?: boolean;
-}) {
-  return (
-    <section className={danger ? "panel dangerPanel" : "panel"}>
-      <div className="panelHeader">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
+function Bar({ label, value, max }: { label: string; value: number; max: number }) {
+  const width = Math.max(4, Math.min(100, Math.round((value / max) * 100)));
 
-        <div className="panelIcon">{icon}</div>
+  return (
+    <div className="barRow">
+      <div className="barTop">
+        <span>{label}</span>
+        <strong>${Number(value || 0).toFixed(2)}</strong>
       </div>
 
-      <div className="infoStack">{children}</div>
-    </section>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="infoBox">
-      <span>{label}</span>
-      <strong>{value || "Not available"}</strong>
+      <div className="bar">
+        <div style={{ width: `${width}%` }} />
+      </div>
     </div>
   );
 }
+
+function Empty({ text }: { text: string }) {
+  return (
+    <div className="empty">
+      <h3>No data</h3>
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function Styles() {
+  return (
+    <style>{`
+      * { box-sizing: border-box; }
+
+      .page {
+        min-height: 100vh;
+        padding: 24px;
+        padding-bottom: 130px;
+        color: white;
+        font-family: Arial, sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(34,197,94,0.24), transparent 35%),
+          radial-gradient(circle at bottom left, rgba(59,130,246,0.14), transparent 35%),
+          linear-gradient(135deg, #020617, #030712, #0f172a);
+      }
+
+      .container {
+        max-width: 1240px;
+        margin: auto;
+      }
+
+      .topBar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .navButton {
+        color: white;
+        text-decoration: none;
+        font-weight: 900;
+        padding: 12px 18px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+
+      .hero,
+      .metric,
+      .panel,
+      .controls,
+      .revenueRow,
+      .locked {
+        background: rgba(8,13,25,0.9);
+        border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+        backdrop-filter: blur(16px);
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 24px;
+        padding: 35px;
+        border-radius: 32px;
+        margin-bottom: 20px;
+      }
+
+      .locked {
+        max-width: 720px;
+        margin: 80px auto;
+        padding: 35px;
+        border-radius: 32px;
+        text-align: center;
+      }
+
+      .eyebrow {
+        color: #22c55e;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 13px;
+        margin: 0 0 10px;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: 60px;
+        line-height: 1;
+      }
+
+      h1 span,
+      h2,
+      .metric strong,
+      .revenueOrb strong,
+      .rowMoney strong,
+      .rankItem span {
+        color: #22c55e;
+      }
+
+      .subtitle,
+      .empty p,
+      .locked p,
+      .rankItem p,
+      .revenueRow p,
+      .revenueRow small {
+        color: #a1a1aa;
+        max-width: 780px;
+        line-height: 1.5;
+        font-size: 18px;
+        margin: 0;
+      }
+
+      .revenueOrb {
+        min-width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        background: rgba(34,197,94,0.13);
+        border: 1px solid rgba(34,197,94,0.35);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        text-align: center;
+        padding: 14px;
+      }
+
+      .dangerOrb {
+        background: rgba(239,68,68,0.13);
+        border-color: rgba(239,68,68,0.35);
+      }
+
+      .dangerOrb strong {
+        color: #fca5a5;
+      }
+
+      .revenueOrb strong {
+        font-size: 22px;
+      }
+
+      .revenueOrb span {
+        color: #d4d4d8;
+        font-weight: 900;
+        font-size: 12px;
+      }
+
+      .message {
+        color: #22c55e;
+        text-align: center;
+        font-weight: 900;
+      }
+
+      .controls {
+        border-radius: 30px;
+        padding: 22px;
+        margin-bottom: 20px;
+        display: grid;
+        grid-template-columns: 1fr 220px 1.5fr;
+        gap: 14px;
+        align-items: center;
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 15px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.05);
+        color: white;
+        font-size: 16px;
+        outline: none;
+      }
+
+      option {
+        color: black;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+
+      .metric {
+        padding: 18px;
+        border-radius: 22px;
+      }
+
+      .metricIcon {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+
+      .metric span {
+        display: block;
+        color: #a1a1aa;
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 6px;
+      }
+
+      .metric strong {
+        font-size: 22px;
+        overflow-wrap: anywhere;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+
+      .panel {
+        border-radius: 30px;
+        padding: 30px;
+        margin-bottom: 20px;
+      }
+
+      .barRow {
+        margin-bottom: 18px;
+      }
+
+      .barTop {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .barTop span {
+        color: #a1a1aa;
+        font-weight: 900;
+        overflow-wrap: anywhere;
+      }
+
+      .barTop strong {
+        color: #e5e7eb;
+        white-space: nowrap;
+      }
+
+      .bar {
+        height: 13px;
+        background: rgba(255,255,255,0.08);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .bar div {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+      }
+
+      .rankList {
+        display: grid;
+        gap: 12px;
+      }
+
+      .rankItem {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.09);
+      }
+
+      .rankNumber {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: rgba(34,197,94,0.13);
+        border: 1px solid rgba(34,197,94,0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #22c55e;
+        font-weight: 900;
+      }
+
+      .sectionTop {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .exportBox {
+        padding: 12px 16px;
+        border-radius: 18px;
+        background: rgba(34,197,94,0.1);
+        border: 1px solid rgba(34,197,94,0.3);
+      }
+
+      .exportBox strong {
+        color: #22c55e;
+        display: block;
+      }
+
+      .exportBox span {
+        color: #a1a1aa;
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .revenueList {
+        display: grid;
+        gap: 12px;
+      }
+
+      .revenueRow {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 14px;
+        align-items: center;
+        padding: 16px;
+        border-radius: 20px;
+        box-shadow: none;
+      }
+
+      .rowIcon {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: rgba(34,197,94,0.13);
+        border: 1px solid rgba(34,197,94,0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+      }
+
+      .revenueRow h3 {
+        margin: 0 0 5px;
+        overflow-wrap: anywhere;
+      }
+
+      .revenueRow small {
+        display: block;
+        font-size: 13px;
+      }
+
+      .rowMoney {
+        text-align: right;
+      }
+
+      .rowMoney strong,
+      .rowMoney span,
+      .rowMoney small {
+        display: block;
+      }
+
+      .rowMoney span {
+        color: #d4d4d8;
+        font-weight: 900;
+        margin-top: 5px;
+      }
+
+      .empty {
+        min-height: 180px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        border-radius: 20px;
+        padding: 20px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.09);
+      }
+
+      .empty h3 {
+        margin: 0 0 8px;
+      }
+
+      @media (max-width: 1050px) {
+        .hero,
+        .controls,
+        .grid,
+        .sectionTop {
+          grid-template-columns: 1fr;
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .stats {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          font-size: 44px;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .page {
+          padding: 16px;
+          padding-bottom: 120px;
+        }
+
+        .hero,
+        .panel,
+        .controls {
+          padding: 22px;
+          border-radius: 26px;
+        }
+
+        .revenueRow,
+        .rankItem {
+          grid-template-columns: 1fr;
+        }
+
+        .rowMoney {
+          text-align: left;
+        }
+      }
+    `}</style>
+  );
+      }
