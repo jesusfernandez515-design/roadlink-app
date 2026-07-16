@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   collection,
   doc,
@@ -37,18 +40,16 @@ import {
   Siren,
   Sparkles,
   TrendingDown,
-  TriangleAlert,
   UserRoundSearch,
   UsersRound,
   WalletCards,
   XCircle,
   Zap,
 } from "lucide-react";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { auth, db } from "@/lib/firebase";
+import { auth, db } from "../../../lib/firebase";
 
 type Severity = "critical" | "high" | "medium" | "low";
+
 type FraudStatus =
   | "open"
   | "investigating"
@@ -56,12 +57,14 @@ type FraudStatus =
   | "resolved"
   | "dismissed";
 
+type TimestampObject = {
+  seconds?: number;
+  nanoseconds?: number;
+  toDate?: () => Date;
+};
+
 type TimestampLike =
-  | {
-      seconds?: number;
-      nanoseconds?: number;
-      toDate?: () => Date;
-    }
+  | TimestampObject
   | string
   | number
   | Date
@@ -87,7 +90,6 @@ type UserItem = {
   payoutAccount?: string;
   bankAccountLast4?: string;
   stripeAccountId?: string;
-  avatarUrl?: string;
 };
 
 type RideItem = {
@@ -102,7 +104,6 @@ type RideItem = {
   availableSeats?: number;
   createdAt?: TimestampLike;
   updatedAt?: TimestampLike;
-  date?: TimestampLike;
 };
 
 type BookingItem = {
@@ -187,11 +188,12 @@ type FraudCase = {
   resolvedBy?: string;
   createdBy: string;
   source?: string;
+  detectionCount?: number;
 };
 
 type DetectionResult = Omit<
   FraudCase,
-  "createdAt" | "updatedAt" | "resolvedAt"
+  "createdAt" | "updatedAt" | "resolvedAt" | "resolvedBy"
 >;
 
 type FilterSeverity = "all" | Severity;
@@ -265,6 +267,10 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function unique<T>(items: T[]) {
+  return Array.from(new Set(items));
+}
+
 function toDate(value: TimestampLike): Date | null {
   if (!value) return null;
 
@@ -315,8 +321,8 @@ function formatRelative(value: TimestampLike) {
 
   if (!date) return "Unknown";
 
-  const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / 60000);
+  const difference = Date.now() - date.getTime();
+  const minutes = Math.floor(difference / 60000);
 
   if (minutes < 1) return "Just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -333,42 +339,20 @@ function formatRelative(value: TimestampLike) {
 }
 
 function isWithinDays(value: TimestampLike, days: number) {
-  const timestamp = getTime(value);
+  const time = getTime(value);
 
-  if (!timestamp) return false;
+  if (!time) return false;
 
-  return timestamp >= Date.now() - days * 24 * 60 * 60 * 1000;
-}
-
-function unique<T>(items: T[]) {
-  return Array.from(new Set(items));
-}
-
-function getUserIdentifier(item: {
-  userId?: string;
-  driverId?: string;
-  passengerId?: string;
-  email?: string;
-  driverEmail?: string;
-  passengerEmail?: string;
-}) {
-  return (
-    item.userId ||
-    item.driverId ||
-    item.passengerId ||
-    normalizeString(item.email) ||
-    normalizeString(item.driverEmail) ||
-    normalizeString(item.passengerEmail)
-  );
+  return time >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
 function createCaseId(type: string, entityId: string) {
-  const safeEntity = entityId
+  const safeEntityId = entityId
     .replace(/[^a-zA-Z0-9_-]/g, "-")
     .replace(/-+/g, "-")
     .slice(0, 80);
 
-  return `${type}_${safeEntity}`;
+  return `${type}_${safeEntityId}`;
 }
 
 function resolveSeverity(score: number): Severity {
@@ -388,20 +372,35 @@ function buildDetection(
 ): DetectionResult {
   const fraudScore = clamp(input.fraudScore);
   const riskScore = clamp(input.riskScore);
-  const severity =
-    input.severity ?? resolveSeverity(Math.max(fraudScore, riskScore));
+  const confidence = clamp(input.confidence);
 
   return {
     ...input,
+    confidence,
     fraudScore,
     riskScore,
-    confidence: clamp(input.confidence),
-    severity,
+    severity:
+      input.severity ??
+      resolveSeverity(Math.max(fraudScore, riskScore)),
     resolved: false,
     status: "open",
     createdBy: "ai-fraud-detection-engine",
     source: "ai-fraud-detection-center",
   };
+}
+
+async function fetchCollection<T>(collectionName: string): Promise<T[]> {
+  const snapshot = await getDocs(
+    query(collection(db, collectionName), limit(COLLECTION_LIMIT)),
+  );
+
+  return snapshot.docs.map(
+    (document) =>
+      ({
+        id: document.id,
+        ...document.data(),
+      }) as T,
+  );
 }
 
 function buildFraudDetections({
@@ -420,13 +419,16 @@ function buildFraudDetections({
   payouts: PayoutItem[];
 }) {
   const detections: DetectionResult[] = [];
-  const userById = new Map(users.map((user) => [user.id, user]));
 
-  const userByEmail = new Map<string, UserItem[]>();
-  const userByPhone = new Map<string, UserItem[]>();
-  const userByDevice = new Map<string, UserItem[]>();
-  const userByIp = new Map<string, UserItem[]>();
-  const userByPayoutAccount = new Map<string, UserItem[]>();
+  const userById = new Map<string, UserItem>(
+    users.map((user) => [user.id, user]),
+  );
+
+  const usersByEmail = new Map<string, UserItem[]>();
+  const usersByPhone = new Map<string, UserItem[]>();
+  const usersByDevice = new Map<string, UserItem[]>();
+  const usersByIp = new Map<string, UserItem[]>();
+  const usersByPayoutAccount = new Map<string, UserItem[]>();
 
   for (const user of users) {
     const email = normalizeString(user.email);
@@ -434,7 +436,7 @@ function buildFraudDetections({
     const device = normalizeString(
       user.deviceFingerprint || user.deviceId,
     );
-    const ip = normalizeString(user.ipAddress);
+    const ipAddress = normalizeString(user.ipAddress);
     const payoutAccount = normalizeString(
       user.payoutAccount ||
         user.stripeAccountId ||
@@ -442,51 +444,63 @@ function buildFraudDetections({
     );
 
     if (email) {
-      userByEmail.set(email, [...(userByEmail.get(email) ?? []), user]);
-    }
-
-    if (phone.length >= 7) {
-      userByPhone.set(phone, [...(userByPhone.get(phone) ?? []), user]);
-    }
-
-    if (device) {
-      userByDevice.set(device, [
-        ...(userByDevice.get(device) ?? []),
+      usersByEmail.set(email, [
+        ...(usersByEmail.get(email) ?? []),
         user,
       ]);
     }
 
-    if (ip) {
-      userByIp.set(ip, [...(userByIp.get(ip) ?? []), user]);
+    if (phone.length >= 7) {
+      usersByPhone.set(phone, [
+        ...(usersByPhone.get(phone) ?? []),
+        user,
+      ]);
+    }
+
+    if (device) {
+      usersByDevice.set(device, [
+        ...(usersByDevice.get(device) ?? []),
+        user,
+      ]);
+    }
+
+    if (ipAddress) {
+      usersByIp.set(ipAddress, [
+        ...(usersByIp.get(ipAddress) ?? []),
+        user,
+      ]);
     }
 
     if (payoutAccount) {
-      userByPayoutAccount.set(payoutAccount, [
-        ...(userByPayoutAccount.get(payoutAccount) ?? []),
+      usersByPayoutAccount.set(payoutAccount, [
+        ...(usersByPayoutAccount.get(payoutAccount) ?? []),
         user,
       ]);
     }
   }
 
   const duplicateGroups = [
-    ...Array.from(userByEmail.entries()).map(([value, matches]) => ({
-      field: "email",
-      value,
-      matches,
-    })),
-    ...Array.from(userByPhone.entries()).map(([value, matches]) => ({
-      field: "phone",
-      value,
-      matches,
-    })),
-  ].filter((group) => group.matches.length > 1);
+    ...Array.from(usersByEmail.entries()).map(
+      ([value, matchingUsers]) => ({
+        field: "email",
+        value,
+        matchingUsers,
+      }),
+    ),
+    ...Array.from(usersByPhone.entries()).map(
+      ([value, matchingUsers]) => ({
+        field: "phone",
+        value,
+        matchingUsers,
+      }),
+    ),
+  ].filter((group) => group.matchingUsers.length > 1);
 
   for (const group of duplicateGroups) {
-    const ids = unique(group.matches.map((item) => item.id));
-    const confidence = group.field === "email" ? 97 : 91;
+    const ids = unique(group.matchingUsers.map((user) => user.id));
+    const entityId = `${group.field}-${group.value}`;
     const fraudScore = clamp(65 + ids.length * 8);
     const riskScore = clamp(58 + ids.length * 9);
-    const entityId = `${group.field}-${group.value}`;
 
     detections.push(
       buildDetection({
@@ -494,14 +508,14 @@ function buildFraudDetections({
         entityId,
         entityType: "user_group",
         userId: ids[0],
-        userEmail: group.matches[0]?.email,
+        userEmail: group.matchingUsers[0]?.email,
         type: "duplicate_identity",
-        confidence,
+        confidence: group.field === "email" ? 97 : 91,
         fraudScore,
         riskScore,
         description: `${ids.length} user accounts share the same ${group.field}. This may indicate duplicate registration, identity reuse or account farming.`,
         recommendation:
-          "Review identity records, recent login activity and verification documents. Restrict payouts until ownership is confirmed.",
+          "Review identity records, verification documents and recent login activity. Restrict payouts until account ownership is confirmed.",
         evidence: [
           `Shared ${group.field}: ${group.value}`,
           `Accounts: ${ids.join(", ")}`,
@@ -511,38 +525,39 @@ function buildFraudDetections({
   }
 
   const linkedAccountGroups = [
-    ...Array.from(userByDevice.entries()).map(([value, matches]) => ({
-      field: "device fingerprint",
-      value,
-      matches,
-    })),
-    ...Array.from(userByIp.entries()).map(([value, matches]) => ({
-      field: "IP address",
-      value,
-      matches,
-    })),
-    ...Array.from(userByPayoutAccount.entries()).map(
-      ([value, matches]) => ({
-        field: "payout account",
+    ...Array.from(usersByDevice.entries()).map(
+      ([value, matchingUsers]) => ({
+        field: "device fingerprint",
         value,
-        matches,
+        matchingUsers,
       }),
     ),
-  ].filter((group) => group.matches.length >= 3);
+    ...Array.from(usersByIp.entries()).map(
+      ([value, matchingUsers]) => ({
+        field: "IP address",
+        value,
+        matchingUsers,
+      }),
+    ),
+    ...Array.from(usersByPayoutAccount.entries()).map(
+      ([value, matchingUsers]) => ({
+        field: "payout account",
+        value,
+        matchingUsers,
+      }),
+    ),
+  ].filter((group) => group.matchingUsers.length >= 3);
 
   for (const group of linkedAccountGroups) {
-    const ids = unique(group.matches.map((item) => item.id));
-    const isPayout = group.field === "payout account";
-    const confidence = clamp(
-      75 + ids.length * 4 + (isPayout ? 8 : 0),
-    );
+    const ids = unique(group.matchingUsers.map((user) => user.id));
+    const isPayoutAccount = group.field === "payout account";
+    const entityId = `${group.field}-${group.value}`;
     const fraudScore = clamp(
-      62 + ids.length * 6 + (isPayout ? 10 : 0),
+      62 + ids.length * 6 + (isPayoutAccount ? 10 : 0),
     );
     const riskScore = clamp(
-      60 + ids.length * 7 + (isPayout ? 8 : 0),
+      60 + ids.length * 7 + (isPayoutAccount ? 8 : 0),
     );
-    const entityId = `${group.field}-${group.value}`;
 
     detections.push(
       buildDetection({
@@ -550,14 +565,16 @@ function buildFraudDetections({
         entityId,
         entityType: "user_group",
         userId: ids[0],
-        userEmail: group.matches[0]?.email,
+        userEmail: group.matchingUsers[0]?.email,
         type: "multiple_accounts",
-        confidence,
+        confidence: clamp(
+          75 + ids.length * 4 + (isPayoutAccount ? 8 : 0),
+        ),
         fraudScore,
         riskScore,
         description: `${ids.length} accounts are connected through the same ${group.field}. This pattern may indicate coordinated multi-account activity.`,
         recommendation:
-          "Require step-up verification, compare payment methods and suspend high-risk transactions while the relationship is investigated.",
+          "Require additional verification, compare payment methods and suspend high-risk transactions while the relationship is investigated.",
         evidence: [
           `Shared ${group.field}: ${group.value}`,
           `Linked accounts: ${ids.join(", ")}`,
@@ -566,45 +583,45 @@ function buildFraudDetections({
     );
   }
 
-  const recentUsersByDevice = new Map<string, UserItem[]>();
+  const recentUsersBySignal = new Map<string, UserItem[]>();
 
-  for (const user of users.filter((item) =>
-    isWithinDays(item.createdAt, 7),
-  )) {
-    const key = normalizeString(
+  for (const user of users) {
+    if (!isWithinDays(user.createdAt, 7)) continue;
+
+    const signal = normalizeString(
       user.deviceFingerprint || user.deviceId || user.ipAddress,
     );
 
-    if (!key) continue;
+    if (!signal) continue;
 
-    recentUsersByDevice.set(key, [
-      ...(recentUsersByDevice.get(key) ?? []),
+    recentUsersBySignal.set(signal, [
+      ...(recentUsersBySignal.get(signal) ?? []),
       user,
     ]);
   }
 
-  for (const [device, matches] of recentUsersByDevice.entries()) {
-    if (matches.length < 4) continue;
+  for (const [signal, matchingUsers] of recentUsersBySignal.entries()) {
+    if (matchingUsers.length < 4) continue;
 
-    const ids = matches.map((item) => item.id);
-    const score = clamp(65 + matches.length * 6);
+    const ids = matchingUsers.map((user) => user.id);
+    const score = clamp(65 + matchingUsers.length * 6);
 
     detections.push(
       buildDetection({
-        id: createCaseId("bot_activity", device),
-        entityId: device,
+        id: createCaseId("bot_activity", signal),
+        entityId: signal,
         entityType: "device_cluster",
         userId: ids[0],
-        userEmail: matches[0]?.email,
+        userEmail: matchingUsers[0]?.email,
         type: "bot_activity",
-        confidence: clamp(74 + matches.length * 4),
+        confidence: clamp(74 + matchingUsers.length * 4),
         fraudScore: score,
         riskScore: clamp(score + 4),
-        description: `${matches.length} new accounts were created from the same device or network signal during the last seven days.`,
+        description: `${matchingUsers.length} accounts were created from the same device or network signal during the last seven days.`,
         recommendation:
-          "Apply CAPTCHA, device challenge and rate limits. Review login velocity before allowing bookings or payouts.",
+          "Apply CAPTCHA, device challenges and registration rate limits. Review login velocity before allowing bookings or payouts.",
         evidence: [
-          `Device/network cluster: ${device}`,
+          `Device or network signal: ${signal}`,
           `New accounts: ${ids.join(", ")}`,
         ],
       }),
@@ -628,8 +645,8 @@ function buildFraudDetections({
     ]);
   }
 
-  for (const [target, userReports] of reportsByTarget.entries()) {
-    const recentReports = userReports.filter((report) =>
+  for (const [target, targetReports] of reportsByTarget.entries()) {
+    const recentReports = targetReports.filter((report) =>
       isWithinDays(report.createdAt, 30),
     );
 
@@ -644,11 +661,17 @@ function buildFraudDetections({
         .filter(Boolean),
     );
 
+    const user = userById.get(target);
     const fraudScore = clamp(48 + recentReports.length * 6);
     const riskScore = clamp(
       55 + recentReports.length * 6 + uniqueReporters.length * 2,
     );
-    const user = userById.get(target);
+
+    const reportReasons = unique(
+      recentReports
+        .map((report) => report.reason || report.type)
+        .filter((value): value is string => Boolean(value)),
+    ).slice(0, 5);
 
     detections.push(
       buildDetection({
@@ -668,42 +691,41 @@ function buildFraudDetections({
         riskScore,
         description: `${recentReports.length} reports from ${uniqueReporters.length || 1} distinct reporters were linked to this account during the last thirty days.`,
         recommendation:
-          "Review report reasons, message history and completed rides. Consider temporary restrictions if safety-related reports are substantiated.",
+          "Review report reasons, message history and completed rides. Consider temporary restrictions if safety reports are substantiated.",
         evidence: [
           `Recent reports: ${recentReports.length}`,
           `Unique reporters: ${uniqueReporters.length}`,
-          ...unique(
-            recentReports
-              .map((report) => report.reason || report.type)
-              .filter(Boolean),
-          ).slice(0, 5),
+          ...reportReasons,
         ],
       }),
     );
   }
 
-  const bookingsByUser = new Map<string, BookingItem[]>();
+  const bookingsByPassenger = new Map<string, BookingItem[]>();
 
   for (const booking of bookings) {
-    const userKey =
+    const passenger =
       booking.passengerId || normalizeString(booking.passengerEmail);
 
-    if (!userKey) continue;
+    if (!passenger) continue;
 
-    bookingsByUser.set(userKey, [
-      ...(bookingsByUser.get(userKey) ?? []),
+    bookingsByPassenger.set(passenger, [
+      ...(bookingsByPassenger.get(passenger) ?? []),
       booking,
     ]);
   }
 
-  for (const [userKey, userBookings] of bookingsByUser.entries()) {
-    const recentBookings = userBookings.filter((booking) =>
+  for (const [
+    passenger,
+    passengerBookings,
+  ] of bookingsByPassenger.entries()) {
+    const recentBookings = passengerBookings.filter((booking) =>
       isWithinDays(booking.createdAt, 30),
     );
 
     if (recentBookings.length < 5) continue;
 
-    const cancelled = recentBookings.filter((booking) =>
+    const cancelledBookings = recentBookings.filter((booking) =>
       [
         "cancelled",
         "canceled",
@@ -714,23 +736,26 @@ function buildFraudDetections({
     );
 
     const cancellationRate =
-      recentBookings.length > 0
-        ? cancelled.length / recentBookings.length
-        : 0;
+      cancelledBookings.length / recentBookings.length;
 
-    if (cancelled.length < 4 || cancellationRate < 0.6) continue;
+    if (
+      cancelledBookings.length < 4 ||
+      cancellationRate < 0.6
+    ) {
+      continue;
+    }
 
-    const user = userById.get(userKey);
+    const user = userById.get(passenger);
     const score = clamp(
-      55 + cancellationRate * 30 + cancelled.length * 2,
+      55 + cancellationRate * 30 + cancelledBookings.length * 2,
     );
 
     detections.push(
       buildDetection({
-        id: createCaseId("suspicious_cancellations", userKey),
-        entityId: userKey,
-        entityType: "user",
-        userId: userKey,
+        id: createCaseId("suspicious_cancellations", passenger),
+        entityId: passenger,
+        entityType: "passenger",
+        userId: passenger,
         userEmail: user?.email || recentBookings[0]?.passengerEmail,
         type: "suspicious_cancellations",
         confidence: clamp(
@@ -738,13 +763,13 @@ function buildFraudDetections({
         ),
         fraudScore: score,
         riskScore: clamp(score + 3),
-        description: `${cancelled.length} of ${recentBookings.length} recent bookings were cancelled, rejected or marked as no-show.`,
+        description: `${cancelledBookings.length} of ${recentBookings.length} recent passenger bookings were cancelled, rejected or marked as no-show.`,
         recommendation:
-          "Inspect cancellation timing, promo usage and linked payment methods. Apply booking limits if abuse is confirmed.",
+          "Inspect cancellation timing, promotional credit usage and linked payment methods. Apply booking limits if abuse is confirmed.",
         evidence: [
           `Cancellation rate: ${Math.round(cancellationRate * 100)}%`,
-          `Cancelled bookings: ${cancelled.length}`,
-          `Total recent bookings: ${recentBookings.length}`,
+          `Cancelled bookings: ${cancelledBookings.length}`,
+          `Recent bookings: ${recentBookings.length}`,
         ],
       }),
     );
@@ -764,48 +789,51 @@ function buildFraudDetections({
     ]);
   }
 
-  for (const [driverKey, driverRides] of ridesByDriver.entries()) {
+  for (const [driver, driverRides] of ridesByDriver.entries()) {
     const recentRides = driverRides.filter((ride) =>
       isWithinDays(ride.createdAt, 30),
     );
 
     if (recentRides.length < 5) continue;
 
-    const cancelled = recentRides.filter((ride) =>
+    const cancelledRides = recentRides.filter((ride) =>
       ["cancelled", "canceled", "failed"].includes(
         normalizeStatus(ride.status),
       ),
     );
 
-    const cancellationRate = cancelled.length / recentRides.length;
+    const cancellationRate =
+      cancelledRides.length / recentRides.length;
 
-    if (cancelled.length < 4 || cancellationRate < 0.55) continue;
+    if (cancelledRides.length < 4 || cancellationRate < 0.55) {
+      continue;
+    }
 
-    const user = userById.get(driverKey);
+    const user = userById.get(driver);
     const score = clamp(
-      54 + cancellationRate * 30 + cancelled.length * 2,
+      54 + cancellationRate * 30 + cancelledRides.length * 2,
     );
 
     detections.push(
       buildDetection({
         id: createCaseId(
           "suspicious_cancellations",
-          `driver-${driverKey}`,
+          `driver-${driver}`,
         ),
-        entityId: driverKey,
+        entityId: driver,
         entityType: "driver",
-        userId: driverKey,
+        userId: driver,
         userEmail: user?.email || recentRides[0]?.driverEmail,
         type: "suspicious_cancellations",
         confidence: clamp(66 + cancellationRate * 26),
         fraudScore: score,
         riskScore: clamp(score + 5),
-        description: `Driver activity shows ${cancelled.length} cancelled rides out of ${recentRides.length} recent listings.`,
+        description: `Driver activity shows ${cancelledRides.length} cancelled rides out of ${recentRides.length} recent listings.`,
         recommendation:
-          "Review route publication patterns, passenger complaints and payout behavior before allowing additional high-value rides.",
+          "Review route publication patterns, passenger complaints and payout behavior before allowing more high-value rides.",
         evidence: [
           `Driver cancellation rate: ${Math.round(cancellationRate * 100)}%`,
-          `Cancelled rides: ${cancelled.length}`,
+          `Cancelled rides: ${cancelledRides.length}`,
           `Recent rides: ${recentRides.length}`,
         ],
       }),
@@ -815,57 +843,63 @@ function buildFraudDetections({
   const payoutsByUser = new Map<string, PayoutItem[]>();
 
   for (const payout of payouts) {
-    const userKey =
+    const user =
       payout.userId ||
       payout.driverId ||
       normalizeString(payout.email) ||
       normalizeString(payout.driverEmail);
 
-    if (!userKey) continue;
+    if (!user) continue;
 
-    payoutsByUser.set(userKey, [
-      ...(payoutsByUser.get(userKey) ?? []),
+    payoutsByUser.set(user, [
+      ...(payoutsByUser.get(user) ?? []),
       payout,
     ]);
   }
 
-  for (const [userKey, userPayouts] of payoutsByUser.entries()) {
+  for (const [userId, userPayouts] of payoutsByUser.entries()) {
     const lastSevenDays = userPayouts.filter((payout) =>
       isWithinDays(payout.createdAt, 7),
     );
+
     const lastTwentyFourHours = userPayouts.filter((payout) =>
       isWithinDays(payout.createdAt, 1),
     );
-    const totalSevenDays = lastSevenDays.reduce(
-      (sum, payout) => sum + safeNumber(payout.amount),
+
+    const sevenDayTotal = lastSevenDays.reduce(
+      (total, payout) => total + safeNumber(payout.amount),
       0,
     );
-    const totalTwentyFourHours = lastTwentyFourHours.reduce(
-      (sum, payout) => sum + safeNumber(payout.amount),
+
+    const oneDayTotal = lastTwentyFourHours.reduce(
+      (total, payout) => total + safeNumber(payout.amount),
       0,
     );
 
     const excessiveFrequency =
-      lastSevenDays.length >= 5 || lastTwentyFourHours.length >= 3;
+      lastSevenDays.length >= 5 ||
+      lastTwentyFourHours.length >= 3;
+
     const excessiveValue =
-      totalSevenDays >= 2500 || totalTwentyFourHours >= 1200;
+      sevenDayTotal >= 2500 || oneDayTotal >= 1200;
 
     if (!excessiveFrequency && !excessiveValue) continue;
 
-    const user = userById.get(userKey);
+    const user = userById.get(userId);
+
     const score = clamp(
       55 +
         lastSevenDays.length * 4 +
-        Math.min(totalSevenDays / 100, 25) +
+        Math.min(sevenDayTotal / 100, 25) +
         lastTwentyFourHours.length * 5,
     );
 
     detections.push(
       buildDetection({
-        id: createCaseId("payout_velocity", userKey),
-        entityId: userKey,
+        id: createCaseId("payout_velocity", userId),
+        entityId: userId,
         entityType: "user",
-        userId: userKey,
+        userId,
         userEmail:
           user?.email ||
           lastSevenDays[0]?.email ||
@@ -878,23 +912,24 @@ function buildFraudDetections({
         ),
         fraudScore: score,
         riskScore: clamp(score + 7),
-        description: `${lastSevenDays.length} payout requests totaling $${totalSevenDays.toFixed(
+        description: `${lastSevenDays.length} payout requests totaling $${sevenDayTotal.toFixed(
           2,
         )} were submitted during the last seven days.`,
         recommendation:
           "Place pending payouts on manual review. Validate completed rides, payout ownership and payment settlement status.",
         evidence: [
           `Payouts in seven days: ${lastSevenDays.length}`,
-          `Seven-day amount: $${totalSevenDays.toFixed(2)}`,
-          `Twenty-four-hour amount: $${totalTwentyFourHours.toFixed(2)}`,
+          `Seven-day amount: $${sevenDayTotal.toFixed(2)}`,
+          `Twenty-four-hour amount: $${oneDayTotal.toFixed(2)}`,
         ],
       }),
     );
   }
 
   for (const wallet of wallets) {
-    const userKey =
+    const userId =
       wallet.userId || normalizeString(wallet.email) || wallet.id;
+
     const balance = safeNumber(
       wallet.balance ?? wallet.availableBalance,
     );
@@ -906,36 +941,41 @@ function buildFraudDetections({
       balance < -1 ||
       pendingBalance < -1 ||
       totalWithdrawn > totalEarned + 100;
-    const markedSuspicious =
+
+    const suspiciousStatus =
       wallet.suspicious === true ||
       ["blocked", "suspicious", "frozen"].includes(
         normalizeStatus(wallet.status),
       );
+
     const unusuallyLargeBalance =
-      balance >= 5000 && totalEarned > 0 && balance > totalEarned * 1.25;
+      balance >= 5000 &&
+      totalEarned > 0 &&
+      balance > totalEarned * 1.25;
 
     if (
       !impossibleBalance &&
-      !markedSuspicious &&
+      !suspiciousStatus &&
       !unusuallyLargeBalance
     ) {
       continue;
     }
 
-    const user = userById.get(userKey);
+    const user = userById.get(userId);
+
     const score = clamp(
       62 +
         (impossibleBalance ? 18 : 0) +
-        (markedSuspicious ? 15 : 0) +
+        (suspiciousStatus ? 15 : 0) +
         (unusuallyLargeBalance ? 12 : 0),
     );
 
     detections.push(
       buildDetection({
-        id: createCaseId("wallet_anomaly", userKey),
+        id: createCaseId("wallet_anomaly", userId),
         entityId: wallet.id,
         entityType: "wallet",
-        userId: userKey,
+        userId,
         userEmail: user?.email || wallet.email,
         type: "wallet_anomaly",
         confidence: clamp(score + 2),
@@ -973,19 +1013,24 @@ function buildFraudDetections({
           booking.passengerId ||
           normalizeString(booking.passengerEmail),
       )
-      .filter(Boolean);
+      .filter((value): value is string => Boolean(value));
 
     const uniquePassengers = unique(passengerKeys);
     const repeatedPassengers =
       rideBookings.length - uniquePassengers.length;
+
     const rapidBookings = rideBookings.filter((booking) =>
       isWithinDays(booking.createdAt, 1),
     );
+
     const totalSeats = rideBookings.reduce(
-      (sum, booking) => sum + Math.max(safeNumber(booking.seatsBooked), 1),
+      (total, booking) =>
+        total + Math.max(safeNumber(booking.seatsBooked), 1),
       0,
     );
+
     const ride = rides.find((item) => item.id === rideId);
+
     const rideCapacity = Math.max(
       safeNumber(ride?.seats),
       safeNumber(ride?.availableSeats),
@@ -993,14 +1038,11 @@ function buildFraudDetections({
 
     const overbooked =
       rideCapacity > 0 && totalSeats > rideCapacity + 2;
-    const duplicateBookingPattern = repeatedPassengers >= 2;
+
+    const duplicatePattern = repeatedPassengers >= 2;
     const velocityPattern = rapidBookings.length >= 8;
 
-    if (
-      !overbooked &&
-      !duplicateBookingPattern &&
-      !velocityPattern
-    ) {
+    if (!overbooked && !duplicatePattern && !velocityPattern) {
       continue;
     }
 
@@ -1046,7 +1088,9 @@ function buildFraudDetections({
       ["failed", "refunded", "chargeback", "unpaid"].includes(
         paymentStatus,
       );
+
     const unusuallyLargeBooking = amount >= 750;
+
     const zeroValueConfirmed =
       amount <= 0 &&
       ["confirmed", "completed"].includes(bookingStatus);
@@ -1059,10 +1103,11 @@ function buildFraudDetections({
       continue;
     }
 
-    const userKey =
+    const userId =
       booking.passengerId ||
       normalizeString(booking.passengerEmail) ||
       booking.id;
+
     const score = clamp(
       58 +
         (completedWithoutPayment ? 18 : 0) +
@@ -1075,7 +1120,7 @@ function buildFraudDetections({
         id: createCaseId("suspicious_payment", booking.id),
         entityId: booking.id,
         entityType: "booking",
-        userId: userKey,
+        userId,
         userEmail: booking.passengerEmail,
         type: "suspicious_payment",
         confidence: clamp(score + 3),
@@ -1084,7 +1129,7 @@ function buildFraudDetections({
         description:
           "Booking payment information is inconsistent with the reservation amount or completion status.",
         recommendation:
-          "Verify the payment provider transaction, chargeback status and passenger identity before releasing driver funds.",
+          "Verify the payment transaction, chargeback status and passenger identity before releasing driver funds.",
         evidence: [
           `Booking status: ${booking.status || "Unknown"}`,
           `Payment status: ${booking.paymentStatus || "Unknown"}`,
@@ -1096,13 +1141,14 @@ function buildFraudDetections({
   }
 
   for (const user of users) {
+    const userEmail = normalizeString(user.email);
+
     const isDriver =
       normalizeStatus(user.role) === "driver" ||
       rides.some(
         (ride) =>
           ride.driverId === user.id ||
-          normalizeString(ride.driverEmail) ===
-            normalizeString(user.email),
+          normalizeString(ride.driverEmail) === userEmail,
       );
 
     if (!isDriver) continue;
@@ -1117,17 +1163,20 @@ function buildFraudDetections({
 
     const driverRides =
       ridesByDriver.get(user.id) ??
-      ridesByDriver.get(normalizeString(user.email)) ??
+      ridesByDriver.get(userEmail) ??
       [];
+
     const driverPayouts =
       payoutsByUser.get(user.id) ??
-      payoutsByUser.get(normalizeString(user.email)) ??
+      payoutsByUser.get(userEmail) ??
       [];
+
     const completedRides = driverRides.filter((ride) =>
       ["completed", "finished"].includes(normalizeStatus(ride.status)),
     );
+
     const payoutTotal = driverPayouts.reduce(
-      (sum, payout) => sum + safeNumber(payout.amount),
+      (total, payout) => total + safeNumber(payout.amount),
       0,
     );
 
@@ -1160,12 +1209,14 @@ function buildFraudDetections({
         description:
           "An unverified driver account has completed rides or initiated payout activity beyond the expected verification threshold.",
         recommendation:
-          "Suspend ride publishing and payouts until driver identity, license, insurance and vehicle documents are approved.",
+          "Suspend ride publishing and payouts until the driver's identity, license, insurance and vehicle documents are approved.",
         evidence: [
           `Completed rides: ${completedRides.length}`,
           `Payout requests: ${driverPayouts.length}`,
           `Payout total: $${payoutTotal.toFixed(2)}`,
-          `Verification status: ${user.verificationStatus || "Not verified"}`,
+          `Verification status: ${
+            user.verificationStatus || "Not verified"
+          }`,
         ],
       }),
     );
@@ -1173,32 +1224,21 @@ function buildFraudDetections({
 
   return detections
     .filter(
-      (item, index, array) =>
-        array.findIndex((candidate) => candidate.id === item.id) ===
+      (item, index, items) =>
+        items.findIndex((candidate) => candidate.id === item.id) ===
         index,
     )
-    .sort((a, b) => {
+    .sort((first, second) => {
       const severityDifference =
-        severityOrder[b.severity] - severityOrder[a.severity];
+        severityOrder[second.severity] -
+        severityOrder[first.severity];
 
-      if (severityDifference !== 0) return severityDifference;
+      if (severityDifference !== 0) {
+        return severityDifference;
+      }
 
-      return b.riskScore - a.riskScore;
+      return second.riskScore - first.riskScore;
     });
-}
-
-async function fetchCollection<T>(collectionName: string): Promise<T[]> {
-  const snapshot = await getDocs(
-    query(collection(db, collectionName), limit(COLLECTION_LIMIT)),
-  );
-
-  return snapshot.docs.map(
-    (document) =>
-      ({
-        id: document.id,
-        ...document.data(),
-      }) as T,
-  );
 }
 
 function ScoreRing({
@@ -1211,10 +1251,11 @@ function ScoreRing({
   size?: "large" | "small";
 }) {
   const radius = size === "large" ? 54 : 32;
-  const stroke = size === "large" ? 10 : 7;
+  const strokeWidth = size === "large" ? 10 : 7;
   const dimension = size === "large" ? 140 : 88;
   const circumference = 2 * Math.PI * radius;
-  const progress = circumference - (score / 100) * circumference;
+  const progress =
+    circumference - (clamp(score) / 100) * circumference;
   const center = dimension / 2;
 
   return (
@@ -1231,15 +1272,16 @@ function ScoreRing({
           r={radius}
           fill="none"
           stroke="rgba(148,163,184,0.12)"
-          strokeWidth={stroke}
+          strokeWidth={strokeWidth}
         />
+
         <circle
           cx={center}
           cy={center}
           r={radius}
           fill="none"
           stroke="currentColor"
-          strokeWidth={stroke}
+          strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={progress}
@@ -1263,8 +1305,9 @@ function ScoreRing({
               : "text-lg font-black text-white"
           }
         >
-          {score}
+          {clamp(score)}
         </span>
+
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
           {label}
         </span>
@@ -1283,7 +1326,7 @@ function MetricCard({
   title: string;
   value: string | number;
   subtitle: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   tone?: "green" | "red" | "amber" | "cyan" | "purple";
 }) {
   const toneStyles = {
@@ -1298,7 +1341,7 @@ function MetricCard({
   };
 
   return (
-    <div className="group relative overflow-hidden rounded-3xl border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/20 backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:border-white/[0.12]">
+    <article className="group relative overflow-hidden rounded-3xl border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/20 backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:border-white/[0.12]">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
 
       <div className="flex items-start justify-between gap-4">
@@ -1306,9 +1349,11 @@ function MetricCard({
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
             {title}
           </p>
+
           <p className="mt-3 text-3xl font-black tracking-tight text-white">
             {value}
           </p>
+
           <p className="mt-2 text-sm text-slate-400">{subtitle}</p>
         </div>
 
@@ -1318,7 +1363,7 @@ function MetricCard({
           {icon}
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -1327,13 +1372,18 @@ function MiniBarChart({
 }: {
   data: Array<{ label: string; value: number }>;
 }) {
-  const max = Math.max(...data.map((item) => item.value), 1);
+  const maxValue = Math.max(
+    ...data.map((item) => item.value),
+    1,
+  );
 
   return (
     <div className="flex h-56 items-end gap-3">
       {data.map((item) => {
         const height =
-          item.value === 0 ? 4 : Math.max((item.value / max) * 100, 8);
+          item.value === 0
+            ? 4
+            : Math.max((item.value / maxValue) * 100, 8);
 
         return (
           <div
@@ -1373,6 +1423,7 @@ function RiskDistribution({
   low: number;
 }) {
   const total = critical + high + medium + low || 1;
+
   const segments = [
     {
       label: "Critical",
@@ -1424,10 +1475,12 @@ function RiskDistribution({
               <span
                 className={`h-2.5 w-2.5 rounded-full ${segment.className}`}
               />
+
               <span className="text-xs font-semibold text-slate-400">
                 {segment.label}
               </span>
             </div>
+
             <p className="mt-2 text-xl font-black text-white">
               {segment.value}
             </p>
@@ -1445,9 +1498,8 @@ export default function AiFraudDetectionPage() {
   const [updatingCaseId, setUpdatingCaseId] = useState<string | null>(
     null,
   );
-  const [selectedCase, setSelectedCase] = useState<FraudCase | null>(
-    null,
-  );
+  const [selectedCase, setSelectedCase] =
+    useState<FraudCase | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [severityFilter, setSeverityFilter] =
     useState<FilterSeverity>("all");
@@ -1459,14 +1511,14 @@ export default function AiFraudDetectionPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    const casesQuery = query(
+    const fraudCasesQuery = query(
       collection(db, "fraudCases"),
       orderBy("createdAt", "desc"),
       limit(500),
     );
 
     const unsubscribe = onSnapshot(
-      casesQuery,
+      fraudCasesQuery,
       (snapshot) => {
         const items = snapshot.docs.map(
           (document) =>
@@ -1481,15 +1533,48 @@ export default function AiFraudDetectionPage() {
       },
       (error) => {
         console.error("Fraud cases listener failed:", error);
+
         setErrorMessage(
-          "RoadLink could not load the fraud case stream. Check Firestore permissions and indexes.",
+          "RoadLink could not load the fraud case stream. Check Firestore permissions.",
         );
+
         setLoading(false);
       },
     );
 
-    return () => unsubscribe();
+    return unsubscribe;
   }, []);
+
+  const createAuditLog = useCallback(
+    async ({
+      action,
+      description,
+      entityId,
+      metadata,
+    }: {
+      action: string;
+      description: string;
+      entityId?: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      const auditReference = doc(collection(db, "auditLogs"));
+
+      await setDoc(auditReference, {
+        id: auditReference.id,
+        module: "ai-fraud-detection",
+        action,
+        description,
+        entityId: entityId ?? null,
+        metadata: metadata ?? {},
+        actorId: auth.currentUser?.uid || "system",
+        actorEmail:
+          auth.currentUser?.email ||
+          "ai-fraud-detection-engine@roadlink.system",
+        createdAt: serverTimestamp(),
+      });
+    },
+    [],
+  );
 
   const createNotification = useCallback(
     async ({
@@ -1505,10 +1590,12 @@ export default function AiFraudDetectionPage() {
       severity: Severity;
       entityId?: string;
     }) => {
-      const notificationRef = doc(collection(db, "notifications"));
+      const notificationReference = doc(
+        collection(db, "notifications"),
+      );
 
-      await setDoc(notificationRef, {
-        id: notificationRef.id,
+      await setDoc(notificationReference, {
+        id: notificationReference.id,
         title,
         message,
         type,
@@ -1519,37 +1606,6 @@ export default function AiFraudDetectionPage() {
         createdAt: serverTimestamp(),
         createdBy:
           auth.currentUser?.email || "ai-fraud-detection-engine",
-      });
-    },
-    [],
-  );
-
-  const createAuditLog = useCallback(
-    async ({
-      action,
-      description,
-      entityId,
-      metadata,
-    }: {
-      action: string;
-      description: string;
-      entityId?: string;
-      metadata?: Record<string, unknown>;
-    }) => {
-      const auditRef = doc(collection(db, "auditLogs"));
-
-      await setDoc(auditRef, {
-        id: auditRef.id,
-        module: "ai-fraud-detection",
-        action,
-        description,
-        entityId: entityId ?? null,
-        metadata: metadata ?? {},
-        actorId: auth.currentUser?.uid || "system",
-        actorEmail:
-          auth.currentUser?.email ||
-          "ai-fraud-detection-engine@roadlink.system",
-        createdAt: serverTimestamp(),
       });
     },
     [],
@@ -1577,7 +1633,9 @@ export default function AiFraudDetectionPage() {
         fetchCollection<PayoutItem>("payoutRequests"),
       ]);
 
-      setScanMessage("Analyzing identities, payments and behavior...");
+      setScanMessage(
+        "Analyzing identities, payments and marketplace behavior...",
+      );
 
       const detections = buildFraudDetections({
         users,
@@ -1596,25 +1654,34 @@ export default function AiFraudDetectionPage() {
         ),
       );
 
-      const existingCases = new Map(
+      const existingCases = new Map<string, FraudCase>(
         existingSnapshot.docs.map((document) => [
           document.id,
-          document.data() as FraudCase,
+          {
+            id: document.id,
+            ...document.data(),
+          } as FraudCase,
         ]),
       );
 
       const batch = writeBatch(db);
-      let newCriticalCases = 0;
+
       let newCases = 0;
       let updatedCases = 0;
+      let newCriticalCases = 0;
 
       for (const detection of detections) {
-        const caseRef = doc(db, "fraudCases", detection.id);
+        const caseReference = doc(
+          db,
+          "fraudCases",
+          detection.id,
+        );
+
         const existing = existingCases.get(detection.id);
 
         if (existing) {
           batch.set(
-            caseRef,
+            caseReference,
             {
               ...detection,
               id: detection.id,
@@ -1624,17 +1691,14 @@ export default function AiFraudDetectionPage() {
               updatedAt: serverTimestamp(),
               lastDetectedAt: serverTimestamp(),
               detectionCount:
-                safeNumber(
-                  (existing as FraudCase & {
-                    detectionCount?: number;
-                  }).detectionCount,
-                ) + 1,
+                safeNumber(existing.detectionCount) + 1,
             },
             { merge: true },
           );
+
           updatedCases += 1;
         } else {
-          batch.set(caseRef, {
+          batch.set(caseReference, {
             ...detection,
             id: detection.id,
             createdAt: serverTimestamp(),
@@ -1642,6 +1706,7 @@ export default function AiFraudDetectionPage() {
             lastDetectedAt: serverTimestamp(),
             detectionCount: 1,
           });
+
           newCases += 1;
 
           if (detection.severity === "critical") {
@@ -1690,14 +1755,17 @@ export default function AiFraudDetectionPage() {
       }
 
       setLastScanAt(new Date());
+
       setScanMessage(
         `${detections.length} signals analyzed · ${newCases} new cases · ${updatedCases} refreshed`,
       );
     } catch (error) {
       console.error("AI fraud scan failed:", error);
+
       setErrorMessage(
-        "The fraud scan could not be completed. Verify collection permissions and Firestore connectivity.",
+        "The fraud scan could not be completed. Verify Firestore permissions and connectivity.",
       );
+
       setScanMessage("");
     } finally {
       setRunningScan(false);
@@ -1710,7 +1778,8 @@ export default function AiFraudDetectionPage() {
       setErrorMessage("");
 
       try {
-        const resolved = ["resolved", "dismissed"].includes(status);
+        const resolved =
+          status === "resolved" || status === "dismissed";
 
         await updateDoc(doc(db, "fraudCases", fraudCase.id), {
           status,
@@ -1738,26 +1807,29 @@ export default function AiFraudDetectionPage() {
         if (status === "investigating") {
           await createNotification({
             title: "Fraud investigation started",
-            message: `${typeLabels[fraudCase.type] || fraudCase.type} is now under investigation.`,
+            message: `${
+              typeLabels[fraudCase.type] || fraudCase.type
+            } is now under investigation.`,
             type: "fraud_investigation",
             severity: fraudCase.severity,
             entityId: fraudCase.id,
           });
         }
 
-        setSelectedCase((current) =>
-          current?.id === fraudCase.id
+        setSelectedCase((currentCase) =>
+          currentCase?.id === fraudCase.id
             ? {
-                ...current,
+                ...currentCase,
                 status,
                 resolved,
               }
-            : current,
+            : currentCase,
         );
       } catch (error) {
         console.error("Failed to update fraud case:", error);
+
         setErrorMessage(
-          "RoadLink could not update this fraud case. Check your Firestore write permissions.",
+          "RoadLink could not update this fraud case. Check Firestore write permissions.",
         );
       } finally {
         setUpdatingCaseId(null);
@@ -1767,50 +1839,61 @@ export default function AiFraudDetectionPage() {
   );
 
   const activeCases = useMemo(
-    () => fraudCases.filter((item) => !item.resolved),
+    () => fraudCases.filter((fraudCase) => !fraudCase.resolved),
     [fraudCases],
   );
 
   const metrics = useMemo(() => {
     const critical = activeCases.filter(
-      (item) => item.severity === "critical",
+      (fraudCase) => fraudCase.severity === "critical",
     ).length;
+
     const high = activeCases.filter(
-      (item) => item.severity === "high",
+      (fraudCase) => fraudCase.severity === "high",
     ).length;
+
     const medium = activeCases.filter(
-      (item) => item.severity === "medium",
+      (fraudCase) => fraudCase.severity === "medium",
     ).length;
+
     const low = activeCases.filter(
-      (item) => item.severity === "low",
+      (fraudCase) => fraudCase.severity === "low",
     ).length;
+
     const open = activeCases.filter(
-      (item) => item.status === "open",
+      (fraudCase) => fraudCase.status === "open",
     ).length;
+
     const investigating = activeCases.filter(
-      (item) => item.status === "investigating",
+      (fraudCase) => fraudCase.status === "investigating",
     ).length;
+
     const resolved = fraudCases.filter(
-      (item) => item.resolved,
+      (fraudCase) => fraudCase.resolved,
     ).length;
+
     const averageRisk =
       activeCases.length > 0
         ? Math.round(
             activeCases.reduce(
-              (sum, item) => sum + safeNumber(item.riskScore),
+              (total, fraudCase) =>
+                total + safeNumber(fraudCase.riskScore),
               0,
             ) / activeCases.length,
           )
         : 0;
+
     const averageFraud =
       activeCases.length > 0
         ? Math.round(
             activeCases.reduce(
-              (sum, item) => sum + safeNumber(item.fraudScore),
+              (total, fraudCase) =>
+                total + safeNumber(fraudCase.fraudScore),
               0,
             ) / activeCases.length,
           )
         : 0;
+
     const exposureScore = clamp(
       averageRisk * 0.55 +
         averageFraud * 0.3 +
@@ -1833,7 +1916,7 @@ export default function AiFraudDetectionPage() {
 
   const fraudTypes = useMemo(
     () =>
-      unique(fraudCases.map((item) => item.type))
+      unique(fraudCases.map((fraudCase) => fraudCase.type))
         .filter(Boolean)
         .sort(),
     [fraudCases],
@@ -1843,30 +1926,34 @@ export default function AiFraudDetectionPage() {
     const normalizedSearch = normalizeString(searchTerm);
 
     return fraudCases
-      .filter((item) => {
+      .filter((fraudCase) => {
+        const searchableValues = [
+          fraudCase.id,
+          fraudCase.type,
+          fraudCase.description,
+          fraudCase.recommendation,
+          fraudCase.userEmail,
+          fraudCase.userId,
+          fraudCase.entityId,
+        ];
+
         const matchesSearch =
           !normalizedSearch ||
-          [
-            item.id,
-            item.type,
-            item.description,
-            item.recommendation,
-            item.userEmail,
-            item.userId,
-            item.entityId,
-          ]
-            .map((value) => normalizeString(value))
-            .some((value) => value.includes(normalizedSearch));
+          searchableValues.some((value) =>
+            normalizeString(value).includes(normalizedSearch),
+          );
 
         const matchesSeverity =
           severityFilter === "all" ||
-          item.severity === severityFilter;
+          fraudCase.severity === severityFilter;
 
         const matchesStatus =
-          statusFilter === "all" || item.status === statusFilter;
+          statusFilter === "all" ||
+          fraudCase.status === statusFilter;
 
         const matchesType =
-          typeFilter === "all" || item.type === typeFilter;
+          typeFilter === "all" ||
+          fraudCase.type === typeFilter;
 
         return (
           matchesSearch &&
@@ -1875,21 +1962,22 @@ export default function AiFraudDetectionPage() {
           matchesType
         );
       })
-      .sort((a, b) => {
-        if (a.resolved !== b.resolved) {
-          return a.resolved ? 1 : -1;
+      .sort((first, second) => {
+        if (first.resolved !== second.resolved) {
+          return first.resolved ? 1 : -1;
         }
 
         const severityDifference =
-          severityOrder[b.severity] -
-          severityOrder[a.severity];
+          severityOrder[second.severity] -
+          severityOrder[first.severity];
 
         if (severityDifference !== 0) {
           return severityDifference;
         }
 
         return (
-          safeNumber(b.riskScore) - safeNumber(a.riskScore)
+          safeNumber(second.riskScore) -
+          safeNumber(first.riskScore)
         );
       });
   }, [
@@ -1904,8 +1992,9 @@ export default function AiFraudDetectionPage() {
     () =>
       [...activeCases]
         .sort(
-          (a, b) =>
-            safeNumber(b.riskScore) - safeNumber(a.riskScore),
+          (first, second) =>
+            safeNumber(second.riskScore) -
+            safeNumber(first.riskScore),
         )
         .slice(0, 6),
     [activeCases],
@@ -1914,12 +2003,15 @@ export default function AiFraudDetectionPage() {
   const typeChartData = useMemo(() => {
     const counts = new Map<string, number>();
 
-    for (const item of activeCases) {
-      counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+    for (const fraudCase of activeCases) {
+      counts.set(
+        fraudCase.type,
+        (counts.get(fraudCase.type) ?? 0) + 1,
+      );
     }
 
     return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
+      .sort((first, second) => second[1] - first[1])
       .slice(0, 6)
       .map(([type, value]) => ({
         label:
@@ -1933,9 +2025,9 @@ export default function AiFraudDetectionPage() {
     () =>
       [...fraudCases]
         .sort(
-          (a, b) =>
-            getTime(b.updatedAt || b.createdAt) -
-            getTime(a.updatedAt || a.createdAt),
+          (first, second) =>
+            getTime(second.updatedAt || second.createdAt) -
+            getTime(first.updatedAt || first.createdAt),
         )
         .slice(0, 8),
     [fraudCases],
@@ -1945,12 +2037,12 @@ export default function AiFraudDetectionPage() {
     <main className="min-h-screen bg-[#020617] text-white">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute left-[-10%] top-[-12%] h-[34rem] w-[34rem] rounded-full bg-emerald-500/10 blur-[150px]" />
-        <div className="absolute right-[-8%] top-[14%] h-[30rem] w-[30rem] rounded-full bg-cyan-500/8 blur-[150px]" />
-        <div className="absolute bottom-[-20%] left-[32%] h-[38rem] w-[38rem] rounded-full bg-violet-500/7 blur-[180px]" />
+        <div className="absolute right-[-8%] top-[14%] h-[30rem] w-[30rem] rounded-full bg-cyan-500/[0.08] blur-[150px]" />
+        <div className="absolute bottom-[-20%] left-[32%] h-[38rem] w-[38rem] rounded-full bg-violet-500/[0.07] blur-[180px]" />
       </div>
 
       <div className="relative mx-auto w-full max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <header className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
               <Link
@@ -1959,14 +2051,16 @@ export default function AiFraudDetectionPage() {
               >
                 Admin Console
               </Link>
+
               <span>/</span>
+
               <span className="text-slate-300">
                 AI Fraud Detection
               </span>
             </div>
 
             <div className="mt-3 flex items-center gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10 shadow-xl shadow-emerald-500/10">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10 shadow-xl shadow-emerald-500/10">
                 <Fingerprint className="h-7 w-7 text-emerald-300" />
               </div>
 
@@ -1974,6 +2068,7 @@ export default function AiFraudDetectionPage() {
                 <h1 className="text-2xl font-black tracking-tight sm:text-4xl">
                   AI Fraud Detection Center
                 </h1>
+
                 <p className="mt-1 max-w-3xl text-sm text-slate-400 sm:text-base">
                   Enterprise risk intelligence for identities,
                   bookings, payouts, wallets and marketplace behavior.
@@ -1987,11 +2082,13 @@ export default function AiFraudDetectionPage() {
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
                 Detection Engine
               </p>
+
               <div className="mt-1 flex items-center gap-2 text-sm font-bold text-emerald-300">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 </span>
+
                 Live protection active
               </div>
             </div>
@@ -2007,10 +2104,11 @@ export default function AiFraudDetectionPage() {
               ) : (
                 <Sparkles className="h-5 w-5" />
               )}
+
               {runningScan ? "Running AI Scan" : "Run Fraud Scan"}
             </button>
           </div>
-        </div>
+        </header>
 
         {(errorMessage || scanMessage) && (
           <div
@@ -2034,8 +2132,10 @@ export default function AiFraudDetectionPage() {
                     ? "AI engine processing"
                     : "Scan completed"}
               </p>
+
               <p className="mt-1 text-sm opacity-80">
                 {errorMessage || scanMessage}
+
                 {lastScanAt && !runningScan
                   ? ` · ${formatRelative(lastScanAt)}`
                   : ""}
@@ -2093,13 +2193,14 @@ export default function AiFraudDetectionPage() {
         </section>
 
         <section className="mt-6 grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-7">
+          <article className="relative overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-7">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/50 to-transparent" />
 
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <Zap className="h-5 w-5 text-emerald-300" />
+
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
                     RoadLink Risk Intelligence
                   </p>
@@ -2121,6 +2222,7 @@ export default function AiFraudDetectionPage() {
                   score={metrics.averageFraud}
                   label="Fraud"
                 />
+
                 <ScoreRing
                   score={metrics.averageRisk}
                   label="Risk"
@@ -2134,6 +2236,7 @@ export default function AiFraudDetectionPage() {
                   <h3 className="font-bold text-white">
                     Active risk distribution
                   </h3>
+
                   <p className="mt-1 text-sm text-slate-500">
                     Severity across unresolved cases
                   </p>
@@ -2151,9 +2254,9 @@ export default function AiFraudDetectionPage() {
                 low={metrics.low}
               />
             </div>
-          </div>
+          </article>
 
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-7">
+          <article className="relative overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-7">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
 
             <div className="flex items-center justify-between gap-4">
@@ -2161,6 +2264,7 @@ export default function AiFraudDetectionPage() {
                 <h2 className="text-xl font-black">
                   Detection categories
                 </h2>
+
                 <p className="mt-1 text-sm text-slate-500">
                   Most frequent active risk signals
                 </p>
@@ -2174,29 +2278,33 @@ export default function AiFraudDetectionPage() {
             ) : (
               <div className="flex h-56 flex-col items-center justify-center text-center">
                 <ShieldCheck className="h-10 w-10 text-emerald-300" />
+
                 <p className="mt-4 font-bold text-white">
                   No active risk signals
                 </p>
+
                 <p className="mt-2 max-w-sm text-sm text-slate-500">
-                  Run the AI fraud scan to analyze current
-                  marketplace activity.
+                  Run the AI fraud scan to analyze current marketplace
+                  activity.
                 </p>
               </div>
             )}
-          </div>
+          </article>
         </section>
 
         <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_0.62fr]">
-          <div className="overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 shadow-2xl shadow-black/25 backdrop-blur-2xl">
+          <article className="overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 shadow-2xl shadow-black/25 backdrop-blur-2xl">
             <div className="border-b border-white/[0.06] p-5 sm:p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <ShieldAlert className="h-5 w-5 text-red-300" />
+
                     <h2 className="text-xl font-black">
                       Fraud case command center
                     </h2>
                   </div>
+
                   <p className="mt-2 text-sm text-slate-500">
                     Review, investigate, monitor and resolve AI
                     generated risk cases.
@@ -2221,6 +2329,7 @@ export default function AiFraudDetectionPage() {
               <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]">
                 <label className="relative">
                   <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+
                   <input
                     type="search"
                     value={searchTerm}
@@ -2234,6 +2343,7 @@ export default function AiFraudDetectionPage() {
 
                 <label className="relative">
                   <Filter className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+
                   <select
                     value={severityFilter}
                     onChange={(event) =>
@@ -2249,6 +2359,7 @@ export default function AiFraudDetectionPage() {
                     <option value="medium">Medium</option>
                     <option value="low">Low</option>
                   </select>
+
                   <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                 </label>
 
@@ -2271,6 +2382,7 @@ export default function AiFraudDetectionPage() {
                     <option value="resolved">Resolved</option>
                     <option value="dismissed">Dismissed</option>
                   </select>
+
                   <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                 </label>
 
@@ -2283,6 +2395,7 @@ export default function AiFraudDetectionPage() {
                     className="h-12 min-w-48 appearance-none rounded-2xl border border-white/[0.08] bg-slate-900/70 px-4 pr-10 text-sm font-semibold text-slate-300 outline-none"
                   >
                     <option value="all">All detection types</option>
+
                     {fraudTypes.map((type) => (
                       <option key={type} value={type}>
                         {typeLabels[type] ||
@@ -2290,6 +2403,7 @@ export default function AiFraudDetectionPage() {
                       </option>
                     ))}
                   </select>
+
                   <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                 </label>
               </div>
@@ -2299,6 +2413,7 @@ export default function AiFraudDetectionPage() {
               {loading ? (
                 <div className="flex min-h-80 flex-col items-center justify-center">
                   <Loader2 className="h-9 w-9 animate-spin text-emerald-300" />
+
                   <p className="mt-4 font-bold text-slate-300">
                     Loading fraud intelligence...
                   </p>
@@ -2306,12 +2421,14 @@ export default function AiFraudDetectionPage() {
               ) : filteredCases.length === 0 ? (
                 <div className="flex min-h-80 flex-col items-center justify-center px-6 text-center">
                   <ShieldCheck className="h-12 w-12 text-emerald-300" />
+
                   <p className="mt-4 text-lg font-black">
                     No matching fraud cases
                   </p>
+
                   <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                    Adjust your filters or run a new AI fraud scan
-                    to analyze current RoadLink activity.
+                    Adjust your filters or run a new AI fraud scan to
+                    analyze current RoadLink activity.
                   </p>
                 </div>
               ) : (
@@ -2327,13 +2444,17 @@ export default function AiFraudDetectionPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span
-                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${severityStyles[fraudCase.severity]}`}
+                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
+                                severityStyles[fraudCase.severity]
+                              }`}
                             >
                               {fraudCase.severity}
                             </span>
 
                             <span
-                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${statusStyles[fraudCase.status]}`}
+                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
+                                statusStyles[fraudCase.status]
+                              }`}
                             >
                               {statusLabels[fraudCase.status]}
                             </span>
@@ -2358,6 +2479,7 @@ export default function AiFraudDetectionPage() {
                           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
                             <span className="inline-flex items-center gap-1.5">
                               <Clock3 className="h-3.5 w-3.5" />
+
                               {formatRelative(
                                 fraudCase.updatedAt ||
                                   fraudCase.createdAt,
@@ -2373,15 +2495,19 @@ export default function AiFraudDetectionPage() {
 
                         <div className="flex shrink-0 items-center gap-4">
                           <ScoreRing
-                            score={safeNumber(fraudCase.fraudScore)}
+                            score={safeNumber(
+                              fraudCase.fraudScore,
+                            )}
                             label="Fraud"
                             size="small"
                           />
+
                           <ScoreRing
                             score={safeNumber(fraudCase.riskScore)}
                             label="Risk"
                             size="small"
                           />
+
                           <Eye className="hidden h-5 w-5 text-slate-600 transition group-hover:text-emerald-300 sm:block" />
                         </div>
                       </div>
@@ -2390,15 +2516,16 @@ export default function AiFraudDetectionPage() {
                 </div>
               )}
             </div>
-          </div>
+          </article>
 
-          <div className="space-y-6">
-            <div className="rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-6">
+          <aside className="space-y-6">
+            <article className="rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-black">
                     Highest risk entities
                   </h2>
+
                   <p className="mt-1 text-sm text-slate-500">
                     Ranked by active risk score
                   </p>
@@ -2411,16 +2538,17 @@ export default function AiFraudDetectionPage() {
                 {topRisks.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-white/[0.08] p-6 text-center">
                     <ShieldCheck className="mx-auto h-8 w-8 text-emerald-300" />
+
                     <p className="mt-3 text-sm font-bold text-slate-300">
                       No active high-risk entities
                     </p>
                   </div>
                 ) : (
-                  topRisks.map((item, index) => (
+                  topRisks.map((fraudCase, index) => (
                     <button
-                      key={item.id}
+                      key={fraudCase.id}
                       type="button"
-                      onClick={() => setSelectedCase(item)}
+                      onClick={() => setSelectedCase(fraudCase)}
                       className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-3 text-left transition hover:border-emerald-400/20 hover:bg-emerald-400/[0.04]"
                     >
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-slate-300">
@@ -2429,29 +2557,31 @@ export default function AiFraudDetectionPage() {
 
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-white">
-                          {item.userEmail ||
-                            item.userId ||
-                            item.entityId ||
-                            item.id}
+                          {fraudCase.userEmail ||
+                            fraudCase.userId ||
+                            fraudCase.entityId ||
+                            fraudCase.id}
                         </p>
+
                         <p className="mt-1 truncate text-xs text-slate-500">
-                          {typeLabels[item.type] ||
-                            item.type.replaceAll("_", " ")}
+                          {typeLabels[fraudCase.type] ||
+                            fraudCase.type.replaceAll("_", " ")}
                         </p>
                       </div>
 
                       <div className="text-right">
                         <p
                           className={`text-lg font-black ${
-                            item.riskScore >= 80
+                            fraudCase.riskScore >= 80
                               ? "text-red-300"
-                              : item.riskScore >= 60
+                              : fraudCase.riskScore >= 60
                                 ? "text-orange-300"
                                 : "text-amber-300"
                           }`}
                         >
-                          {item.riskScore}
+                          {fraudCase.riskScore}
                         </p>
+
                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600">
                           Risk
                         </p>
@@ -2460,14 +2590,15 @@ export default function AiFraudDetectionPage() {
                   ))
                 )}
               </div>
-            </div>
+            </article>
 
-            <div className="rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-6">
+            <article className="rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-black">
                     Fraud intelligence timeline
                   </h2>
+
                   <p className="mt-1 text-sm text-slate-500">
                     Latest case activity
                   </p>
@@ -2482,20 +2613,20 @@ export default function AiFraudDetectionPage() {
                     Timeline data will appear after the first scan.
                   </p>
                 ) : (
-                  timeline.map((item) => (
+                  timeline.map((fraudCase) => (
                     <button
-                      key={item.id}
+                      key={fraudCase.id}
                       type="button"
-                      onClick={() => setSelectedCase(item)}
+                      onClick={() => setSelectedCase(fraudCase)}
                       className="relative flex w-full gap-4 text-left"
                     >
                       <span
                         className={`relative z-10 mt-1 h-[19px] w-[19px] shrink-0 rounded-full border-4 border-[#020617] ${
-                          item.severity === "critical"
+                          fraudCase.severity === "critical"
                             ? "bg-red-400"
-                            : item.severity === "high"
+                            : fraudCase.severity === "high"
                               ? "bg-orange-400"
-                              : item.severity === "medium"
+                              : fraudCase.severity === "medium"
                                 ? "bg-amber-400"
                                 : "bg-cyan-400"
                         }`}
@@ -2503,15 +2634,18 @@ export default function AiFraudDetectionPage() {
 
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-slate-200">
-                          {typeLabels[item.type] ||
-                            item.type.replaceAll("_", " ")}
+                          {typeLabels[fraudCase.type] ||
+                            fraudCase.type.replaceAll("_", " ")}
                         </p>
+
                         <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
-                          {item.description}
+                          {fraudCase.description}
                         </p>
+
                         <p className="mt-1 text-[11px] font-semibold text-slate-600">
                           {formatRelative(
-                            item.updatedAt || item.createdAt,
+                            fraudCase.updatedAt ||
+                              fraudCase.createdAt,
                           )}
                         </p>
                       </div>
@@ -2519,8 +2653,8 @@ export default function AiFraudDetectionPage() {
                   ))
                 )}
               </div>
-            </div>
-          </div>
+            </article>
+          </aside>
         </section>
       </div>
 
@@ -2535,7 +2669,7 @@ export default function AiFraudDetectionPage() {
             type="button"
             onClick={() => setSelectedCase(null)}
             className="absolute inset-0 cursor-default"
-            aria-label="Close case details"
+            aria-label="Close fraud case details"
           />
 
           <div className="relative z-10 max-h-[94vh] w-full max-w-4xl overflow-y-auto rounded-t-[2rem] border border-white/[0.08] bg-[#030712] shadow-2xl shadow-black sm:rounded-[2rem]">
@@ -2543,13 +2677,17 @@ export default function AiFraudDetectionPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
-                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${severityStyles[selectedCase.severity]}`}
+                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
+                      severityStyles[selectedCase.severity]
+                    }`}
                   >
                     {selectedCase.severity}
                   </span>
 
                   <span
-                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${statusStyles[selectedCase.status]}`}
+                    className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
+                      statusStyles[selectedCase.status]
+                    }`}
                   >
                     {statusLabels[selectedCase.status]}
                   </span>
@@ -2565,6 +2703,7 @@ export default function AiFraudDetectionPage() {
                 type="button"
                 onClick={() => setSelectedCase(null)}
                 className="ml-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                aria-label="Close fraud case"
               >
                 <XCircle className="h-5 w-5" />
               </button>
@@ -2590,14 +2729,18 @@ export default function AiFraudDetectionPage() {
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
                     AI Confidence
                   </p>
+
                   <p className="mt-3 text-4xl font-black text-white">
                     {selectedCase.confidence}%
                   </p>
+
                   <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/[0.05]">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-300"
                       style={{
-                        width: `${selectedCase.confidence}%`,
+                        width: `${clamp(
+                          selectedCase.confidence,
+                        )}%`,
                       }}
                     />
                   </div>
@@ -2609,6 +2752,7 @@ export default function AiFraudDetectionPage() {
                   <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-5 w-5 text-amber-300" />
+
                       <h3 className="font-black">
                         Detection summary
                       </h3>
@@ -2622,6 +2766,7 @@ export default function AiFraudDetectionPage() {
                   <div className="rounded-3xl border border-emerald-500/15 bg-emerald-500/[0.06] p-5">
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-5 w-5 text-emerald-300" />
+
                       <h3 className="font-black text-emerald-100">
                         AI recommendation
                       </h3>
@@ -2635,6 +2780,7 @@ export default function AiFraudDetectionPage() {
                   <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
                     <div className="flex items-center gap-2">
                       <FileSearch className="h-5 w-5 text-cyan-300" />
+
                       <h3 className="font-black">Evidence</h3>
                     </div>
 
@@ -2643,10 +2789,11 @@ export default function AiFraudDetectionPage() {
                         selectedCase.evidence.map(
                           (evidence, index) => (
                             <div
-                              key={`${evidence}-${index}`}
+                              key={`${selectedCase.id}-evidence-${index}`}
                               className="flex items-start gap-3 rounded-2xl border border-white/[0.05] bg-slate-950/50 p-3"
                             >
                               <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-cyan-300" />
+
                               <span className="text-sm leading-6 text-slate-400">
                                 {evidence}
                               </span>
@@ -2694,6 +2841,7 @@ export default function AiFraudDetectionPage() {
                           <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">
                             {label}
                           </dt>
+
                           <dd className="mt-1 break-all text-sm font-semibold text-slate-300">
                             {value || "Not available"}
                           </dd>
@@ -2706,6 +2854,7 @@ export default function AiFraudDetectionPage() {
                     <h3 className="font-black">
                       Resolution controls
                     </h3>
+
                     <p className="mt-2 text-sm leading-6 text-slate-500">
                       Every status change generates a RoadLink audit
                       log.
@@ -2731,6 +2880,7 @@ export default function AiFraudDetectionPage() {
                         ) : (
                           <UserRoundSearch className="h-4 w-4" />
                         )}
+
                         Start investigation
                       </button>
 
@@ -2793,9 +2943,11 @@ export default function AiFraudDetectionPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4">
                       <Bot className="h-5 w-5 text-violet-300" />
+
                       <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
                         Source
                       </p>
+
                       <p className="mt-1 text-sm font-bold text-slate-300">
                         AI Engine
                       </p>
@@ -2816,6 +2968,7 @@ export default function AiFraudDetectionPage() {
                       <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
                         Domain
                       </p>
+
                       <p className="mt-1 text-sm font-bold text-slate-300">
                         {selectedCase.type.includes("payout") ||
                         selectedCase.type.includes("wallet") ||
@@ -2832,8 +2985,10 @@ export default function AiFraudDetectionPage() {
                   <div className="rounded-3xl border border-white/[0.06] bg-gradient-to-br from-emerald-500/[0.08] to-cyan-500/[0.03] p-5">
                     <div className="flex items-center gap-2">
                       <CircleDollarSign className="h-5 w-5 text-emerald-300" />
+
                       <p className="font-black">Financial safety</p>
                     </div>
+
                     <p className="mt-3 text-sm leading-6 text-slate-400">
                       Critical financial cases should be reviewed
                       before RoadLink releases wallet funds or payout
@@ -2848,4 +3003,4 @@ export default function AiFraudDetectionPage() {
       )}
     </main>
   );
-    }
+}
