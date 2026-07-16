@@ -9,6 +9,18 @@ import {
   useState,
 } from "react";
 import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from "firebase/firestore";
+import {
   Activity,
   AlertTriangle,
   ArrowDownRight,
@@ -22,7 +34,7 @@ import {
   Clock3,
   Gauge,
   Loader2,
-  Map,
+  Map as MapIcon,
   MapPin,
   Minus,
   Percent,
@@ -41,34 +53,26 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
-import {
-  collection,
-  doc,
-  getDocs,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  writeBatch,
-} from "firebase/firestore";
 import { auth, db } from "../../../lib/firebase";
 
-type TimestampObject = {
-  seconds?: number;
-  nanoseconds?: number;
-  toDate?: () => Date;
-};
-
 type TimestampLike =
-  | TimestampObject
+  | Date
   | string
   | number
-  | Date
   | null
-  | undefined;
+  | undefined
+  | {
+      seconds?: number;
+      toDate?: () => Date;
+    };
+
+type PricingStatus =
+  | "stable"
+  | "watch"
+  | "surge"
+  | "critical";
+
+type StatusFilter = "all" | PricingStatus;
 
 type RideItem = {
   id: string;
@@ -102,15 +106,6 @@ type BookingItem = {
   passengerEmail?: string;
   driverId?: string;
   driverEmail?: string;
-  createdAt?: TimestampLike;
-};
-
-type UserItem = {
-  id: string;
-  role?: string;
-  status?: string;
-  driverVerified?: boolean;
-  verificationStatus?: string;
   createdAt?: TimestampLike;
 };
 
@@ -165,23 +160,17 @@ type RoutePricing = {
   maximumRecommendedPrice: number;
   revenueOpportunity: number;
   confidence: number;
-  status: "stable" | "watch" | "surge" | "critical";
+  status: PricingStatus;
   recommendation: string;
-  lastCalculatedAt?: TimestampLike;
   createdAt?: TimestampLike;
   updatedAt?: TimestampLike;
+  lastCalculatedAt?: TimestampLike;
   appliedPrice?: number;
   appliedAt?: TimestampLike;
   appliedBy?: string;
 };
 
-type PricingStatus =
-  | "stable"
-  | "watch"
-  | "surge"
-  | "critical";
-
-type StatusFilter = "all" | PricingStatus;
+const COLLECTION_LIMIT = 2000;
 
 const DEFAULT_RULES: PricingRule = {
   id: "main",
@@ -204,16 +193,14 @@ const DEFAULT_RULES: PricingRule = {
   autoApply: false,
 };
 
-const COLLECTION_LIMIT = 2000;
-
-const statusLabels: Record<PricingStatus, string> = {
+const STATUS_LABELS: Record<PricingStatus, string> = {
   stable: "Stable",
   watch: "Watch",
   surge: "Surge",
   critical: "Critical",
 };
 
-const statusStyles: Record<PricingStatus, string> = {
+const STATUS_STYLES: Record<PricingStatus, string> = {
   stable:
     "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
   watch:
@@ -226,11 +213,12 @@ const statusStyles: Record<PricingStatus, string> = {
 
 function safeNumber(value: unknown) {
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function clamp(value: number, min = 0, max = 100) {
-  return Math.min(max, Math.max(min, value));
+function clamp(value: number, minimum = 0, maximum = 100) {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 function roundMoney(value: number) {
@@ -256,17 +244,20 @@ function toDate(value: TimestampLike): Date | null {
 
   if (typeof value === "string" || typeof value === "number") {
     const date = new Date(value);
+
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
   if (typeof value === "object") {
     if (typeof value.toDate === "function") {
       const date = value.toDate();
+
       return Number.isNaN(date.getTime()) ? null : date;
     }
 
     if (typeof value.seconds === "number") {
       const date = new Date(value.seconds * 1000);
+
       return Number.isNaN(date.getTime()) ? null : date;
     }
   }
@@ -315,14 +306,14 @@ function formatRelative(value: TimestampLike) {
 }
 
 function isWithinDays(value: TimestampLike, days: number) {
-  const time = getTime(value);
+  const timestamp = getTime(value);
 
-  if (!time) return false;
+  if (!timestamp) return false;
 
-  return time >= Date.now() - days * 24 * 60 * 60 * 1000;
+  return timestamp >= Date.now() - days * 86400000;
 }
 
-function currency(value: number) {
+function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -330,12 +321,11 @@ function currency(value: number) {
   }).format(value);
 }
 
-function percentage(value: number) {
-  return `${Math.round(value)}%`;
-}
+function getRouteData(ride: RideItem) {
+  const from = String(
+    ride.from || ride.origin || "Unknown origin",
+  ).trim();
 
-function getRouteName(ride: RideItem) {
-  const from = String(ride.from || ride.origin || "Unknown origin").trim();
   const to = String(
     ride.to || ride.destination || "Unknown destination",
   ).trim();
@@ -359,6 +349,13 @@ function getRideDuration(ride: RideItem) {
     safeNumber(ride.durationMinutes),
     safeNumber(ride.duration),
   );
+}
+
+function createRoutePricingId(routeKey: string) {
+  return routeKey
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 120);
 }
 
 function resolvePricingStatus(
@@ -391,16 +388,14 @@ function resolvePricingStatus(
   return "stable";
 }
 
-function createRoutePricingId(routeKey: string) {
-  return routeKey
-    .replace(/[^a-zA-Z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 120);
-}
-
-async function fetchCollection<T>(collectionName: string): Promise<T[]> {
+async function fetchCollection<T>(
+  collectionName: string,
+): Promise<T[]> {
   const snapshot = await getDocs(
-    query(collection(db, collectionName), limit(COLLECTION_LIMIT)),
+    query(
+      collection(db, collectionName),
+      limit(COLLECTION_LIMIT),
+    ),
   );
 
   return snapshot.docs.map(
@@ -421,49 +416,58 @@ function calculatePricingEngine({
   bookings: BookingItem[];
   rules: PricingRule;
 }) {
-  const routeGroups = new Map<string, RideItem[]>();
+  const routeGroups = new globalThis.Map<string, RideItem[]>();
 
   for (const ride of rides) {
-    const route = getRouteName(ride);
+    const route = getRouteData(ride);
+    const existingRides = routeGroups.get(route.key) ?? [];
 
-    routeGroups.set(route.key, [
-      ...(routeGroups.get(route.key) ?? []),
-      ride,
-    ]);
+    routeGroups.set(route.key, [...existingRides, ride]);
   }
 
-  const pricingResults: RoutePricing[] = [];
+  const results: RoutePricing[] = [];
 
   for (const [routeKey, routeRides] of routeGroups.entries()) {
     const firstRide = routeRides[0];
-    const route = getRouteName(firstRide);
 
+    if (!firstRide) continue;
+
+    const route = getRouteData(firstRide);
     const rideIds = new Set(routeRides.map((ride) => ride.id));
 
     const routeBookings = bookings.filter(
-      (booking) => booking.rideId && rideIds.has(booking.rideId),
+      (booking) =>
+        Boolean(booking.rideId) &&
+        rideIds.has(String(booking.rideId)),
     );
 
     const recentRides = routeRides.filter((ride) =>
-      isWithinDays(ride.createdAt || ride.date || ride.departureDate, 30),
+      isWithinDays(
+        ride.createdAt || ride.date || ride.departureDate,
+        30,
+      ),
     );
 
     const recentBookings = routeBookings.filter((booking) =>
       isWithinDays(booking.createdAt, 30),
     );
 
-    const bookingsLastSevenDays = routeBookings.filter((booking) =>
+    const sevenDayBookings = routeBookings.filter((booking) =>
       isWithinDays(booking.createdAt, 7),
     );
 
-    const bookingsLastTwentyFourHours = routeBookings.filter(
-      (booking) => isWithinDays(booking.createdAt, 1),
+    const oneDayBookings = routeBookings.filter((booking) =>
+      isWithinDays(booking.createdAt, 1),
     );
 
     const activeRides = routeRides.filter((ride) =>
-      ["active", "open", "published", "available", "scheduled"].includes(
-        normalizeStatus(ride.status),
-      ),
+      [
+        "active",
+        "open",
+        "published",
+        "available",
+        "scheduled",
+      ].includes(normalizeStatus(ride.status)),
     );
 
     const completedRides = routeRides.filter((ride) =>
@@ -514,67 +518,58 @@ function calculatePricingEngine({
       0,
     );
 
-    const validPrices = routeRides
+    const prices = routeRides
       .map((ride) => safeNumber(ride.price))
       .filter((price) => price > 0);
 
-    const validDistances = routeRides
+    const distances = routeRides
       .map(getRideDistance)
       .filter((distance) => distance > 0);
 
-    const validDurations = routeRides
+    const durations = routeRides
       .map(getRideDuration)
       .filter((duration) => duration > 0);
 
     const averageCurrentPrice =
-      validPrices.length > 0
-        ? validPrices.reduce((total, price) => total + price, 0) /
-          validPrices.length
+      prices.length > 0
+        ? prices.reduce((total, price) => total + price, 0) /
+          prices.length
         : 0;
 
     const averageDistanceMiles =
-      validDistances.length > 0
-        ? validDistances.reduce(
+      distances.length > 0
+        ? distances.reduce(
             (total, distance) => total + distance,
             0,
-          ) / validDistances.length
+          ) / distances.length
         : 0;
 
     const averageDurationMinutes =
-      validDurations.length > 0
-        ? validDurations.reduce(
+      durations.length > 0
+        ? durations.reduce(
             (total, duration) => total + duration,
             0,
-          ) / validDurations.length
+          ) / durations.length
         : 0;
 
-    const bookingDemandBase =
-      recentBookings.length * 8 +
-      confirmedBookings.length * 3 +
-      bookingsLastSevenDays.length * 5 +
-      bookingsLastTwentyFourHours.length * 10;
-
     const demandScore = clamp(
-      bookingDemandBase +
+      recentBookings.length * 8 +
+        confirmedBookings.length * 3 +
+        sevenDayBookings.length * 5 +
+        oneDayBookings.length * 10 +
         Math.min(seatsBooked * 3, 20) +
         Math.min(recentRides.length * 2, 10),
-      0,
-      100,
     );
 
     const supplyScore = clamp(
       activeRides.length * 15 +
         availableSeats * 5 -
         confirmedBookings.length * 2,
-      0,
-      100,
     );
 
     const bookingVelocityScore = clamp(
-      bookingsLastTwentyFourHours.length * 22 +
-        bookingsLastSevenDays.length * 6,
-      0,
-      100,
+      oneDayBookings.length * 22 +
+        sevenDayBookings.length * 6,
     );
 
     const totalCancellationEvents =
@@ -590,8 +585,6 @@ function calculatePricingEngine({
 
     const cancellationRiskScore = clamp(
       cancellationRate * 100,
-      0,
-      100,
     );
 
     const demandPressure =
@@ -615,7 +608,7 @@ function calculatePricingEngine({
       velocityPressure +
       cancellationPressure;
 
-    const marketScore = clamp(marketPressure * 100, 0, 100);
+    const marketScore = clamp(marketPressure * 100);
 
     const currentDate = new Date();
     const currentHour = currentDate.getHours();
@@ -634,7 +627,8 @@ function calculatePricingEngine({
 
     const rawSurge =
       rules.minimumSurge +
-      marketPressure * Math.max(rules.maximumSurge - 1, 0);
+      marketPressure *
+        Math.max(rules.maximumSurge - 1, 0);
 
     const surgeMultiplier = clamp(
       rawSurge * timeMultiplier,
@@ -647,15 +641,14 @@ function calculatePricingEngine({
       averageDistanceMiles * rules.perMileRate +
       averageDurationMinutes * rules.perMinuteRate;
 
-    const fallbackBasePrice =
+    const basePrice =
       averageCurrentPrice > 0
-        ? averageCurrentPrice
+        ? Math.max(averageCurrentPrice, calculatedBasePrice)
         : Math.max(calculatedBasePrice, rules.minimumFare);
 
     const recommendedPrice = roundMoney(
       clamp(
-        Math.max(calculatedBasePrice, fallbackBasePrice) *
-          surgeMultiplier,
+        basePrice * surgeMultiplier,
         rules.minimumFare,
         rules.maximumFare,
       ),
@@ -677,16 +670,16 @@ function calculatePricingEngine({
       ),
     );
 
-    const priceDifference =
-      recommendedPrice - averageCurrentPrice;
-
     const projectedBookings = Math.max(
       confirmedBookings.length,
       Math.round(demandScore / 12),
     );
 
     const revenueOpportunity = roundMoney(
-      Math.max(priceDifference, 0) * projectedBookings,
+      Math.max(
+        recommendedPrice - averageCurrentPrice,
+        0,
+      ) * projectedBookings,
     );
 
     const confidence = clamp(
@@ -710,16 +703,16 @@ function calculatePricingEngine({
 
     if (status === "critical") {
       recommendation =
-        "Immediate pricing adjustment recommended. Demand is significantly exceeding available supply.";
+        "Immediate price adjustment recommended. Demand is significantly exceeding available supply.";
     } else if (status === "surge") {
       recommendation =
-        "Apply dynamic surge pricing and encourage additional drivers to publish rides on this route.";
+        "Apply temporary surge pricing and encourage more drivers to publish rides on this route.";
     } else if (status === "watch") {
       recommendation =
         "Monitor booking velocity and supply. A moderate price adjustment may improve marketplace balance.";
     }
 
-    pricingResults.push({
+    results.push({
       id: createRoutePricingId(routeKey),
       routeKey,
       from: route.from,
@@ -734,14 +727,22 @@ function calculatePricingEngine({
       availableSeats,
       seatsBooked,
       averageCurrentPrice: roundMoney(averageCurrentPrice),
-      averageDistanceMiles: Math.round(averageDistanceMiles * 10) / 10,
-      averageDurationMinutes: Math.round(averageDurationMinutes),
+      averageDistanceMiles:
+        Math.round(averageDistanceMiles * 10) / 10,
+      averageDurationMinutes: Math.round(
+        averageDurationMinutes,
+      ),
       demandScore: Math.round(demandScore),
       supplyScore: Math.round(supplyScore),
-      bookingVelocityScore: Math.round(bookingVelocityScore),
-      cancellationRiskScore: Math.round(cancellationRiskScore),
+      bookingVelocityScore: Math.round(
+        bookingVelocityScore,
+      ),
+      cancellationRiskScore: Math.round(
+        cancellationRiskScore,
+      ),
       marketScore: Math.round(marketScore),
-      surgeMultiplier: Math.round(surgeMultiplier * 100) / 100,
+      surgeMultiplier:
+        Math.round(surgeMultiplier * 100) / 100,
       recommendedPrice,
       minimumRecommendedPrice,
       maximumRecommendedPrice,
@@ -752,17 +753,10 @@ function calculatePricingEngine({
     });
   }
 
-  return pricingResults.sort((first, second) => {
-    if (first.status === "critical" && second.status !== "critical") {
-      return -1;
-    }
-
-    if (second.status === "critical" && first.status !== "critical") {
-      return 1;
-    }
-
-    return second.marketScore - first.marketScore;
-  });
+  return results.sort(
+    (first, second) =>
+      second.marketScore - first.marketScore,
+  );
 }
 
 function MetricCard({
@@ -778,7 +772,7 @@ function MetricCard({
   icon: ReactNode;
   tone?: "green" | "red" | "amber" | "cyan" | "purple";
 }) {
-  const toneStyles = {
+  const tones = {
     green:
       "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
     red: "border-red-500/20 bg-red-500/10 text-red-300",
@@ -790,24 +784,26 @@ function MetricCard({
   };
 
   return (
-    <article className="group relative overflow-hidden rounded-3xl border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/20 backdrop-blur-2xl transition duration-300 hover:-translate-y-1 hover:border-white/[0.12]">
+    <article className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-slate-950/60 p-5 shadow-2xl shadow-black/20 backdrop-blur-2xl">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
 
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
             {title}
           </p>
 
-          <p className="mt-3 truncate text-3xl font-black tracking-tight text-white">
+          <p className="mt-3 truncate text-3xl font-black text-white">
             {value}
           </p>
 
-          <p className="mt-2 text-sm text-slate-400">{subtitle}</p>
+          <p className="mt-2 text-sm text-slate-400">
+            {subtitle}
+          </p>
         </div>
 
         <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${toneStyles[tone]}`}
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${tones[tone]}`}
         >
           {icon}
         </div>
@@ -827,7 +823,7 @@ function ScoreBar({
 }) {
   const normalizedValue = clamp(value);
 
-  const barClass = inverse
+  const gradient = inverse
     ? normalizedValue <= 30
       ? "from-red-500 to-orange-400"
       : normalizedValue <= 60
@@ -841,8 +837,8 @@ function ScoreBar({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold text-slate-400">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-bold text-slate-400">
           {label}
         </span>
 
@@ -853,7 +849,7 @@ function ScoreBar({
 
       <div className="h-2 overflow-hidden rounded-full bg-white/[0.05]">
         <div
-          className={`h-full rounded-full bg-gradient-to-r ${barClass}`}
+          className={`h-full rounded-full bg-gradient-to-r ${gradient}`}
           style={{ width: `${normalizedValue}%` }}
         />
       </div>
@@ -870,7 +866,7 @@ function ComparisonBadge({
 }) {
   if (currentPrice <= 0) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-xs font-black text-cyan-300">
         <Sparkles className="h-3.5 w-3.5" />
         New recommendation
       </span>
@@ -878,11 +874,12 @@ function ComparisonBadge({
   }
 
   const difference =
-    ((recommendedPrice - currentPrice) / currentPrice) * 100;
+    ((recommendedPrice - currentPrice) / currentPrice) *
+    100;
 
   if (Math.abs(difference) < 1) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-slate-500/20 bg-slate-500/10 px-2.5 py-1 text-xs font-bold text-slate-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-slate-500/20 bg-slate-500/10 px-2.5 py-1 text-xs font-black text-slate-300">
         <Minus className="h-3.5 w-3.5" />
         No change
       </span>
@@ -891,15 +888,15 @@ function ComparisonBadge({
 
   if (difference > 0) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-xs font-bold text-orange-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-xs font-black text-orange-300">
         <ArrowUpRight className="h-3.5 w-3.5" />
-        {Math.abs(difference).toFixed(1)}%
+        {difference.toFixed(1)}%
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-300">
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-black text-emerald-300">
       <ArrowDownRight className="h-3.5 w-3.5" />
       {Math.abs(difference).toFixed(1)}%
     </span>
@@ -910,15 +907,20 @@ export default function AiPricingPage() {
   const [pricingRules, setPricingRules] =
     useState<PricingRule>(DEFAULT_RULES);
 
-  const [routePricing, setRoutePricing] = useState<RoutePricing[]>([]);
+  const [routePricing, setRoutePricing] = useState<
+    RoutePricing[]
+  >([]);
+
   const [selectedRoute, setSelectedRoute] =
     useState<RoutePricing | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [runningEngine, setRunningEngine] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
-  const [applyingRouteId, setApplyingRouteId] =
-    useState<string | null>(null);
+
+  const [applyingRouteId, setApplyingRouteId] = useState<
+    string | null
+  >(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] =
@@ -926,13 +928,12 @@ export default function AiPricingPage() {
 
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
+  const [lastRunAt, setLastRunAt] =
+    useState<Date | null>(null);
 
   useEffect(() => {
-    const rulesReference = doc(db, "pricingRules", "main");
-
     const unsubscribeRules = onSnapshot(
-      rulesReference,
+      doc(db, "pricingRules", "main"),
       (snapshot) => {
         if (snapshot.exists()) {
           setPricingRules({
@@ -940,26 +941,22 @@ export default function AiPricingPage() {
             id: snapshot.id,
             ...snapshot.data(),
           } as PricingRule);
-        } else {
-          setPricingRules(DEFAULT_RULES);
         }
       },
       (error) => {
         console.error("Pricing rules listener failed:", error);
+
         setErrorMessage(
           "RoadLink could not load the pricing rules.",
         );
       },
     );
 
-    const pricingQuery = query(
-      collection(db, "routePricing"),
-      orderBy("marketScore", "desc"),
-      limit(500),
-    );
-
     const unsubscribePricing = onSnapshot(
-      pricingQuery,
+      query(
+        collection(db, "routePricing"),
+        limit(500),
+      ),
       (snapshot) => {
         const items = snapshot.docs.map(
           (document) =>
@@ -969,14 +966,23 @@ export default function AiPricingPage() {
             }) as RoutePricing,
         );
 
-        setRoutePricing(items);
+        setRoutePricing(
+          items.sort(
+            (first, second) =>
+              safeNumber(second.marketScore) -
+              safeNumber(first.marketScore),
+          ),
+        );
+
         setLoading(false);
       },
       (error) => {
         console.error("Route pricing listener failed:", error);
+
         setErrorMessage(
-          "RoadLink could not load the route pricing intelligence.",
+          "RoadLink could not load route pricing intelligence.",
         );
+
         setLoading(false);
       },
     );
@@ -999,10 +1005,10 @@ export default function AiPricingPage() {
       entityId?: string;
       metadata?: Record<string, unknown>;
     }) => {
-      const auditReference = doc(collection(db, "auditLogs"));
+      const reference = doc(collection(db, "auditLogs"));
 
-      await setDoc(auditReference, {
-        id: auditReference.id,
+      await setDoc(reference, {
+        id: reference.id,
         module: "ai-pricing-engine",
         action,
         description,
@@ -1021,27 +1027,24 @@ export default function AiPricingPage() {
   const createNotification = useCallback(
     async ({
       title,
-      message: notificationMessage,
+      notificationMessage,
       severity,
-      entityId,
     }: {
       title: string;
-      message: string;
+      notificationMessage: string;
       severity: "low" | "medium" | "high" | "critical";
-      entityId?: string;
     }) => {
-      const notificationReference = doc(
+      const reference = doc(
         collection(db, "notifications"),
       );
 
-      await setDoc(notificationReference, {
-        id: notificationReference.id,
+      await setDoc(reference, {
+        id: reference.id,
         title,
         message: notificationMessage,
         type: "pricing_alert",
         severity,
         audience: "admin",
-        entityId: entityId ?? null,
         read: false,
         createdAt: serverTimestamp(),
         createdBy:
@@ -1051,15 +1054,28 @@ export default function AiPricingPage() {
     [],
   );
 
+  function updateRule<K extends keyof PricingRule>(
+    key: K,
+    value: PricingRule[K],
+  ) {
+    setPricingRules((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
   const savePricingRules = useCallback(async () => {
     setSavingRules(true);
-    setErrorMessage("");
     setMessage("");
+    setErrorMessage("");
 
     try {
       const normalizedRules: PricingRule = {
         ...pricingRules,
-        baseFare: Math.max(safeNumber(pricingRules.baseFare), 0),
+        baseFare: Math.max(
+          safeNumber(pricingRules.baseFare),
+          0,
+        ),
         minimumFare: Math.max(
           safeNumber(pricingRules.minimumFare),
           0,
@@ -1083,23 +1099,15 @@ export default function AiPricingPage() {
         ),
         demandWeight: clamp(
           safeNumber(pricingRules.demandWeight),
-          0,
-          100,
         ),
         supplyWeight: clamp(
           safeNumber(pricingRules.supplyWeight),
-          0,
-          100,
         ),
         bookingVelocityWeight: clamp(
           safeNumber(pricingRules.bookingVelocityWeight),
-          0,
-          100,
         ),
         cancellationWeight: clamp(
           safeNumber(pricingRules.cancellationWeight),
-          0,
-          100,
         ),
         weekendMultiplier: clamp(
           safeNumber(pricingRules.weekendMultiplier),
@@ -1123,7 +1131,10 @@ export default function AiPricingPage() {
         ),
         maximumSurge: clamp(
           safeNumber(pricingRules.maximumSurge),
-          Math.max(safeNumber(pricingRules.minimumSurge), 1),
+          Math.max(
+            safeNumber(pricingRules.minimumSurge),
+            1,
+          ),
           5,
         ),
       };
@@ -1143,12 +1154,11 @@ export default function AiPricingPage() {
       await createAuditLog({
         action: "PRICING_RULES_UPDATED",
         description:
-          "RoadLink AI Pricing Engine configuration was updated.",
+          "RoadLink AI Pricing Engine rules were updated.",
         entityId: "pricingRules/main",
         metadata: {
           minimumFare: normalizedRules.minimumFare,
           maximumFare: normalizedRules.maximumFare,
-          perMileRate: normalizedRules.perMileRate,
           maximumSurge: normalizedRules.maximumSurge,
           autoApply: normalizedRules.autoApply,
         },
@@ -1157,10 +1167,10 @@ export default function AiPricingPage() {
       setPricingRules(normalizedRules);
       setMessage("Pricing rules saved successfully.");
     } catch (error) {
-      console.error("Failed to save pricing rules:", error);
+      console.error("Save pricing rules failed:", error);
 
       setErrorMessage(
-        "RoadLink could not save the pricing configuration.",
+        "RoadLink could not save the pricing rules.",
       );
     } finally {
       setSavingRules(false);
@@ -1173,14 +1183,13 @@ export default function AiPricingPage() {
     setMessage("Loading marketplace pricing signals...");
 
     try {
-      const [rides, bookings, users] = await Promise.all([
+      const [rides, bookings] = await Promise.all([
         fetchCollection<RideItem>("rides"),
         fetchCollection<BookingItem>("bookings"),
-        fetchCollection<UserItem>("users"),
       ]);
 
       setMessage(
-        "Calculating demand, supply and dynamic pricing recommendations...",
+        "Calculating demand, supply and intelligent prices...",
       );
 
       const results = calculatePricingEngine({
@@ -1189,24 +1198,21 @@ export default function AiPricingPage() {
         rules: pricingRules,
       });
 
-      const chunks: RoutePricing[][] = [];
-
-      for (let index = 0; index < results.length; index += 400) {
-        chunks.push(results.slice(index, index + 400));
-      }
-
-      for (const chunk of chunks) {
+      for (
+        let startIndex = 0;
+        startIndex < results.length;
+        startIndex += 400
+      ) {
         const batch = writeBatch(db);
 
-        for (const result of chunk) {
-          const pricingReference = doc(
-            db,
-            "routePricing",
-            result.id,
-          );
+        const chunk = results.slice(
+          startIndex,
+          startIndex + 400,
+        );
 
+        for (const result of chunk) {
           batch.set(
-            pricingReference,
+            doc(db, "routePricing", result.id),
             {
               ...result,
               id: result.id,
@@ -1224,41 +1230,35 @@ export default function AiPricingPage() {
       }
 
       const criticalRoutes = results.filter(
-        (result) => result.status === "critical",
+        (item) => item.status === "critical",
       );
 
       const surgeRoutes = results.filter(
-        (result) => result.status === "surge",
+        (item) => item.status === "surge",
       );
 
-      const totalRevenueOpportunity = results.reduce(
-        (total, result) => total + result.revenueOpportunity,
+      const revenueOpportunity = results.reduce(
+        (total, item) =>
+          total + item.revenueOpportunity,
         0,
       );
 
-      const verifiedDrivers = users.filter(
-        (user) =>
-          user.driverVerified === true ||
-          normalizeStatus(user.verificationStatus) === "approved",
-      ).length;
-
-      await setDoc(
-        doc(db, "pricingEngineRuns", `run-${Date.now()}`),
-        {
-          routesAnalyzed: results.length,
-          ridesAnalyzed: rides.length,
-          bookingsAnalyzed: bookings.length,
-          usersAnalyzed: users.length,
-          verifiedDrivers,
-          criticalRoutes: criticalRoutes.length,
-          surgeRoutes: surgeRoutes.length,
-          totalRevenueOpportunity,
-          rules: pricingRules,
-          createdAt: serverTimestamp(),
-          createdBy:
-            auth.currentUser?.email || "ai-pricing-engine",
-        },
+      const runReference = doc(
+        collection(db, "pricingEngineRuns"),
       );
+
+      await setDoc(runReference, {
+        id: runReference.id,
+        routesAnalyzed: results.length,
+        ridesAnalyzed: rides.length,
+        bookingsAnalyzed: bookings.length,
+        criticalRoutes: criticalRoutes.length,
+        surgeRoutes: surgeRoutes.length,
+        revenueOpportunity,
+        createdAt: serverTimestamp(),
+        createdBy:
+          auth.currentUser?.email || "ai-pricing-engine",
+      });
 
       await createAuditLog({
         action: "AI_PRICING_ENGINE_COMPLETED",
@@ -1269,22 +1269,22 @@ export default function AiPricingPage() {
           bookingsAnalyzed: bookings.length,
           criticalRoutes: criticalRoutes.length,
           surgeRoutes: surgeRoutes.length,
-          totalRevenueOpportunity,
+          revenueOpportunity,
         },
       });
 
       if (criticalRoutes.length > 0) {
         await createNotification({
-          title: "Critical pricing opportunities detected",
-          message: `${criticalRoutes.length} route${
+          title: "Critical pricing opportunities",
+          notificationMessage: `${criticalRoutes.length} route${
             criticalRoutes.length === 1 ? "" : "s"
           } show critical demand and supply imbalance.`,
           severity: "critical",
         });
       } else if (surgeRoutes.length > 0) {
         await createNotification({
-          title: "Dynamic surge opportunities detected",
-          message: `${surgeRoutes.length} route${
+          title: "Surge pricing opportunities",
+          notificationMessage: `${surgeRoutes.length} route${
             surgeRoutes.length === 1 ? "" : "s"
           } may benefit from temporary surge pricing.`,
           severity: "high",
@@ -1294,15 +1294,17 @@ export default function AiPricingPage() {
       setLastRunAt(new Date());
 
       setMessage(
-        `${results.length} routes analyzed · ${surgeRoutes.length} surge opportunities · ${currency(
-          totalRevenueOpportunity,
+        `${results.length} routes analyzed · ${
+          surgeRoutes.length
+        } surge opportunities · ${formatCurrency(
+          revenueOpportunity,
         )} projected opportunity`,
       );
     } catch (error) {
       console.error("AI Pricing Engine failed:", error);
 
       setErrorMessage(
-        "The AI Pricing Engine could not complete the analysis. Verify Firestore permissions and marketplace data.",
+        "The pricing analysis could not be completed. Verify Firestore permissions and marketplace data.",
       );
 
       setMessage("");
@@ -1316,64 +1318,62 @@ export default function AiPricingPage() {
   ]);
 
   const applyRecommendedPrice = useCallback(
-    async (routePricingItem: RoutePricing) => {
-      setApplyingRouteId(routePricingItem.id);
-      setErrorMessage("");
+    async (routeItem: RoutePricing) => {
+      setApplyingRouteId(routeItem.id);
       setMessage("");
+      setErrorMessage("");
 
       try {
         await updateDoc(
-          doc(db, "routePricing", routePricingItem.id),
+          doc(db, "routePricing", routeItem.id),
           {
-            appliedPrice: routePricingItem.recommendedPrice,
+            appliedPrice: routeItem.recommendedPrice,
             appliedAt: serverTimestamp(),
             appliedBy:
               auth.currentUser?.email || "RoadLink Admin",
-            status:
-              routePricingItem.status === "critical"
-                ? "surge"
-                : routePricingItem.status,
             updatedAt: serverTimestamp(),
           },
         );
 
-        const matchingRidesSnapshot = await getDocs(
-          query(collection(db, "rides"), limit(COLLECTION_LIMIT)),
+        const ridesSnapshot = await getDocs(
+          query(
+            collection(db, "rides"),
+            limit(COLLECTION_LIMIT),
+          ),
         );
 
-        const matchingDocuments = matchingRidesSnapshot.docs.filter(
-          (rideDocument) => {
+        const matchingRides = ridesSnapshot.docs.filter(
+          (document) => {
             const ride = {
-              id: rideDocument.id,
-              ...rideDocument.data(),
+              id: document.id,
+              ...document.data(),
             } as RideItem;
 
-            return getRouteName(ride).key === routePricingItem.routeKey;
+            return (
+              getRouteData(ride).key === routeItem.routeKey
+            );
           },
         );
 
-        const rideChunks: typeof matchingDocuments[] = [];
-
         for (
-          let index = 0;
-          index < matchingDocuments.length;
-          index += 400
+          let startIndex = 0;
+          startIndex < matchingRides.length;
+          startIndex += 400
         ) {
-          rideChunks.push(
-            matchingDocuments.slice(index, index + 400),
-          );
-        }
-
-        for (const chunk of rideChunks) {
           const batch = writeBatch(db);
+
+          const chunk = matchingRides.slice(
+            startIndex,
+            startIndex + 400,
+          );
 
           for (const rideDocument of chunk) {
             batch.update(rideDocument.ref, {
               recommendedPrice:
-                routePricingItem.recommendedPrice,
-              pricingStatus: routePricingItem.status,
+                routeItem.recommendedPrice,
               surgeMultiplier:
-                routePricingItem.surgeMultiplier,
+                routeItem.surgeMultiplier,
+              pricingStatus: routeItem.status,
               pricingUpdatedAt: serverTimestamp(),
             });
           }
@@ -1383,43 +1383,46 @@ export default function AiPricingPage() {
 
         await createAuditLog({
           action: "RECOMMENDED_PRICE_APPLIED",
-          description: `Recommended price applied to ${routePricingItem.from} → ${routePricingItem.to}.`,
-          entityId: routePricingItem.id,
+          description: `Recommended price applied to ${routeItem.from} → ${routeItem.to}.`,
+          entityId: routeItem.id,
           metadata: {
-            routeKey: routePricingItem.routeKey,
-            currentPrice:
-              routePricingItem.averageCurrentPrice,
+            routeKey: routeItem.routeKey,
             recommendedPrice:
-              routePricingItem.recommendedPrice,
+              routeItem.recommendedPrice,
             surgeMultiplier:
-              routePricingItem.surgeMultiplier,
-            ridesUpdated: matchingDocuments.length,
+              routeItem.surgeMultiplier,
+            ridesUpdated: matchingRides.length,
           },
         });
 
-        setSelectedRoute((currentRoute) =>
-          currentRoute?.id === routePricingItem.id
+        setSelectedRoute((current) =>
+          current?.id === routeItem.id
             ? {
-                ...currentRoute,
+                ...current,
                 appliedPrice:
-                  routePricingItem.recommendedPrice,
+                  routeItem.recommendedPrice,
                 appliedAt: new Date(),
                 appliedBy:
                   auth.currentUser?.email ||
                   "RoadLink Admin",
               }
-            : currentRoute,
+            : current,
         );
 
         setMessage(
-          `${currency(
-            routePricingItem.recommendedPrice,
-          )} recommendation applied to ${matchingDocuments.length} ride${
-            matchingDocuments.length === 1 ? "" : "s"
+          `${formatCurrency(
+            routeItem.recommendedPrice,
+          )} recommendation applied to ${
+            matchingRides.length
+          } ride${
+            matchingRides.length === 1 ? "" : "s"
           }.`,
         );
       } catch (error) {
-        console.error("Failed to apply recommended price:", error);
+        console.error(
+          "Apply recommended price failed:",
+          error,
+        );
 
         setErrorMessage(
           "RoadLink could not apply this pricing recommendation.",
@@ -1432,15 +1435,15 @@ export default function AiPricingPage() {
   );
 
   const filteredRoutes = useMemo(() => {
-    const normalizedSearch = normalizeString(searchTerm);
+    const search = normalizeString(searchTerm);
 
     return routePricing
       .filter((routeItem) => {
         const matchesSearch =
-          !normalizedSearch ||
+          !search ||
           normalizeString(
             `${routeItem.from} ${routeItem.to} ${routeItem.routeKey}`,
-          ).includes(normalizedSearch);
+          ).includes(search);
 
         const matchesStatus =
           statusFilter === "all" ||
@@ -1456,18 +1459,18 @@ export default function AiPricingPage() {
 
   const metrics = useMemo(() => {
     const criticalRoutes = routePricing.filter(
-      (routeItem) => routeItem.status === "critical",
+      (item) => item.status === "critical",
     ).length;
 
     const surgeRoutes = routePricing.filter(
-      (routeItem) => routeItem.status === "surge",
+      (item) => item.status === "surge",
     ).length;
 
     const averageRecommendedPrice =
       routePricing.length > 0
         ? routePricing.reduce(
-            (total, routeItem) =>
-              total + routeItem.recommendedPrice,
+            (total, item) =>
+              total + item.recommendedPrice,
             0,
           ) / routePricing.length
         : 0;
@@ -1475,23 +1478,23 @@ export default function AiPricingPage() {
     const averageSurge =
       routePricing.length > 0
         ? routePricing.reduce(
-            (total, routeItem) =>
-              total + routeItem.surgeMultiplier,
+            (total, item) =>
+              total + item.surgeMultiplier,
             0,
           ) / routePricing.length
         : 1;
 
-    const totalRevenueOpportunity = routePricing.reduce(
-      (total, routeItem) =>
-        total + routeItem.revenueOpportunity,
+    const revenueOpportunity = routePricing.reduce(
+      (total, item) =>
+        total + item.revenueOpportunity,
       0,
     );
 
     const averageDemand =
       routePricing.length > 0
         ? routePricing.reduce(
-            (total, routeItem) =>
-              total + routeItem.demandScore,
+            (total, item) =>
+              total + item.demandScore,
             0,
           ) / routePricing.length
         : 0;
@@ -1499,8 +1502,8 @@ export default function AiPricingPage() {
     const averageSupply =
       routePricing.length > 0
         ? routePricing.reduce(
-            (total, routeItem) =>
-              total + routeItem.supplyScore,
+            (total, item) =>
+              total + item.supplyScore,
             0,
           ) / routePricing.length
         : 0;
@@ -1510,13 +1513,13 @@ export default function AiPricingPage() {
       surgeRoutes,
       averageRecommendedPrice,
       averageSurge,
-      totalRevenueOpportunity,
+      revenueOpportunity,
       averageDemand,
       averageSupply,
     };
   }, [routePricing]);
 
-  const topOpportunityRoutes = useMemo(
+  const topOpportunities = useMemo(
     () =>
       [...routePricing]
         .sort(
@@ -1527,16 +1530,6 @@ export default function AiPricingPage() {
         .slice(0, 6),
     [routePricing],
   );
-
-  function updateRule<K extends keyof PricingRule>(
-    key: K,
-    value: PricingRule[K],
-  ) {
-    setPricingRules((currentRules) => ({
-      ...currentRules,
-      [key]: value,
-    }));
-  }
 
   return (
     <main className="min-h-screen bg-[#020617] text-white">
@@ -1565,31 +1558,30 @@ export default function AiPricingPage() {
             </div>
 
             <div className="mt-3 flex items-center gap-3">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10 shadow-xl shadow-emerald-500/10">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10">
                 <BrainCircuit className="h-7 w-7 text-emerald-300" />
               </div>
 
               <div>
-                <h1 className="text-2xl font-black tracking-tight sm:text-4xl">
+                <h1 className="text-2xl font-black sm:text-4xl">
                   AI Pricing Engine
                 </h1>
 
                 <p className="mt-1 max-w-3xl text-sm text-slate-400 sm:text-base">
                   Intelligent route pricing, demand analysis and
-                  dynamic surge recommendations for the RoadLink
-                  marketplace.
+                  dynamic surge recommendations.
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="rounded-2xl border border-white/[0.07] bg-slate-950/55 px-4 py-3 backdrop-blur-2xl">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            <div className="rounded-2xl border border-white/[0.07] bg-slate-950/60 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
                 Pricing Intelligence
               </p>
 
-              <div className="mt-1 flex items-center gap-2 text-sm font-bold text-emerald-300">
+              <div className="mt-1 flex items-center gap-2 text-sm font-black text-emerald-300">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
@@ -1604,7 +1596,9 @@ export default function AiPricingPage() {
             <button
               type="button"
               onClick={runPricingEngine}
-              disabled={runningEngine || !pricingRules.enabled}
+              disabled={
+                runningEngine || !pricingRules.enabled
+              }
               className="inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {runningEngine ? (
@@ -1635,11 +1629,11 @@ export default function AiPricingPage() {
             )}
 
             <div>
-              <p className="font-bold">
+              <p className="font-black">
                 {errorMessage
                   ? "Pricing Engine Alert"
                   : runningEngine
-                    ? "AI pricing analysis in progress"
+                    ? "AI analysis running"
                     : "Pricing intelligence updated"}
               </p>
 
@@ -1657,8 +1651,10 @@ export default function AiPricingPage() {
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <MetricCard
             title="Revenue Opportunity"
-            value={currency(metrics.totalRevenueOpportunity)}
-            subtitle="Projected additional route revenue"
+            value={formatCurrency(
+              metrics.revenueOpportunity,
+            )}
+            subtitle="Projected additional revenue"
             icon={<CircleDollarSign className="h-6 w-6" />}
             tone="green"
           />
@@ -1675,8 +1671,10 @@ export default function AiPricingPage() {
 
           <MetricCard
             title="Average AI Price"
-            value={currency(metrics.averageRecommendedPrice)}
-            subtitle="Recommended marketplace fare"
+            value={formatCurrency(
+              metrics.averageRecommendedPrice,
+            )}
+            subtitle="Recommended route fare"
             icon={<WalletCards className="h-6 w-6" />}
             tone="cyan"
           />
@@ -1684,7 +1682,7 @@ export default function AiPricingPage() {
           <MetricCard
             title="Average Surge"
             value={`${metrics.averageSurge.toFixed(2)}x`}
-            subtitle="Dynamic marketplace multiplier"
+            subtitle="Marketplace multiplier"
             icon={<TrendingUp className="h-6 w-6" />}
             tone="purple"
           />
@@ -1698,28 +1696,26 @@ export default function AiPricingPage() {
             )}%`}
             subtitle={`Demand ${Math.round(
               metrics.averageDemand,
-            )} · Supply ${Math.round(metrics.averageSupply)}`}
+            )} · Supply ${Math.round(
+              metrics.averageSupply,
+            )}`}
             icon={<Gauge className="h-6 w-6" />}
             tone="green"
           />
         </section>
 
         <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_0.48fr]">
-          <article className="overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/55 shadow-2xl shadow-black/25 backdrop-blur-2xl">
+          <article className="overflow-hidden rounded-[2rem] border border-white/[0.07] bg-slate-950/60 shadow-2xl shadow-black/25 backdrop-blur-2xl">
             <div className="border-b border-white/[0.06] p-5 sm:p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <h2 className="flex items-center gap-2 text-xl font-black">
                     <Route className="h-5 w-5 text-emerald-300" />
-
-                    <h2 className="text-xl font-black">
-                      Route pricing intelligence
-                    </h2>
-                  </div>
+                    Route pricing intelligence
+                  </h2>
 
                   <p className="mt-2 text-sm text-slate-500">
-                    AI recommendations ranked by demand, supply and
-                    revenue opportunity.
+                    Recommendations ranked by marketplace pressure.
                   </p>
                 </div>
 
@@ -1729,7 +1725,7 @@ export default function AiPricingPage() {
                     setSearchTerm("");
                     setStatusFilter("all");
                   }}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-bold text-slate-300 transition hover:border-white/[0.14] hover:bg-white/[0.07]"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-black text-slate-300"
                 >
                   <RefreshCcw className="h-4 w-4" />
                   Reset filters
@@ -1746,8 +1742,8 @@ export default function AiPricingPage() {
                     onChange={(event) =>
                       setSearchTerm(event.target.value)
                     }
-                    placeholder="Search origin, destination or route..."
-                    className="h-12 w-full rounded-2xl border border-white/[0.08] bg-slate-900/70 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400/40 focus:ring-4 focus:ring-emerald-500/5"
+                    placeholder="Search origin or destination..."
+                    className="h-12 w-full rounded-2xl border border-white/[0.08] bg-slate-900/70 pl-11 pr-4 text-sm text-white outline-none placeholder:text-slate-600 focus:border-emerald-400/40"
                   />
                 </label>
 
@@ -1761,9 +1757,9 @@ export default function AiPricingPage() {
                         event.target.value as StatusFilter,
                       )
                     }
-                    className="h-12 min-w-44 appearance-none rounded-2xl border border-white/[0.08] bg-slate-900/70 pl-10 pr-10 text-sm font-semibold text-slate-300 outline-none"
+                    className="h-12 min-w-44 appearance-none rounded-2xl border border-white/[0.08] bg-slate-900/70 pl-10 pr-10 text-sm font-black text-slate-300 outline-none"
                   >
-                    <option value="all">All pricing status</option>
+                    <option value="all">All status</option>
                     <option value="critical">Critical</option>
                     <option value="surge">Surge</option>
                     <option value="watch">Watch</option>
@@ -1780,7 +1776,7 @@ export default function AiPricingPage() {
                 <div className="flex min-h-96 flex-col items-center justify-center">
                   <Loader2 className="h-10 w-10 animate-spin text-emerald-300" />
 
-                  <p className="mt-4 font-bold text-slate-300">
+                  <p className="mt-4 font-black text-slate-300">
                     Loading pricing intelligence...
                   </p>
                 </div>
@@ -1792,9 +1788,9 @@ export default function AiPricingPage() {
                     No route pricing data
                   </p>
 
-                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                    Run the AI Pricing Engine to calculate intelligent
-                    pricing recommendations for RoadLink routes.
+                  <p className="mt-2 max-w-md text-sm text-slate-500">
+                    Run the AI Pricing Engine to create pricing
+                    recommendations.
                   </p>
                 </div>
               ) : (
@@ -1803,26 +1799,36 @@ export default function AiPricingPage() {
                     <button
                       key={routeItem.id}
                       type="button"
-                      onClick={() => setSelectedRoute(routeItem)}
+                      onClick={() =>
+                        setSelectedRoute(routeItem)
+                      }
                       className="group w-full p-5 text-left transition hover:bg-white/[0.025] sm:p-6"
                     >
                       <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap gap-2">
                             <span
                               className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
-                                statusStyles[routeItem.status]
+                                STATUS_STYLES[
+                                  routeItem.status
+                                ]
                               }`}
                             >
-                              {statusLabels[routeItem.status]}
+                              {
+                                STATUS_LABELS[
+                                  routeItem.status
+                                ]
+                              }
                             </span>
 
                             <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-violet-300">
-                              {routeItem.surgeMultiplier.toFixed(2)}x
-                              surge
+                              {routeItem.surgeMultiplier.toFixed(
+                                2,
+                              )}
+                              x surge
                             </span>
 
-                            <span className="rounded-full border border-white/[0.07] bg-white/[0.035] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                            <span className="rounded-full border border-white/[0.07] bg-white/[0.035] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
                               {routeItem.confidence}% confidence
                             </span>
                           </div>
@@ -1833,56 +1839,63 @@ export default function AiPricingPage() {
                             </div>
 
                             <div className="min-w-0">
-                              <h3 className="truncate text-base font-black text-white transition group-hover:text-emerald-300 sm:text-lg">
-                                {routeItem.from} → {routeItem.to}
+                              <h3 className="truncate text-base font-black group-hover:text-emerald-300 sm:text-lg">
+                                {routeItem.from} →{" "}
+                                {routeItem.to}
                               </h3>
 
                               <p className="mt-1 text-xs text-slate-500">
-                                {routeItem.averageDistanceMiles} miles ·{" "}
-                                {routeItem.averageDurationMinutes} min ·{" "}
-                                {routeItem.activeRides} active rides
+                                {
+                                  routeItem.averageDistanceMiles
+                                }{" "}
+                                miles ·{" "}
+                                {
+                                  routeItem.averageDurationMinutes
+                                }{" "}
+                                min · {routeItem.activeRides}{" "}
+                                active
                               </p>
                             </div>
                           </div>
 
                           <div className="mt-4 grid gap-3 sm:grid-cols-4">
                             <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+                              <p className="text-[10px] font-black uppercase text-slate-600">
                                 Demand
                               </p>
 
-                              <p className="mt-1 text-lg font-black text-white">
+                              <p className="mt-1 text-lg font-black">
                                 {routeItem.demandScore}
                               </p>
                             </div>
 
                             <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+                              <p className="text-[10px] font-black uppercase text-slate-600">
                                 Supply
                               </p>
 
-                              <p className="mt-1 text-lg font-black text-white">
+                              <p className="mt-1 text-lg font-black">
                                 {routeItem.supplyScore}
                               </p>
                             </div>
 
                             <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+                              <p className="text-[10px] font-black uppercase text-slate-600">
                                 Bookings
                               </p>
 
-                              <p className="mt-1 text-lg font-black text-white">
+                              <p className="mt-1 text-lg font-black">
                                 {routeItem.bookings}
                               </p>
                             </div>
 
                             <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+                              <p className="text-[10px] font-black uppercase text-slate-600">
                                 Opportunity
                               </p>
 
                               <p className="mt-1 text-lg font-black text-emerald-300">
-                                {currency(
+                                {formatCurrency(
                                   routeItem.revenueOpportunity,
                                 )}
                               </p>
@@ -1890,39 +1903,37 @@ export default function AiPricingPage() {
                           </div>
                         </div>
 
-                        <div className="flex shrink-0 items-center justify-between gap-5 xl:flex-col xl:items-end">
-                          <div className="text-left xl:text-right">
-                            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                              Recommended price
-                            </p>
+                        <div className="shrink-0">
+                          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+                            Recommended
+                          </p>
 
-                            <p className="mt-1 text-3xl font-black text-emerald-300">
-                              {currency(routeItem.recommendedPrice)}
-                            </p>
+                          <p className="mt-1 text-3xl font-black text-emerald-300">
+                            {formatCurrency(
+                              routeItem.recommendedPrice,
+                            )}
+                          </p>
 
-                            <div className="mt-2">
-                              <ComparisonBadge
-                                currentPrice={
-                                  routeItem.averageCurrentPrice
-                                }
-                                recommendedPrice={
-                                  routeItem.recommendedPrice
-                                }
-                              />
-                            </div>
+                          <div className="mt-2">
+                            <ComparisonBadge
+                              currentPrice={
+                                routeItem.averageCurrentPrice
+                              }
+                              recommendedPrice={
+                                routeItem.recommendedPrice
+                              }
+                            />
                           </div>
 
-                          <div className="text-right">
-                            <p className="text-xs text-slate-500">
-                              Current average
-                            </p>
+                          <p className="mt-3 text-xs text-slate-500">
+                            Current average
+                          </p>
 
-                            <p className="mt-1 text-lg font-black text-slate-300">
-                              {currency(
-                                routeItem.averageCurrentPrice,
-                              )}
-                            </p>
-                          </div>
+                          <p className="mt-1 text-lg font-black text-slate-300">
+                            {formatCurrency(
+                              routeItem.averageCurrentPrice,
+                            )}
+                          </p>
                         </div>
                       </div>
                     </button>
@@ -1933,15 +1944,15 @@ export default function AiPricingPage() {
           </article>
 
           <aside className="space-y-6">
-            <article className="rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-6">
-              <div className="flex items-center justify-between gap-4">
+            <article className="rounded-[2rem] border border-white/[0.07] bg-slate-950/60 p-5 shadow-2xl shadow-black/25 sm:p-6">
+              <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-black">
                     Pricing controls
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Global AI pricing configuration
+                    Global engine configuration
                   </p>
                 </div>
 
@@ -1950,12 +1961,12 @@ export default function AiPricingPage() {
 
               <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/[0.06] bg-white/[0.025] p-4">
                 <div>
-                  <p className="text-sm font-black text-white">
+                  <p className="text-sm font-black">
                     Pricing Engine
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Enable AI pricing calculations
+                    Enable AI calculations
                   </p>
                 </div>
 
@@ -1967,17 +1978,16 @@ export default function AiPricingPage() {
                       !pricingRules.enabled,
                     )
                   }
-                  className={`relative h-7 w-13 rounded-full transition ${
+                  className={`relative h-7 w-14 rounded-full ${
                     pricingRules.enabled
                       ? "bg-emerald-500"
                       : "bg-slate-700"
                   }`}
-                  aria-label="Toggle pricing engine"
                 >
                   <span
-                    className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${
+                    className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${
                       pricingRules.enabled
-                        ? "left-7"
+                        ? "left-8"
                         : "left-1"
                     }`}
                   />
@@ -1985,219 +1995,127 @@ export default function AiPricingPage() {
               </div>
 
               <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                <label>
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Base fare
-                  </span>
+                {[
+                  {
+                    label: "Base fare",
+                    key: "baseFare" as const,
+                    value: pricingRules.baseFare,
+                    step: "0.01",
+                  },
+                  {
+                    label: "Per mile",
+                    key: "perMileRate" as const,
+                    value: pricingRules.perMileRate,
+                    step: "0.01",
+                  },
+                  {
+                    label: "Minimum fare",
+                    key: "minimumFare" as const,
+                    value: pricingRules.minimumFare,
+                    step: "0.01",
+                  },
+                  {
+                    label: "Maximum fare",
+                    key: "maximumFare" as const,
+                    value: pricingRules.maximumFare,
+                    step: "0.01",
+                  },
+                  {
+                    label: "Minimum surge",
+                    key: "minimumSurge" as const,
+                    value: pricingRules.minimumSurge,
+                    step: "0.05",
+                  },
+                  {
+                    label: "Maximum surge",
+                    key: "maximumSurge" as const,
+                    value: pricingRules.maximumSurge,
+                    step: "0.05",
+                  },
+                ].map((field) => (
+                  <label key={field.key}>
+                    <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+                      {field.label}
+                    </span>
 
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={pricingRules.baseFare}
-                    onChange={(event) =>
-                      updateRule(
-                        "baseFare",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
-                  />
-                </label>
-
-                <label>
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Per mile
-                  </span>
-
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={pricingRules.perMileRate}
-                    onChange={(event) =>
-                      updateRule(
-                        "perMileRate",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
-                  />
-                </label>
-
-                <label>
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Minimum fare
-                  </span>
-
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={pricingRules.minimumFare}
-                    onChange={(event) =>
-                      updateRule(
-                        "minimumFare",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
-                  />
-                </label>
-
-                <label>
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Maximum fare
-                  </span>
-
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={pricingRules.maximumFare}
-                    onChange={(event) =>
-                      updateRule(
-                        "maximumFare",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
-                  />
-                </label>
-
-                <label>
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Minimum surge
-                  </span>
-
-                  <input
-                    type="number"
-                    min="1"
-                    max="5"
-                    step="0.05"
-                    value={pricingRules.minimumSurge}
-                    onChange={(event) =>
-                      updateRule(
-                        "minimumSurge",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
-                  />
-                </label>
-
-                <label>
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Maximum surge
-                  </span>
-
-                  <input
-                    type="number"
-                    min="1"
-                    max="5"
-                    step="0.05"
-                    value={pricingRules.maximumSurge}
-                    onChange={(event) =>
-                      updateRule(
-                        "maximumSurge",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
-                  />
-                </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step={field.step}
+                      value={field.value}
+                      onChange={(event) =>
+                        updateRule(
+                          field.key,
+                          safeNumber(event.target.value),
+                        )
+                      }
+                      className="mt-2 h-11 w-full rounded-xl border border-white/[0.08] bg-slate-900/70 px-3 text-sm text-white outline-none focus:border-emerald-400/40"
+                    />
+                  </label>
+                ))}
               </div>
 
               <div className="mt-5 space-y-4">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                      Demand weight
-                    </span>
+                {[
+                  {
+                    label: "Demand weight",
+                    key: "demandWeight" as const,
+                    value: pricingRules.demandWeight,
+                  },
+                  {
+                    label: "Supply weight",
+                    key: "supplyWeight" as const,
+                    value: pricingRules.supplyWeight,
+                  },
+                  {
+                    label: "Booking velocity",
+                    key: "bookingVelocityWeight" as const,
+                    value:
+                      pricingRules.bookingVelocityWeight,
+                  },
+                  {
+                    label: "Cancellation weight",
+                    key: "cancellationWeight" as const,
+                    value:
+                      pricingRules.cancellationWeight,
+                  },
+                ].map((field) => (
+                  <div key={field.key}>
+                    <div className="flex justify-between">
+                      <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+                        {field.label}
+                      </span>
 
-                    <span className="text-xs font-black text-white">
-                      {pricingRules.demandWeight}%
-                    </span>
+                      <span className="text-xs font-black">
+                        {field.value}%
+                      </span>
+                    </div>
+
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={field.value}
+                      onChange={(event) =>
+                        updateRule(
+                          field.key,
+                          safeNumber(event.target.value),
+                        )
+                      }
+                      className="mt-2 w-full accent-emerald-500"
+                    />
                   </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={pricingRules.demandWeight}
-                    onChange={(event) =>
-                      updateRule(
-                        "demandWeight",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 w-full accent-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                      Supply weight
-                    </span>
-
-                    <span className="text-xs font-black text-white">
-                      {pricingRules.supplyWeight}%
-                    </span>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={pricingRules.supplyWeight}
-                    onChange={(event) =>
-                      updateRule(
-                        "supplyWeight",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 w-full accent-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                      Booking velocity
-                    </span>
-
-                    <span className="text-xs font-black text-white">
-                      {pricingRules.bookingVelocityWeight}%
-                    </span>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={
-                      pricingRules.bookingVelocityWeight
-                    }
-                    onChange={(event) =>
-                      updateRule(
-                        "bookingVelocityWeight",
-                        safeNumber(event.target.value),
-                      )
-                    }
-                    className="mt-2 w-full accent-emerald-500"
-                  />
-                </div>
+                ))}
               </div>
 
               <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/[0.06] bg-white/[0.025] p-4">
                 <div>
-                  <p className="text-sm font-black text-white">
+                  <p className="text-sm font-black">
                     Automatic application
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Prepare recommendations for automated pricing
+                    Prepare automated pricing
                   </p>
                 </div>
 
@@ -2209,17 +2127,16 @@ export default function AiPricingPage() {
                       !pricingRules.autoApply,
                     )
                   }
-                  className={`relative h-7 w-13 rounded-full transition ${
+                  className={`relative h-7 w-14 rounded-full ${
                     pricingRules.autoApply
                       ? "bg-emerald-500"
                       : "bg-slate-700"
                   }`}
-                  aria-label="Toggle automatic pricing"
                 >
                   <span
-                    className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${
+                    className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${
                       pricingRules.autoApply
-                        ? "left-7"
+                        ? "left-8"
                         : "left-1"
                     }`}
                   />
@@ -2230,7 +2147,7 @@ export default function AiPricingPage() {
                 type="button"
                 onClick={savePricingRules}
                 disabled={savingRules}
-                className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-black text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-black text-slate-950 disabled:opacity-50"
               >
                 {savingRules ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -2242,15 +2159,15 @@ export default function AiPricingPage() {
               </button>
             </article>
 
-            <article className="rounded-[2rem] border border-white/[0.07] bg-slate-950/55 p-5 shadow-2xl shadow-black/25 backdrop-blur-2xl sm:p-6">
-              <div className="flex items-center justify-between gap-4">
+            <article className="rounded-[2rem] border border-white/[0.07] bg-slate-950/60 p-5 shadow-2xl shadow-black/25 sm:p-6">
+              <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-black">
                     Top opportunities
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Highest projected revenue uplift
+                    Highest revenue uplift
                   </p>
                 </div>
 
@@ -2258,16 +2175,16 @@ export default function AiPricingPage() {
               </div>
 
               <div className="mt-5 space-y-3">
-                {topOpportunityRoutes.length === 0 ? (
+                {topOpportunities.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-white/[0.08] p-6 text-center">
                     <Target className="mx-auto h-8 w-8 text-emerald-300" />
 
-                    <p className="mt-3 text-sm font-bold text-slate-300">
-                      No pricing opportunities calculated
+                    <p className="mt-3 text-sm font-black text-slate-300">
+                      No opportunities calculated
                     </p>
                   </div>
                 ) : (
-                  topOpportunityRoutes.map(
+                  topOpportunities.map(
                     (routeItem, index) => (
                       <button
                         key={routeItem.id}
@@ -2275,25 +2192,28 @@ export default function AiPricingPage() {
                         onClick={() =>
                           setSelectedRoute(routeItem)
                         }
-                        className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-3 text-left transition hover:border-emerald-400/20 hover:bg-emerald-400/[0.04]"
+                        className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-3 text-left"
                       >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-slate-300">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black">
                           {index + 1}
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-bold text-white">
-                            {routeItem.from} → {routeItem.to}
+                          <p className="truncate text-sm font-black">
+                            {routeItem.from} →{" "}
+                            {routeItem.to}
                           </p>
 
                           <p className="mt-1 text-xs text-slate-500">
-                            {routeItem.surgeMultiplier.toFixed(2)}x
-                            surge
+                            {routeItem.surgeMultiplier.toFixed(
+                              2,
+                            )}
+                            x surge
                           </p>
                         </div>
 
                         <p className="text-sm font-black text-emerald-300">
-                          {currency(
+                          {formatCurrency(
                             routeItem.revenueOpportunity,
                           )}
                         </p>
@@ -2309,46 +2229,47 @@ export default function AiPricingPage() {
 
       {selectedRoute && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-md sm:items-center sm:p-5"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md sm:items-center sm:p-5"
           role="dialog"
           aria-modal="true"
-          aria-label="Route pricing details"
         >
           <button
             type="button"
             onClick={() => setSelectedRoute(null)}
-            className="absolute inset-0 cursor-default"
+            className="absolute inset-0"
             aria-label="Close pricing details"
           />
 
           <div className="relative z-10 max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-t-[2rem] border border-white/[0.08] bg-[#030712] shadow-2xl shadow-black sm:rounded-[2rem]">
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/[0.06] bg-[#030712]/95 p-5 backdrop-blur-xl sm:p-6">
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/[0.06] bg-[#030712]/95 p-5 sm:p-6">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap gap-2">
                   <span
                     className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
-                      statusStyles[selectedRoute.status]
+                      STATUS_STYLES[selectedRoute.status]
                     }`}
                   >
-                    {statusLabels[selectedRoute.status]}
+                    {STATUS_LABELS[selectedRoute.status]}
                   </span>
 
                   <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-violet-300">
-                    {selectedRoute.surgeMultiplier.toFixed(2)}x
-                    multiplier
+                    {selectedRoute.surgeMultiplier.toFixed(
+                      2,
+                    )}
+                    x multiplier
                   </span>
                 </div>
 
                 <h2 className="mt-3 truncate text-xl font-black sm:text-2xl">
-                  {selectedRoute.from} → {selectedRoute.to}
+                  {selectedRoute.from} →{" "}
+                  {selectedRoute.to}
                 </h2>
               </div>
 
               <button
                 type="button"
                 onClick={() => setSelectedRoute(null)}
-                className="ml-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
-                aria-label="Close route pricing"
+                className="ml-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] text-slate-400"
               >
                 <XCircle className="h-5 w-5" />
               </button>
@@ -2356,69 +2277,54 @@ export default function AiPricingPage() {
 
             <div className="p-5 sm:p-7">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-3xl border border-emerald-500/15 bg-emerald-500/[0.06] p-5">
-                  <CircleDollarSign className="h-6 w-6 text-emerald-300" />
+                <MetricCard
+                  title="Recommended"
+                  value={formatCurrency(
+                    selectedRoute.recommendedPrice,
+                  )}
+                  subtitle="AI target price"
+                  icon={
+                    <CircleDollarSign className="h-6 w-6" />
+                  }
+                  tone="green"
+                />
 
-                  <p className="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Recommended price
-                  </p>
+                <MetricCard
+                  title="Current Average"
+                  value={formatCurrency(
+                    selectedRoute.averageCurrentPrice,
+                  )}
+                  subtitle="Existing route price"
+                  icon={<WalletCards className="h-6 w-6" />}
+                  tone="cyan"
+                />
 
-                  <p className="mt-2 text-3xl font-black text-emerald-300">
-                    {currency(selectedRoute.recommendedPrice)}
-                  </p>
-                </div>
+                <MetricCard
+                  title="Opportunity"
+                  value={formatCurrency(
+                    selectedRoute.revenueOpportunity,
+                  )}
+                  subtitle="Projected uplift"
+                  icon={<TrendingUp className="h-6 w-6" />}
+                  tone="purple"
+                />
 
-                <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                  <WalletCards className="h-6 w-6 text-cyan-300" />
-
-                  <p className="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Current average
-                  </p>
-
-                  <p className="mt-2 text-3xl font-black text-white">
-                    {currency(
-                      selectedRoute.averageCurrentPrice,
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                  <TrendingUp className="h-6 w-6 text-violet-300" />
-
-                  <p className="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    Revenue opportunity
-                  </p>
-
-                  <p className="mt-2 text-3xl font-black text-white">
-                    {currency(
-                      selectedRoute.revenueOpportunity,
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                  <Target className="h-6 w-6 text-amber-300" />
-
-                  <p className="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                    AI confidence
-                  </p>
-
-                  <p className="mt-2 text-3xl font-black text-white">
-                    {selectedRoute.confidence}%
-                  </p>
-                </div>
+                <MetricCard
+                  title="AI Confidence"
+                  value={`${selectedRoute.confidence}%`}
+                  subtitle="Recommendation confidence"
+                  icon={<Target className="h-6 w-6" />}
+                  tone="amber"
+                />
               </div>
 
               <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.85fr]">
                 <div className="space-y-5">
                   <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                    <div className="flex items-center gap-2">
+                    <h3 className="flex items-center gap-2 font-black">
                       <BrainCircuit className="h-5 w-5 text-emerald-300" />
-
-                      <h3 className="font-black">
-                        AI pricing recommendation
-                      </h3>
-                    </div>
+                      AI recommendation
+                    </h3>
 
                     <p className="mt-4 text-sm leading-7 text-slate-300">
                       {selectedRoute.recommendation}
@@ -2426,36 +2332,36 @@ export default function AiPricingPage() {
 
                     <div className="mt-5 grid gap-3 sm:grid-cols-3">
                       <div className="rounded-2xl border border-white/[0.05] bg-slate-950/50 p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+                        <p className="text-xs font-black uppercase text-slate-600">
                           Minimum
                         </p>
 
-                        <p className="mt-2 text-xl font-black text-white">
-                          {currency(
+                        <p className="mt-2 text-xl font-black">
+                          {formatCurrency(
                             selectedRoute.minimumRecommendedPrice,
                           )}
                         </p>
                       </div>
 
                       <div className="rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.06] p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-400/70">
+                        <p className="text-xs font-black uppercase text-emerald-400">
                           Target
                         </p>
 
                         <p className="mt-2 text-xl font-black text-emerald-300">
-                          {currency(
+                          {formatCurrency(
                             selectedRoute.recommendedPrice,
                           )}
                         </p>
                       </div>
 
                       <div className="rounded-2xl border border-white/[0.05] bg-slate-950/50 p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+                        <p className="text-xs font-black uppercase text-slate-600">
                           Maximum
                         </p>
 
-                        <p className="mt-2 text-xl font-black text-white">
-                          {currency(
+                        <p className="mt-2 text-xl font-black">
+                          {formatCurrency(
                             selectedRoute.maximumRecommendedPrice,
                           )}
                         </p>
@@ -2464,13 +2370,10 @@ export default function AiPricingPage() {
                   </div>
 
                   <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                    <div className="flex items-center gap-2">
+                    <h3 className="flex items-center gap-2 font-black">
                       <Activity className="h-5 w-5 text-cyan-300" />
-
-                      <h3 className="font-black">
-                        Marketplace pressure
-                      </h3>
-                    </div>
+                      Marketplace pressure
+                    </h3>
 
                     <div className="mt-5 space-y-5">
                       <ScoreBar
@@ -2508,121 +2411,144 @@ export default function AiPricingPage() {
 
                 <div className="space-y-5">
                   <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                    <div className="flex items-center gap-2">
-                      <Map className="h-5 w-5 text-violet-300" />
-
-                      <h3 className="font-black">
-                        Route intelligence
-                      </h3>
-                    </div>
+                    <h3 className="flex items-center gap-2 font-black">
+                      <MapIcon className="h-5 w-5 text-violet-300" />
+                      Route intelligence
+                    </h3>
 
                     <dl className="mt-5 space-y-4">
-                      {[
-                        [
-                          "Distance",
-                          `${selectedRoute.averageDistanceMiles} miles`,
-                        ],
-                        [
-                          "Duration",
-                          `${selectedRoute.averageDurationMinutes} minutes`,
-                        ],
-                        [
-                          "Total rides",
-                          selectedRoute.rides,
-                        ],
-                        [
-                          "Active rides",
-                          selectedRoute.activeRides,
-                        ],
-                        [
-                          "Available seats",
-                          selectedRoute.availableSeats,
-                        ],
-                        [
-                          "Total bookings",
-                          selectedRoute.bookings,
-                        ],
-                        [
-                          "Confirmed bookings",
-                          selectedRoute.confirmedBookings,
-                        ],
-                        [
-                          "Cancelled bookings",
-                          selectedRoute.cancelledBookings,
-                        ],
-                        [
-                          "Last calculated",
-                          formatDate(
+                      <div className="flex justify-between border-b border-white/[0.05] pb-3">
+                        <dt className="text-sm text-slate-500">
+                          Distance
+                        </dt>
+
+                        <dd className="text-sm font-black">
+                          {
+                            selectedRoute.averageDistanceMiles
+                          }{" "}
+                          miles
+                        </dd>
+                      </div>
+
+                      <div className="flex justify-between border-b border-white/[0.05] pb-3">
+                        <dt className="text-sm text-slate-500">
+                          Duration
+                        </dt>
+
+                        <dd className="text-sm font-black">
+                          {
+                            selectedRoute.averageDurationMinutes
+                          }{" "}
+                          minutes
+                        </dd>
+                      </div>
+
+                      <div className="flex justify-between border-b border-white/[0.05] pb-3">
+                        <dt className="text-sm text-slate-500">
+                          Total rides
+                        </dt>
+
+                        <dd className="text-sm font-black">
+                          {selectedRoute.rides}
+                        </dd>
+                      </div>
+
+                      <div className="flex justify-between border-b border-white/[0.05] pb-3">
+                        <dt className="text-sm text-slate-500">
+                          Active rides
+                        </dt>
+
+                        <dd className="text-sm font-black">
+                          {selectedRoute.activeRides}
+                        </dd>
+                      </div>
+
+                      <div className="flex justify-between border-b border-white/[0.05] pb-3">
+                        <dt className="text-sm text-slate-500">
+                          Available seats
+                        </dt>
+
+                        <dd className="text-sm font-black">
+                          {selectedRoute.availableSeats}
+                        </dd>
+                      </div>
+
+                      <div className="flex justify-between border-b border-white/[0.05] pb-3">
+                        <dt className="text-sm text-slate-500">
+                          Confirmed bookings
+                        </dt>
+
+                        <dd className="text-sm font-black">
+                          {
+                            selectedRoute.confirmedBookings
+                          }
+                        </dd>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <dt className="text-sm text-slate-500">
+                          Last calculated
+                        </dt>
+
+                        <dd className="text-right text-sm font-black">
+                          {formatDate(
                             selectedRoute.lastCalculatedAt ||
                               selectedRoute.updatedAt,
-                          ),
-                        ],
-                      ].map(([label, value]) => (
-                        <div
-                          key={String(label)}
-                          className="flex items-center justify-between gap-4 border-b border-white/[0.05] pb-3 last:border-0 last:pb-0"
-                        >
-                          <dt className="text-sm text-slate-500">
-                            {label}
-                          </dt>
-
-                          <dd className="text-right text-sm font-black text-slate-200">
-                            {value}
-                          </dd>
-                        </div>
-                      ))}
+                          )}
+                        </dd>
+                      </div>
                     </dl>
                   </div>
 
                   <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-5">
-                    <div className="flex items-center gap-2">
+                    <h3 className="flex items-center gap-2 font-black">
                       <ShieldCheck className="h-5 w-5 text-emerald-300" />
-
-                      <h3 className="font-black">
-                        Pricing action
-                      </h3>
-                    </div>
+                      Pricing action
+                    </h3>
 
                     <p className="mt-3 text-sm leading-6 text-slate-500">
-                      Apply the AI recommendation to the route pricing
-                      record and matching ride documents.
+                      Apply the recommendation to matching ride
+                      documents.
                     </p>
 
                     <button
                       type="button"
                       onClick={() =>
-                        applyRecommendedPrice(selectedRoute)
+                        applyRecommendedPrice(
+                          selectedRoute,
+                        )
                       }
                       disabled={
                         applyingRouteId === selectedRoute.id
                       }
-                      className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-black text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 text-sm font-black text-slate-950 disabled:opacity-50"
                     >
-                      {applyingRouteId === selectedRoute.id ? (
+                      {applyingRouteId ===
+                      selectedRoute.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <CheckCircle2 className="h-4 w-4" />
                       )}
 
-                      Apply {currency(
+                      Apply{" "}
+                      {formatCurrency(
                         selectedRoute.recommendedPrice,
-                      )} recommendation
+                      )}
                     </button>
 
-                    {selectedRoute.appliedPrice !== undefined && (
+                    {selectedRoute.appliedPrice !==
+                      undefined && (
                       <div className="mt-4 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.06] p-4">
-                        <div className="flex items-center gap-2 text-emerald-300">
+                        <p className="flex items-center gap-2 text-sm font-black text-emerald-300">
                           <CheckCircle2 className="h-4 w-4" />
+                          Recommendation applied
+                        </p>
 
-                          <p className="text-sm font-black">
-                            Recommendation applied
-                          </p>
-                        </div>
-
-                        <p className="mt-2 text-xs leading-5 text-emerald-100/70">
-                          {currency(
+                        <p className="mt-2 text-xs text-emerald-100/70">
+                          {formatCurrency(
                             selectedRoute.appliedPrice,
-                          )} applied{" "}
+                          )}{" "}
+                          applied{" "}
                           {formatRelative(
                             selectedRoute.appliedAt,
                           )}
@@ -2635,11 +2561,11 @@ export default function AiPricingPage() {
                     <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4">
                       <CalendarDays className="h-5 w-5 text-cyan-300" />
 
-                      <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+                      <p className="mt-3 text-xs font-black uppercase text-slate-600">
                         Pricing window
                       </p>
 
-                      <p className="mt-1 text-sm font-black text-slate-300">
+                      <p className="mt-1 text-sm font-black">
                         Dynamic
                       </p>
                     </div>
@@ -2647,11 +2573,11 @@ export default function AiPricingPage() {
                     <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4">
                       <Clock3 className="h-5 w-5 text-amber-300" />
 
-                      <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+                      <p className="mt-3 text-xs font-black uppercase text-slate-600">
                         Recalculation
                       </p>
 
-                      <p className="mt-1 text-sm font-black text-slate-300">
+                      <p className="mt-1 text-sm font-black">
                         On demand
                       </p>
                     </div>
@@ -2659,11 +2585,11 @@ export default function AiPricingPage() {
                     <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4">
                       <UsersRound className="h-5 w-5 text-violet-300" />
 
-                      <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+                      <p className="mt-3 text-xs font-black uppercase text-slate-600">
                         Demand model
                       </p>
 
-                      <p className="mt-1 text-sm font-black text-slate-300">
+                      <p className="mt-1 text-sm font-black">
                         Marketplace
                       </p>
                     </div>
@@ -2671,14 +2597,15 @@ export default function AiPricingPage() {
                     <div className="rounded-3xl border border-white/[0.06] bg-white/[0.025] p-4">
                       <Percent className="h-5 w-5 text-emerald-300" />
 
-                      <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-600">
+                      <p className="mt-3 text-xs font-black uppercase text-slate-600">
                         Platform fee
                       </p>
 
-                      <p className="mt-1 text-sm font-black text-slate-300">
-                        {percentage(
-                          pricingRules.platformFeePercent,
-                        )}
+                      <p className="mt-1 text-sm font-black">
+                        {
+                          pricingRules.platformFeePercent
+                        }
+                        %
                       </p>
                     </div>
                   </div>
@@ -2690,4 +2617,4 @@ export default function AiPricingPage() {
       )}
     </main>
   );
-}
+  }
