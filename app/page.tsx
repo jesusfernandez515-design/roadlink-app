@@ -46,6 +46,10 @@ export default function Home() {
     let unsubscribeNotifications: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeProfile?.();
+      unsubscribeRides?.();
+      unsubscribeBookings?.();
+      unsubscribeNotifications?.();
       if (!user) {
         setProfile({});
         setAvatar("R");
@@ -56,6 +60,7 @@ export default function Home() {
       }
 
       const userEmail = user.email || "";
+      setProfile({ name: user.displayName || "RoadLink User", email: userEmail, photoURL: user.photoURL || "" });
       setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
 
       unsubscribeProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {

@@ -61,9 +61,12 @@ export default function FindRidePage() {
         ...item.data(),
       })) as Ride[];
 
-      const sorted = ridesData.sort((a, b) => {
-        const dateA = new Date(`${a.date || ""} ${a.time || ""}`).getTime();
-        const dateB = new Date(`${b.date || ""} ${b.time || ""}`).getTime();
+      const sorted = ridesData.filter((ride) => {
+        const departure = new Date(`${ride.date}T${ride.time}`).getTime();
+        return Number.isFinite(departure) && departure > Date.now() && Number(ride.seats) > 0;
+      }).sort((a, b) => {
+        const dateA = new Date(`${a.date}T${a.time}`).getTime();
+        const dateB = new Date(`${b.date}T${b.time}`).getTime();
         return dateA - dateB;
       });
 
@@ -217,6 +220,11 @@ export default function FindRidePage() {
         const liveRide = rideSnap.data() as Ride;
         const liveSeats = Number(liveRide.seats || 0);
         const liveStatus = String(liveRide.status || "");
+
+        const departure = new Date(`${liveRide.date}T${liveRide.time}`).getTime();
+        if (!Number.isFinite(departure) || departure <= Date.now()) {
+          throw new Error("This ride has already departed or has an invalid departure time.");
+        }
 
         if (liveStatus !== "active") {
           throw new Error("This ride is no longer active.");
