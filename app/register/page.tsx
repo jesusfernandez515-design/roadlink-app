@@ -142,7 +142,7 @@ export default function RegisterPage() {
       const user = userCredential.user;
 
       await sendEmailVerification(user, {
-        url: "https://getroadlink.com/auth/action",
+        url: `${window.location.origin}/auth/action`,
         handleCodeInApp: false,
       });
 

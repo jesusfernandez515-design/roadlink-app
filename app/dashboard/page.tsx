@@ -66,6 +66,11 @@ export default function DashboardPage() {
     let unsubscribeNotifications: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeProfile?.();
+      unsubscribeRides?.();
+      unsubscribeDriverBookings?.();
+      unsubscribePassengerBookings?.();
+      unsubscribeNotifications?.();
       if (!user) {
         setProfile({});
         setAvatar("R");
@@ -78,6 +83,7 @@ export default function DashboardPage() {
       }
 
       const userEmail = user.email || "";
+      setProfile({ name: user.displayName || "RoadLink User", email: userEmail, photoURL: user.photoURL || "" });
       setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
       setMessage("");
 

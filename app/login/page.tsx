@@ -68,7 +68,7 @@ export default function LoginPage() {
 
       if (!user.emailVerified) {
         await sendEmailVerification(user, {
-          url: "https://getroadlink.com/auth/action",
+          url: `${window.location.origin}/auth/action`,
           handleCodeInApp: false,
         });
 
@@ -134,7 +134,7 @@ export default function LoginPage() {
       setMessage("");
 
       await sendPasswordResetEmail(auth, cleanEmail, {
-        url: "https://getroadlink.com/login",
+        url: `${window.location.origin}/login`,
         handleCodeInApp: false,
       });
 
