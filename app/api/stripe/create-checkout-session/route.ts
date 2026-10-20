@@ -6,13 +6,15 @@ import { db } from "../../../../lib/firebase";
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.getroadlink.com";
 
-if (!stripeSecretKey) {
-  throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
-}
-
-const stripe = new Stripe(stripeSecretKey);
-
 export async function POST(request: NextRequest) {
+  if (!stripeSecretKey) {
+    return NextResponse.json(
+      { error: "Payment service is not configured." },
+      { status: 503 }
+    );
+  }
+
+  const stripe = new Stripe(stripeSecretKey);
   try {
     const body = await request.json();
 

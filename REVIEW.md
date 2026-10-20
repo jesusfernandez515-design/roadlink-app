@@ -19,9 +19,16 @@ Reviewed repository baseline: 8dcebe5. This is a source review, not a production
 - Confirm what evidence supports verified-driver badges, and review language/branding with browser translation disabled.
 
 ## Delivery
-Changes are local on fix/demo-readiness. No push, production data changes or deployment has been performed.
+Changes are available for review in GitHub PR #4 on fix/demo-readiness. No merge or production data changes have been performed. Vercel runs preview deployments automatically.
 
 ## Validation results
 - TypeScript: passed (`tsc --noEmit --incremental false`).
 - Diff whitespace check: passed.
 - Production build: compilation and type checks passed, then page-data collection stopped because STRIPE_SECRET_KEY is not configured in this environment. Full production build and runtime behavior remain unverified.
+
+## Follow-up validation
+- Moved Stripe client initialization into POST handlers. Without STRIPE_SECRET_KEY, payment routes return HTTP 503 instead of throwing during build-time module loading.
+- Full `npm run build`: passed, including generation of 164 pages.
+- Production server smoke check: both Stripe POST endpoints returned the expected 503 JSON with no configured key; /, /dashboard, /find-ride, /profile and /messages returned HTTP 200. Page delivery is not authenticated end-to-end validation.
+- GitHub reported two Vercel projects for the initial PR commit: roadlink-app failed and roadlink-app-pgl6 succeeded. The failure cause has not been confirmed from deployment logs.
+- Two-account tests remain blocked on an isolated Firebase test environment: lib/firebase.ts currently points to the production project. No new accounts, rides or bookings were created.

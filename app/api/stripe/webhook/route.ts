@@ -6,13 +6,15 @@ import { db } from "../../../../lib/firebase";
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-if (!stripeSecretKey) {
-  throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
-}
-
-const stripe = new Stripe(stripeSecretKey);
-
 export async function POST(request: NextRequest) {
+  if (!stripeSecretKey) {
+    return NextResponse.json(
+      { error: "Payment service is not configured." },
+      { status: 503 }
+    );
+  }
+
+  const stripe = new Stripe(stripeSecretKey);
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
 
