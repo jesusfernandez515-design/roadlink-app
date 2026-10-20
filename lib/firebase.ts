@@ -35,7 +35,8 @@ if (app.options.projectId !== firebaseConfig.projectId) {
 }
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// The isolated test project uses a named database, not Firestore's (default).
+export const db = environment === "test" ? getFirestore(app, "default") : getFirestore(app);
 export const storage = getStorage(app);
 
 export default app;
