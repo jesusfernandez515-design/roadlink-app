@@ -35,6 +35,7 @@ type Booking = {
   status?: string;
   seatsBooked?: number;
   paymentStatus?: string;
+  driverAmount?: number;
 };
 
 export default function MyRidesPage() {
@@ -137,15 +138,12 @@ export default function MyRidesPage() {
   }, [rides]);
 
   const reservedSeats = bookings
-    .filter((booking) => booking.status === "reserved")
+    .filter((booking) => ["reserved", "payment_pending", "paid", "confirmed"].includes(booking.status || ""))
     .reduce((total, booking) => total + Number(booking.seatsBooked || 1), 0);
 
   const estimatedEarnings = bookings
-    .filter((booking) => booking.status === "reserved" || booking.status === "completed")
-    .reduce((total, booking) => {
-      const ride = rides.find((item) => item.id === booking.rideId);
-      return total + Number(ride?.price || 0) * Number(booking.seatsBooked || 1);
-    }, 0);
+    .filter((booking) => booking.status === "completed" && booking.paymentStatus === "paid")
+    .reduce((total, booking) => total + Number(booking.driverAmount || 0), 0);
 
   function getPassengersForRide(rideId: string) {
     return bookings.filter(
@@ -681,7 +679,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
       <span className="metricLabel">{label}</span>
-      <div className="metricValue">{value}</div>
+      <div className="metricValue" translate="no"><span key={value}>{value}</span></div>
     </div>
   );
 }
