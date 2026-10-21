@@ -45,6 +45,13 @@ export default function MyBookingsPage() {
     let unsubscribeByEmail: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeByUid?.();
+      unsubscribeByEmail?.();
+      unsubscribeByUid = undefined;
+      unsubscribeByEmail = undefined;
+      setBookings([]);
+      setUserId(user?.uid || "");
+      setUserEmail(user?.email || "");
       if (!user) {
         setMessage("Please sign in to view your bookings.");
         setBookings([]);
@@ -57,6 +64,7 @@ export default function MyBookingsPage() {
       setUserEmail(email);
 
       const mergeBookings = (uidBookings: Booking[], emailBookings: Booking[]) => {
+        if (auth.currentUser?.uid !== user.uid) return;
         const map = new Map<string, Booking>();
 
         [...uidBookings, ...emailBookings].forEach((booking) => {
@@ -251,7 +259,7 @@ export default function MyBookingsPage() {
           </div>
 
           <div className="scoreOrb">
-            <strong>{bookings.length}</strong>
+            <strong translate="no">{bookings.length}</strong>
             <span>Total Bookings</span>
           </div>
         </section>
@@ -704,7 +712,7 @@ function Metric({ icon, label, value }: { icon: string; label: string; value: st
     <div className="metric">
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
-      <div className="metricValue">{value}</div>
+      <div className="metricValue" translate="no"><span key={value}>{value}</span></div>
     </div>
   );
 }
