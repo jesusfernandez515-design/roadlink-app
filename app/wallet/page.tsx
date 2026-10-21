@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { isPendingBooking, retainedPayment } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -40,6 +41,7 @@ type WalletTransaction = {
   passengerEmail?: string;
   amount?: number;
   grossAmount?: number;
+  refundedCents?: number;
   platformFee?: number;
   type?: string;
   status?: string;
@@ -185,25 +187,15 @@ export default function WalletPage() {
 
   const completedBookings = useMemo(
     () =>
-      bookings.filter(
-        (item) =>
-          item.status === "completed" ||
-          item.paymentStatus === "paid" ||
-          item.status === "paid"
+      bookings.filter((item) =>
+        item.paymentStatus === "paid" || item.paymentStatus === "partially_refunded"
       ),
     [bookings]
   );
 
   const pendingBookings = useMemo(
     () =>
-      bookings.filter(
-        (item) =>
-          item.status === "reserved" ||
-          item.status === "confirmed" ||
-          item.status === "payment_pending" ||
-          item.paymentStatus === "pending" ||
-          item.paymentStatus === "unpaid"
-      ),
+      bookings.filter(isPendingBooking),
     [bookings]
   );
 
@@ -221,18 +213,18 @@ export default function WalletPage() {
   );
 
   const lifetimeGross = useMemo(
-    () => completedBookings.reduce((total, item) => total + bookingGross(item), 0),
-    [completedBookings]
+    () => walletTransactions.reduce((total, item) => total + retainedPayment(item).gross, 0),
+    [walletTransactions]
   );
 
   const lifetimeFees = useMemo(
-    () => completedBookings.reduce((total, item) => total + bookingFee(item), 0),
-    [completedBookings]
+    () => walletTransactions.reduce((total, item) => total + retainedPayment(item).fee, 0),
+    [walletTransactions]
   );
 
   const lifetimeNetFromBookings = useMemo(
-    () => completedBookings.reduce((total, item) => total + bookingNet(item), 0),
-    [completedBookings]
+    () => walletTransactions.reduce((total, item) => total + retainedPayment(item).net, 0),
+    [walletTransactions]
   );
 
   const walletNet = useMemo(
@@ -266,7 +258,7 @@ export default function WalletPage() {
   );
 
   const currentBalance = Math.max(
-    (walletTransactions.length ? walletNet : lifetimeNetFromBookings) - totalPaidOut,
+    walletNet - totalPaidOut,
     0
   );
 
