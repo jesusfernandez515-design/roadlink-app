@@ -78,6 +78,8 @@ export default function WalletPage() {
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [message, setMessage] = useState("Loading wallet...");
+  const [reads, setReads] = useState<Record<string, boolean>>({});
+  const walletReady = ["profile", "bookings", "wallet", "payouts"].every((key) => reads[key]);
   const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
@@ -86,7 +88,25 @@ export default function WalletPage() {
     let unsubscribeWallet: (() => void) | undefined;
     let unsubscribePayouts: (() => void) | undefined;
 
+    let generation = 0;
+    const stop = () => {
+      unsubscribeUser?.(); unsubscribeBookings?.();
+      unsubscribeWallet?.(); unsubscribePayouts?.();
+    };
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      stop();
+      const current = ++generation;
+      const active = () => generation === current && auth.currentUser?.uid === user?.uid;
+      setReads({});
+      setBanking({}); setBookings([]); setWalletTransactions([]); setPayouts([]);
+      const loaded = (key: string, cached: boolean) => {
+        if (active()) setReads((previous) => ({ ...previous, [key]: !cached }));
+      };
+      const failed = (key: string, code: string) => {
+        if (!active()) return;
+        setReads((previous) => ({ ...previous, [key]: false }));
+        setMessage(`No se pudo verificar la cartera (${key}: ${code}). Recarga la página. Los importes están ocultos hasta completar la lectura.`);
+      };
       if (!user) {
         setUserId("");
         setUserEmail("");
@@ -104,29 +124,37 @@ export default function WalletPage() {
 
       unsubscribeUser = onSnapshot(
         doc(db, "users", user.uid),
+        { includeMetadataChanges: true },
         (snapshot) => {
+          if (!active()) return;
           const data = snapshot.data() as UserProfile | undefined;
+          loaded("profile", snapshot.metadata.fromCache);
           setBanking(data?.banking || {});
         },
-        (error) => setMessage(error.message)
+        (error) => failed("profile", error.code)
       );
 
       unsubscribeBookings = onSnapshot(
         query(collection(db, "bookings"), where("driverId", "==", user.uid)),
+        { includeMetadataChanges: true },
         (snapshot) => {
+          if (!active()) return;
           const data = snapshot.docs.map((item) => ({
             id: item.id,
             ...item.data(),
           })) as Booking[];
 
           setBookings(data);
+          loaded("bookings", snapshot.metadata.fromCache);
         },
-        (error) => setMessage(error.message)
+        (error) => failed("bookings", error.code)
       );
 
       unsubscribeWallet = onSnapshot(
         query(collection(db, "walletTransactions"), where("driverId", "==", user.uid)),
+        { includeMetadataChanges: true },
         (snapshot) => {
+          if (!active()) return;
           const data = snapshot.docs.map((item) => ({
             id: item.id,
             ...item.data(),
@@ -137,15 +165,16 @@ export default function WalletPage() {
           );
 
           setWalletTransactions(data);
+          loaded("wallet", snapshot.metadata.fromCache);
         },
-        () => {
-          setWalletTransactions([]);
-        }
+        (error) => failed("wallet", error.code)
       );
 
       unsubscribePayouts = onSnapshot(
         query(collection(db, "payoutRequests"), where("userId", "==", user.uid)),
+        { includeMetadataChanges: true },
         (snapshot) => {
+          if (!active()) return;
           const data = snapshot.docs.map((item) => ({
             id: item.id,
             ...item.data(),
@@ -156,17 +185,16 @@ export default function WalletPage() {
           );
 
           setPayouts(data);
+          loaded("payouts", snapshot.metadata.fromCache);
         },
-        (error) => setMessage(error.message)
+        (error) => failed("payouts", error.code)
       );
     });
 
     return () => {
+      generation++;
       unsubscribeAuth();
-      if (unsubscribeUser) unsubscribeUser();
-      if (unsubscribeBookings) unsubscribeBookings();
-      if (unsubscribeWallet) unsubscribeWallet();
-      if (unsubscribePayouts) unsubscribePayouts();
+      stop();
     };
   }, []);
 
@@ -312,6 +340,7 @@ export default function WalletPage() {
   }, [completedBookings, payouts, walletTransactions]);
 
   async function requestPayout() {
+    if (!walletReady) return;
     if (!userId) {
       setMessage("Please sign in first.");
       return;
@@ -384,7 +413,7 @@ export default function WalletPage() {
   }
 
   function money(value?: number) {
-    return `$${Number(value || 0).toFixed(2)}`;
+    return walletReady ? `$${Number(value || 0).toFixed(2)}` : "—";
   }
 
   function formatDate(value?: string) {
@@ -462,7 +491,7 @@ export default function WalletPage() {
         <Metric icon="⏳" label="Pending Trips" value={money(pendingBalance)} />
         <Metric icon="📤" label="Requested" value={money(activePayoutRequests)} />
         <Metric icon="💸" label="Paid Out" value={money(totalPaidOut)} />
-        <Metric icon="🚗" label="Completed Trips" value={String(completedBookings.length)} />
+        <Metric icon="🚗" label="Completed Trips" value={walletReady ? String(completedBookings.length) : "—"} />
       </section>
 
       <section className="payoutCard">
@@ -473,7 +502,7 @@ export default function WalletPage() {
           <p>Pending or approved payout requests are reserved and not counted as available money.</p>
         </div>
 
-        <button onClick={requestPayout} disabled={requesting || availableBalance <= 0}>
+        <button onClick={requestPayout} disabled={!walletReady || requesting || availableBalance <= 0}>
           {requesting ? "Requesting..." : "Request Payout"}
         </button>
       </section>
@@ -510,7 +539,12 @@ export default function WalletPage() {
         <p className="eyebrow">Wallet Transactions</p>
         <h2>Activity History</h2>
 
-        {walletActivity.length === 0 ? (
+        {!walletReady ? (
+          <div className="emptyCard" role="status">
+            <h3>Historial sin verificar</h3>
+            <p>Esperando la lectura del servidor. Esto no significa que tu historial esté vacío.</p>
+          </div>
+        ) : walletActivity.length === 0 ? (
           <div className="emptyCard">
             <h3>No wallet activity yet</h3>
             <p>Completed ride earnings, wallet transactions and payouts will appear here.</p>
