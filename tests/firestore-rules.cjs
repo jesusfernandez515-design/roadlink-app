@@ -13,6 +13,7 @@ before(async () => {
  await setDoc(doc(db,'users',driver),{email:'d@example.com',role:'driver'});
  await setDoc(doc(db,'rides','r'),{driverId:driver,seats:2,originalSeats:2,status:'active'});
  await setDoc(doc(db,'payments','p'),{driverId:driver,passengerId:passenger,status:'pending'});
+ await setDoc(doc(db,'payoutRequests','request'),{userId:driver,amount:8.8,status:'pending'});
  });
 });
 after(async()=>env?.cleanup());
@@ -35,4 +36,11 @@ test('profile updates cannot escalate roles or read other private profiles',asyn
  await assertFails(updateDoc(doc(db,'users',passenger),{role:'admin'}));
  await assertFails(getDoc(doc(db,'users',driver)));
  await assertFails(setDoc(doc(db,'stripeEvents','fake'),{processed:true}));
+});
+test('driver can read own payout history but cannot forge payouts or read another account history',async()=>{
+ const db=user(driver,'d@example.com');
+ await assertSucceeds(getDocs(query(collection(db,'payoutRequests'),where('userId','==',driver))));
+ await assertFails(getDoc(doc(user(passenger,'p@example.com'),'payoutRequests','request')));
+ await assertFails(setDoc(doc(db,'payoutRequests','forged'),{userId:driver,amount:10000}));
+ await assertFails(updateDoc(doc(db,'payoutRequests','request'),{status:'paid'}));
 });

@@ -33,6 +33,9 @@ service cloud.firestore {
     match /bookings/{id} { allow read: if own(resource.data); }
     match /payments/{id} { allow read: if own(resource.data); }
     match /walletTransactions/{id} { allow read: if pilot() && (resource.data.driverId == request.auth.uid || resource.data.get('driverEmail', '') == request.auth.token.email); }
+    match /payoutRequests/{id} {
+      allow read: if pilot() && resource.data.userId == request.auth.uid;
+    }
     match /notifications/{id} {
       allow read: if pilot() && (resource.data.get('userId', '') == request.auth.uid || resource.data.get('email', '') == request.auth.token.email);
       allow update: if pilot() && resource.data.get('userId', '') == request.auth.uid
