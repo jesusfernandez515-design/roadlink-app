@@ -230,7 +230,7 @@ export default function WalletPage() {
   const walletPendingTransactions = useMemo(
     () =>
       walletTransactions.filter(
-        (item) => item.status === "pending_payout" || item.status === "available"
+        (item) => item.status === "available"
       ),
     [walletTransactions]
   );
@@ -265,8 +265,8 @@ export default function WalletPage() {
   );
 
   const pendingBalance = useMemo(
-    () => pendingBookings.reduce((total, item) => total + bookingNet(item), 0),
-    [pendingBookings]
+    () => walletTransactions.filter((item) => item.status === "pending_payout").reduce((total, item) => total + Number(item.amount || 0), 0),
+    [walletTransactions]
   );
 
   const totalPaidOut = useMemo(
@@ -286,7 +286,7 @@ export default function WalletPage() {
   );
 
   const currentBalance = Math.max(
-    walletNet - totalPaidOut,
+    walletNet,
     0
   );
 
@@ -491,7 +491,7 @@ export default function WalletPage() {
         <Metric icon="⏳" label="Pending Trips" value={money(pendingBalance)} />
         <Metric icon="📤" label="Requested" value={money(activePayoutRequests)} />
         <Metric icon="💸" label="Paid Out" value={money(totalPaidOut)} />
-        <Metric icon="🚗" label="Completed Trips" value={walletReady ? String(completedBookings.length) : "—"} />
+        <Metric icon="🚗" label="Completed Trips" value={walletReady ? String(bookings.filter((item) => item.status === "completed").length) : "—"} />
       </section>
 
       <section className="payoutCard">

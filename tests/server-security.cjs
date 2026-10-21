@@ -47,3 +47,22 @@ test('server authentication verifies the bearer token, revocation, email and pri
  claims={...claims,email_verified:true,uid:'outsider'};await assert.rejects(out.exports.requirePassenger(req('signed-token')),e=>e.status===403);
  }finally{if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
 });
+test('driver confirms and completes paid trips once; foreign and premature completion fail',async()=>{
+ const seed={'rides/r':{...ride,date:'2020-01-01',durationMinutes:18},'bookings/b':{...booking,status:'paid',paymentStatus:'paid',paymentId:'pay'},'walletTransactions/wallet-pay':{bookingId:'b',driverId:'d',status:'pending_payout',amount:8.8}};
+ const driver=harness(seed,{uid:'d',email:'d@example.com',email_verified:true});
+ const invoke=async(h,action)=>h.load('app/api/bookings/driver-action/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({bookingId:'b',action})}));
+ assert.equal((await invoke(harness(seed),'confirm')).status,403);
+ assert.equal((await invoke(driver,'complete')).status,409);
+ assert.equal((await invoke(driver,'confirm')).status,200);
+ assert.equal((await invoke(driver,'confirm')).status,200);
+ assert.equal((await invoke(driver,'complete')).status,200);
+ assert.equal(driver.db.rows.get('walletTransactions/wallet-pay').status,'available');
+ assert.equal(driver.db.rows.get('rides/r').status,'completed');
+ const notifications=[...driver.db.rows.keys()].filter(k=>k.startsWith('notifications/')).length;
+ assert.equal((await invoke(driver,'complete')).status,200);
+ assert.equal([...driver.db.rows.keys()].filter(k=>k.startsWith('notifications/')).length,notifications);
+ const future=harness({...seed,'rides/r':{...ride,durationMinutes:18},'bookings/b':{...seed['bookings/b'],status:'confirmed'}},{uid:'d'});
+ assert.equal((await invoke(future,'complete')).status,409);
+ const refunded=harness({...seed,'bookings/b':{...seed['bookings/b'],paymentStatus:'refunded'}},{uid:'d'});
+ assert.equal((await invoke(refunded,'confirm')).status,409);
+});

@@ -71,10 +71,12 @@ export async function POST(request: Request) {
         if (!Number.isSafeInteger(cents) || cents <= 0 || charge.amount !== cents || !Number.isSafeInteger(refunded) || refunded < 0 || refunded > cents || charge.currency !== "usd") {
           throw new ApiError(409, "Refund amount mismatch.");
         }
+        const walletRef = db.collection("walletTransactions").doc(`wallet-${paymentRef.id}`);
+        const wallet = (await tx.get(walletRef)).data();
         const full = refunded === cents;
         tx.update(paymentRef, { refundedCents: refunded, status: full ? "refunded" : "partially_refunded", updatedAt: now });
         tx.update(db.collection("bookings").doc(payment.bookingId), { paymentStatus: full ? "refunded" : "partially_refunded", updatedAt: now });
-        tx.update(db.collection("walletTransactions").doc(`wallet-${paymentRef.id}`), { amount: Math.round(payment.driverAmount * (1 - refunded / cents) * 100) / 100, refundedCents: refunded, status: full ? "refunded" : "pending_payout", updatedAt: now });
+        tx.update(db.collection("walletTransactions").doc(`wallet-${paymentRef.id}`), { amount: Math.round(payment.driverAmount * (1 - refunded / cents) * 100) / 100, refundedCents: refunded, status: full ? "refunded" : wallet?.status === "available" ? "available" : "pending_payout", updatedAt: now });
         tx.set(eventRef, { type: event.type, processedAt: now });
       });
     }
