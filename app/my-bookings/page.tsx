@@ -4,12 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  addDoc,
   collection,
   doc,
   onSnapshot,
   query,
-  runTransaction,
   where,
 } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
@@ -160,15 +158,16 @@ export default function MyBookingsPage() {
       setPayingId(booking.id);
       setMessage("Opening secure Stripe Checkout...");
 
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Please sign in first.");
       const response = await fetch("/api/stripe/create-checkout-session", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           bookingId: booking.id,
-          userId,
-          userEmail: userEmail || booking.passengerEmail || "",
         }),
       });
 
@@ -189,51 +188,15 @@ export default function MyBookingsPage() {
     if (!booking.id) return;
 
     try {
-      const now = new Date().toISOString();
-
-      const bookingRef = doc(db, "bookings", booking.id);
-      const notificationRef = doc(collection(db, "notifications"));
-      await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(bookingRef);
-        if (!snapshot.exists()) throw new Error("Booking no longer exists.");
-        const current = snapshot.data();
-        if (current.passengerId !== auth.currentUser?.uid) {
-          throw new Error("You can only cancel your own booking.");
-        }
-        if (["cancelled", "rejected"].includes(current.status)) return;
-        if (current.status === "completed") throw new Error("Completed bookings cannot be cancelled.");
-        if (current.paymentStatus === "paid" || current.paymentId) {
-          throw new Error("Paid bookings require a refund review before cancellation.");
-        }
-        if (!current.rideId) throw new Error("Booking has no linked ride.");
-        const rideRef = doc(db, "rides", current.rideId);
-        const rideSnapshot = await transaction.get(rideRef);
-        if (!rideSnapshot.exists()) throw new Error("Linked ride no longer exists.");
-        const ride = rideSnapshot.data();
-        const seatsBooked = Number(current.seatsBooked || 1);
-        const available = Number(ride.seats || 0);
-        if (!Number.isInteger(seatsBooked) || seatsBooked <= 0 || !Number.isFinite(available)) {
-          throw new Error("Invalid seat count.");
-        }
-        transaction.update(bookingRef, { status: "cancelled", updatedAt: now });
-        transaction.update(rideRef, {
-          seats: available + seatsBooked,
-          ...(ride.status === "full" ? { status: "active" } : {}),
-          updatedAt: now,
-        });
-        transaction.set(notificationRef, {
-          userId: current.driverId || "",
-          email: current.driverEmail || "",
-          title: "Booking cancelled",
-          message: `${userEmail || "Passenger"} cancelled a booking.`,
-          type: "booking",
-          read: false,
-          bookingId: booking.id,
-          rideId: current.rideId,
-          createdAt: now,
-        });
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Please sign in first.");
+      const response = await fetch("/api/bookings/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bookingId: booking.id }),
       });
-
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not cancel booking.");
       setMessage("Booking cancelled.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not cancel booking.");
@@ -245,7 +208,7 @@ export default function MyBookingsPage() {
   }
 
   function money(value: number) {
-    return `$${Math.round(value).toLocaleString()}`;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
   }
 
   function statusLabel(status?: string, paymentStatus?: string) {
