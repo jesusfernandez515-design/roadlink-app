@@ -66,3 +66,21 @@ test('driver confirms and completes paid trips once; foreign and premature compl
  const refunded=harness({...seed,'bookings/b':{...seed['bookings/b'],paymentStatus:'refunded'}},{uid:'d'});
  assert.equal((await invoke(refunded,'confirm')).status,409);
 });
+test('test schedule adjustment is scoped, idempotent and unavailable in production',async()=>{
+ const id='UWfkcqsR5lRSwIxqghk5_DefaRi3pT2c5ZKs5gwc66lywFWN2', uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3';
+ const seed={'rides/r':{...ride,driverId:uid,durationMinutes:18},['bookings/'+id]:{...booking,driverId:uid,status:'confirmed',paymentStatus:'paid',stripeCheckoutSessionId:'cs_test_scoped'}};
+ const h=harness(seed,{uid});
+ const invoke=(h,bookingId=id)=>h.load('app/api/bookings/test-arrival/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({bookingId})}));
+ const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;
+ try {
+  process.env.NEXT_PUBLIC_ROADLINK_ENV='production';assert.equal((await invoke(h)).status,404);
+  process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+  assert.equal((await invoke(harness(seed))).status,403);
+  assert.equal((await invoke(h,'other')).status,403);
+  assert.equal((await invoke(h)).status,200);
+  const adjusted=h.db.rows.get('rides/r');assert(Date.parse(adjusted.date+'T00:00:00-04:00')<Date.now());assert.equal(adjusted.originalTestSchedule.date,ride.date);
+  assert.equal(h.db.rows.get('bookings/'+id).status,'confirmed');
+  assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('walletTransactions/')).length,0);
+  assert.equal((await invoke(h)).status,200);assert.deepEqual(h.db.rows.get('rides/r'),adjusted);
+ } finally { if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous; }
+});

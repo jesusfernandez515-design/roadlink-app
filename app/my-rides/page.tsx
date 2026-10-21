@@ -46,18 +46,18 @@ export default function MyRidesPage() {
   const [message, setMessage] = useState("Loading your rides...");
 
   const [busy, setBusy] = useState(false);
-  async function driverAction(bookingId: string, action: "confirm" | "complete") {
+  async function driverAction(bookingId: string, action: "confirm" | "complete" | "test-arrival") {
     if (busy || !auth.currentUser) return;
     setBusy(true);
     try {
       const token = await auth.currentUser.getIdToken();
-      const response = await fetch("/api/bookings/driver-action", {
+      const response = await fetch(action === "test-arrival" ? "/api/bookings/test-arrival" : "/api/bookings/driver-action", {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ bookingId, action }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "No se pudo actualizar la reserva.");
-      setMessage(action === "confirm" ? "Reserva confirmada." : "Viaje terminado; importe habilitado en la cartera de pruebas.");
+      setMessage(action === "test-arrival" ? "Fecha ficticia ajustada. Ya puedes probar Finalizar viaje del pasajero." : action === "confirm" ? "Reserva confirmada." : "Viaje terminado; importe habilitado en la cartera de pruebas.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo actualizar."); }
     finally { setBusy(false); }
   }
@@ -218,6 +218,11 @@ export default function MyRidesPage() {
             <span>{booking.passengerEmail || "Pasajero"} · {booking.status} · {booking.paymentStatus || "unpaid"}</span>
             {booking.paymentStatus === "paid" && booking.status === "paid" && (
               <button className="miniButton" disabled={busy} onClick={() => driverAction(booking.id, "confirm")}>Confirmar reserva</button>
+            )}
+            {process.env.NEXT_PUBLIC_ROADLINK_ENV === "test" && booking.id === "UWfkcqsR5lRSwIxqghk5_DefaRi3pT2c5ZKs5gwc66lywFWN2" && booking.paymentStatus === "paid" && booking.status === "confirmed" && (
+              <button className="miniButton" disabled={busy} onClick={() => {
+                if (window.confirm("Solo pruebas: ¿mover este viaje ficticio a ayer para comprobar su finalización?")) void driverAction(booking.id, "test-arrival");
+              }}>Prueba: ajustar fecha a ayer</button>
             )}
             {booking.paymentStatus === "paid" && booking.status === "confirmed" && (
               <button className="miniButton" disabled={busy} onClick={() => {
