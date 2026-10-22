@@ -357,7 +357,7 @@ export default function WalletPage() {
           <p>Una transferencia al saldo Stripe no equivale a un depósito en el banco.</p>
         </div>
         <button className="manageButton" disabled={!testConnect || requesting} onClick={() => connectAction("onboard")}>Conectar o completar Stripe</button>
-        {connect?.connected && <button className="manageButton" disabled={requesting} onClick={() => connectAction("dashboard")}>Abrir panel de Stripe</button>}
+        {connect?.ready && <button className="manageButton" disabled={requesting} onClick={() => connectAction("dashboard")}>Abrir panel de Stripe</button>}
       </section>
 
       <section className="stats">

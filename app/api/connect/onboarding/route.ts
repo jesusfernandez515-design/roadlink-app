@@ -1,4 +1,4 @@
-import { v2Request, v2AccountPath } from "../../../../lib/server/connect-v2";
+import { v2Request, v2AccountPath, v2Ready } from "../../../../lib/server/connect-v2";
 import { apiFailure, ApiError } from "../../../../lib/server/firebase-admin";
 import { connectDriver } from "../../../../lib/server/connect";
 export async function POST(request: Request) {
@@ -37,13 +37,14 @@ export async function POST(request: Request) {
     stage = "consultar la cuenta del conductor";
     const account = await v2Request("GET", v2AccountPath(accountId));
     if (account.metadata.roadlinkUserId !== user.uid) throw new ApiError(409, "La cuenta requiere revisión.");
-    if (mode === "dashboard") {
+    if (mode === "dashboard" && v2Ready(account)) {
+      stage = "abrir el panel de Stripe";
       const link = await stripe.accounts.createLoginLink(accountId);
       return Response.json({ url: link.url });
     }
     const origin = new URL(request.url).origin;
     stage = "abrir el registro del conductor";
-    const link = await v2Request("POST", "/v2/core/account_links", { account: accountId, use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"], refresh_url: `${origin}/wallet?connect=refresh`, return_url: `${origin}/wallet?connect=return` } } });
+    const link = await v2Request("POST", "/v2/core/account_links", { account: accountId, use_case: { type: "account_onboarding", account_onboarding: { refresh_url: `${origin}/wallet?connect=refresh`, return_url: `${origin}/wallet?connect=return` } } });
     return Response.json({ url: link.url });
   } catch (error) {
     if ((error as { type?: string })?.type === "StripeInvalidRequestError") {
