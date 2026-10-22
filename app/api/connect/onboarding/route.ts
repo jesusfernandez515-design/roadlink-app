@@ -4,6 +4,10 @@ export async function POST(request: Request) {
   let stage = "comprobar la conexión";
   try {
     const { user, db, stripe } = await connectDriver(request);
+    const platform = await stripe.accounts.retrieve();
+    if (platform.id !== "acct_1TlLBoCmDRfm6qaa") {
+      throw new ApiError(409, `La clave de RoadLink pertenece a otra cuenta de pruebas (${platform.id}). Connect se activó en acct_1TlLBoCmDRfm6qaa. Hay que corregir la configuración del servidor.`);
+    }
     const { mode } = await request.json();
     const ref = db.collection("connectAccounts").doc(user.uid);
     const record = await db.runTransaction(async (tx) => {
@@ -18,7 +22,7 @@ export async function POST(request: Request) {
     let accountId = record.accountId;
     if (!accountId) {
       stage = "crear la cuenta del conductor";
-      const account = await stripe.accounts.create({ country: "US", email: user.email, capabilities: { transfers: { requested: true } }, controller: { fees: { payer: "application" }, losses: { payments: "application" }, requirement_collection: "stripe", stripe_dashboard: { type: "express" } }, metadata: { roadlinkUserId: user.uid, environment: "test" } }, { idempotencyKey: `connect-test-${user.uid}-${record.startedAt}` });
+      const account = await stripe.accounts.create({ country: "US", email: user.email, capabilities: { transfers: { requested: true } }, controller: { fees: { payer: "application" }, losses: { payments: "application" }, requirement_collection: "stripe", stripe_dashboard: { type: "express" } }, metadata: { roadlinkUserId: user.uid, environment: "test" } }, { idempotencyKey: `connect-test-enabled-v2-${user.uid}-${record.startedAt}` });
       accountId = account.id;
       await ref.set({ accountId, userId: user.uid, environment: "test" }, { merge: true });
     }

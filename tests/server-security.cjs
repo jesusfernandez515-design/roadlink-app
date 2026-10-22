@@ -113,7 +113,7 @@ test('Connect refuses unpaid, unfinished and refunded earnings before calling St
 });
 test('Connect onboarding retries reuse the same account and never accept bank details',async()=>{
  const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',h=harness({}, {uid,email:'driver@example.com'});const accounts=new Map();
- h.stripe.accounts={create:async(params,options)=>{assert.equal(params.controller.stripe_dashboard.type,'express');assert.equal(params.controller.losses.payments,'application');assert.equal(params.external_account,undefined);if(!accounts.has(options.idempotencyKey))accounts.set(options.idempotencyKey,{id:'acct_once'});return accounts.get(options.idempotencyKey);},retrieve:async()=>({metadata:{roadlinkUserId:uid}})};
+ h.stripe.accounts={create:async(params,options)=>{assert.equal(params.controller.stripe_dashboard.type,'express');assert.equal(params.controller.losses.payments,'application');assert.equal(params.external_account,undefined);if(!accounts.has(options.idempotencyKey))accounts.set(options.idempotencyKey,{id:'acct_once'});return accounts.get(options.idempotencyKey);},retrieve:async(id)=>id?({metadata:{roadlinkUserId:uid}}):({id:'acct_1TlLBoCmDRfm6qaa'})};
  h.stripe.accountLinks={create:async(params)=>{assert.equal(params.account,'acct_once');assert.equal(params.return_url,'https://preview.example/wallet?connect=return');return {url:'https://connect.stripe.com/setup/test'};}};
  const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
  try{for(let i=0;i<2;i++){const r=await h.load('app/api/connect/onboarding/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({mode:'onboard',accountId:'acct_attacker',return_url:'https://attacker.example'})}));assert.equal(r.status,200);}assert.equal(accounts.size,1);assert.equal(h.db.rows.get('connectAccounts/'+uid).accountId,'acct_once');}
@@ -137,8 +137,15 @@ test('wallet server reads only the assigned driver and rejects truncated histori
 });
 test('Connect reports the rejected stage and safe Stripe detail without exposing credentials',async()=>{
  const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3', h=harness({}, {uid});
- h.stripe.accounts={create:async()=>{throw {type:'StripeInvalidRequestError',message:'Connect setup required sk_test_fakeSECRET https://stripe.com/private?token=secret',code:'invalid_request',param:'controller',requestId:'req_safe123'};}};
+ h.stripe.accounts={retrieve:async()=>({id:'acct_1TlLBoCmDRfm6qaa'}),create:async()=>{throw {type:'StripeInvalidRequestError',message:'Connect setup required sk_test_fakeSECRET https://stripe.com/private?token=secret',code:'invalid_request',param:'controller',requestId:'req_safe123'};}};
  const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
  try{const r=await h.load('app/api/connect/onboarding/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({mode:'onboard'})}));assert.equal(r.status,409);const result=await r.json();assert.match(result.error,/crear la cuenta/);assert.match(result.error,/Connect setup required/);assert.match(result.error,/req_safe123/);assert(!result.error.includes('fakeSECRET'));assert(!result.error.includes('token=secret'));}
+ finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});
+test('Connect onboarding rejects a different platform before creating any account',async()=>{
+ const h=harness({}, {uid:'XmpCtSTIS6cf7r8UMc2UxLFj6qH3'});let created=false;
+ h.stripe.accounts={retrieve:async()=>({id:'acct_wrong'}),create:async()=>{created=true;}};
+ const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try{const r=await h.load('app/api/connect/onboarding/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({mode:'onboard'})}));assert.equal(r.status,409);assert.match((await r.json()).error,/acct_wrong/);assert.equal(created,false);}
  finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
 });
