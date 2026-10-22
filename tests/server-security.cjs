@@ -135,3 +135,10 @@ test('wallet server reads only the assigned driver and rejects truncated histori
   assert.equal((await invoke(harness(seed,{uid}))).status,409);
  } finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
 });
+test('Connect reports the rejected stage and safe Stripe detail without exposing credentials',async()=>{
+ const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3', h=harness({}, {uid});
+ h.stripe.accounts={create:async()=>{throw {type:'StripeInvalidRequestError',message:'Connect setup required sk_test_fakeSECRET https://stripe.com/private?token=secret',code:'invalid_request',param:'controller',requestId:'req_safe123'};}};
+ const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try{const r=await h.load('app/api/connect/onboarding/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({mode:'onboard'})}));assert.equal(r.status,409);const result=await r.json();assert.match(result.error,/crear la cuenta/);assert.match(result.error,/Connect setup required/);assert.match(result.error,/req_safe123/);assert(!result.error.includes('fakeSECRET'));assert(!result.error.includes('token=secret'));}
+ finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});
