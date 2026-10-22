@@ -64,7 +64,7 @@ export default function MyRidesPage() {
 
   async function cancelRide(rideId: string) {
     if (busy || !auth.currentUser) return;
-    if (!window.confirm("¿Cancelar este viaje? Se cancelarán también sus reservas sin pago y se avisará a los pasajeros. Si hay pagos, primero deberán resolverse sus reembolsos.")) return;
+    if (!window.confirm("¿Cancelar este viaje? Se cancelarán sus reservas sin pago o completamente reembolsadas y se avisará a los pasajeros. Si hay pagos, primero deberán resolverse sus reembolsos.")) return;
     setBusy(true);
     try {
       const token = await auth.currentUser.getIdToken();

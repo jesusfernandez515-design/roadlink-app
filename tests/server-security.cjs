@@ -182,3 +182,11 @@ test('driver cancels own ride and unpaid reservations once; paid, foreign and co
  for(const patch of [{status:'paid',paymentStatus:'paid'},{status:'reserved',paymentStatus:'unpaid',stripeCheckoutSessionId:'cs_test_open'}]){const x=harness({...seed,'bookings/b':{...booking,...patch}},{uid:'d'});assert.equal((await invoke(x)).status,409);assert.equal(x.db.rows.get('rides/r').status,'active');}
  assert.equal((await invoke(harness({'rides/r':{...ride,status:'completed'}},{uid:'d'}))).status,409);
 });
+test('ride cancellation accepts fully reconciled refunds but rejects partial refunds and unrecovered transfers',async()=>{
+ const seed={'rides/r':ride,'bookings/b':{...booking,status:'paid',paymentStatus:'refunded',paymentId:'p',stripeCheckoutSessionId:'cs_test_old'},'payments/p':{bookingId:'b',status:'refunded',cents:1000,refundedCents:1000,driverAmount:8.8},'walletTransactions/wallet-p':{bookingId:'b',driverId:'d',status:'refunded',amount:0}};
+ const invoke=h=>h.load('app/api/rides/cancel/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({rideId:'r'})}));
+ const h=harness(seed,{uid:'d'});assert.equal((await invoke(h)).status,200);assert.equal(h.db.rows.get('bookings/b').paymentStatus,'refunded');assert.equal(h.db.rows.get('rides/r').status,'cancelled');
+ const recovered=harness({...seed,'walletTransactions/wallet-p':{...seed['walletTransactions/wallet-p'],transferId:'tr_1',reversalId:'trr_1',recoveredCents:880}},{uid:'d'});assert.equal((await invoke(recovered)).status,200);
+ for(const patch of [{status:'transfer_review',transferId:'tr_1'},{transferId:'tr_1'},{transferId:'tr_1',reversalId:'trr_1',recoveredCents:440}]){const x=harness({...seed,'walletTransactions/wallet-p':{...seed['walletTransactions/wallet-p'],...patch}},{uid:'d'});assert.equal((await invoke(x)).status,409);assert.equal(x.db.rows.get('rides/r').status,'active');}
+ const partial=harness({...seed,'payments/p':{...seed['payments/p'],refundedCents:500}},{uid:'d'});assert.equal((await invoke(partial)).status,409);
+});
