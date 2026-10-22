@@ -174,3 +174,11 @@ test('full-refund recovery verifies ownership and Stripe source, and retries wit
  process.env.NEXT_PUBLIC_ROADLINK_ENV='production';assert.equal((await invoke(h)).status,404);
  }finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
 });
+test('driver cancels own ride and unpaid reservations once; paid, foreign and completed rides stay protected',async()=>{
+ const seed={'rides/r':ride,'bookings/b':booking};
+ const invoke=h=>h.load('app/api/rides/cancel/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({rideId:'r',driverId:'d'})}));
+ const h=harness(seed,{uid:'d'});assert.equal((await invoke(h)).status,200);assert.equal(h.db.rows.get('rides/r').status,'cancelled');assert.equal(h.db.rows.get('bookings/b').status,'cancelled');assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('notifications/')).length,1);assert.equal((await invoke(h)).status,200);assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('notifications/')).length,1);assert.equal((await harness(Object.fromEntries(h.db.rows)).call('reserve',{rideId:'r'})).status,409);
+ assert.equal((await invoke(harness(seed,{uid:'other'}))).status,403);
+ for(const patch of [{status:'paid',paymentStatus:'paid'},{status:'reserved',paymentStatus:'unpaid',stripeCheckoutSessionId:'cs_test_open'}]){const x=harness({...seed,'bookings/b':{...booking,...patch}},{uid:'d'});assert.equal((await invoke(x)).status,409);assert.equal(x.db.rows.get('rides/r').status,'active');}
+ assert.equal((await invoke(harness({'rides/r':{...ride,status:'completed'}},{uid:'d'}))).status,409);
+});

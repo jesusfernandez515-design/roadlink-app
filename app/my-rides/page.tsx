@@ -62,6 +62,21 @@ export default function MyRidesPage() {
     finally { setBusy(false); }
   }
 
+  async function cancelRide(rideId: string) {
+    if (busy || !auth.currentUser) return;
+    if (!window.confirm("¿Cancelar este viaje? Se cancelarán también sus reservas sin pago y se avisará a los pasajeros. Si hay pagos, primero deberán resolverse sus reembolsos.")) return;
+    setBusy(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch("/api/rides/cancel", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ rideId }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo cancelar el viaje.");
+      setRides(current => current.map(ride => ride.id === rideId ? { ...ride, status: "cancelled" } : ride));
+      setMessage("Viaje cancelado. Ya no admite nuevas reservas.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo cancelar."); }
+    finally { setBusy(false); }
+  }
+
   useEffect(() => {
     let unsubscribeRides: (() => void) | undefined;
     let unsubscribeBookings: (() => void) | undefined;
@@ -197,6 +212,7 @@ export default function MyRidesPage() {
           <div className={getStatusClass(ride.status)}>● {ride.status}</div>
 
           <div className="actions">
+            {["active", "full"].includes(ride.status) && <button className="miniButton" disabled={busy} onClick={() => cancelRide(ride.id)}>{busy ? "Procesando…" : "Cancelar mi viaje"}</button>}
             <Link href={`/ride-passengers?rideId=${ride.id}`} className="manageButton">
               Passengers
             </Link>
