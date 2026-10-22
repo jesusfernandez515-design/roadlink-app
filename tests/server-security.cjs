@@ -160,3 +160,17 @@ test('Accounts v2 pins its API version, sends JSON and blocks live responses and
   process.env.NEXT_PUBLIC_ROADLINK_ENV='production';await assert.rejects(v2.v2Request('GET','/v2/core/accounts'),e=>e.status===503);
  }finally{global.fetch=savedFetch;if(savedEnv===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=savedEnv;if(savedKey===undefined)delete process.env.STRIPE_TEST_SECRET_KEY;else process.env.STRIPE_TEST_SECRET_KEY=savedKey;}
 });
+test('full-refund recovery verifies ownership and Stripe source, and retries without a second reversal',async()=>{
+ const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3';
+ const seed={'walletTransactions/w':{driverId:uid,paymentId:'p',bookingId:'b',transferId:'tr_1',status:'transfer_review',amount:0},'payoutRequests/connect-w':{userId:uid,transferId:'tr_1',paymentIntent:'pi_1',destination:'acct_1',cents:880},['connectAccounts/'+uid]:{accountId:'acct_1'},'payments/p':{status:'refunded',refundedCents:1000,cents:1000,driverAmount:8.8,bookingId:'b',stripePaymentIntentId:'pi_1',stripeCheckoutSessionId:'cs_test_1'}};
+ const h=harness(seed,{uid});let reversed=0,calls=0,fail=true;
+ h.stripe.transfers={retrieve:async()=>({id:'tr_1',livemode:false,currency:'usd',destination:'acct_1',metadata:{walletId:'w'},amount:880,amount_reversed:reversed,source_transaction:'ch_1'}),createReversal:async(p,b)=>{calls++;assert.equal(b.amount,880);reversed=880;if(fail){fail=false;throw Error('timeout after Stripe succeeded');}return {id:'trr_1'};},listReversals:async()=>({data:[{id:'trr_1',amount:880}]})};
+ h.stripe.paymentIntents={retrieve:async()=>({livemode:false,latest_charge:{id:'ch_1',currency:'usd',amount:1000,amount_refunded:1000}})};
+ const invoke=x=>x.load('app/api/connect/reconcile/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({walletId:'w',amount:999,destination:'acct_attacker'})}));
+ const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try{assert.equal((await invoke(h)).status,500);assert.equal((await invoke(h)).status,200);assert.equal((await invoke(h)).status,200);assert.equal(calls,1);assert.equal(h.db.rows.get('walletTransactions/w').status,'refunded');assert.equal(h.db.rows.get('payoutRequests/connect-w').recoveredCents,880);
+ const foreign=harness({...seed,'walletTransactions/w':{...seed['walletTransactions/w'],driverId:'other'}},{uid});assert.equal((await invoke(foreign)).status,403);
+ const partial=harness({...seed,'payments/p':{...seed['payments/p'],refundedCents:500}},{uid});assert.equal((await invoke(partial)).status,409);
+ process.env.NEXT_PUBLIC_ROADLINK_ENV='production';assert.equal((await invoke(h)).status,404);
+ }finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});

@@ -254,7 +254,7 @@ export default function WalletPage() {
 
     const payoutActivity = payouts.map((payout) => ({
       id: `payout-${payout.id}`,
-      title: payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión",
+      title: payout.status === "reversed" ? "Recuperado por reembolso (pruebas)" : payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión",
       subtitle: "Driver payout activity",
       detail: String(payout.status || "pending").toUpperCase(),
       amount: Number(payout.amount || 0),
@@ -304,6 +304,21 @@ export default function WalletPage() {
     finally { setRequesting(false); }
   }
 
+  async function recoverRefund() {
+    if (!testConnect || requesting || !auth.currentUser) return;
+    setRequesting(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      for (const row of walletTransactions.filter(item => item.status === "transfer_review")) {
+        const response = await fetch("/api/connect/reconcile", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ walletId: row.id }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "La recuperación requiere revisión.");
+      }
+      setMessage("Importe de prueba recuperado del saldo Stripe del conductor. Reembolso conciliado.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo conciliar."); }
+    finally { setRequesting(false); }
+  }
+
   function money(value?: number) {
     return walletReady ? `$${Number(value || 0).toFixed(2)}` : "—";
   }
@@ -347,7 +362,8 @@ export default function WalletPage() {
 
       {message && <p className="message" role="status">{message}</p>}
       {!walletReady && <button className="manageButton" onClick={() => window.location.reload()}>Reintentar cartera</button>}
-      {walletTransactions.some((item) => item.status === "transfer_review") && <p className="message" role="alert">Hay una transferencia con reembolso o cambio concurrente. Está bloqueada para conciliación; no se volverá a enviar. Contacta al administrador del piloto.</p>}
+      {walletTransactions.some((item) => item.status === "transfer_review") && <p className="message" role="alert">Hay una transferencia con reembolso o cambio concurrente. Está bloqueada para conciliación; no se volverá a enviar. Puedes recuperar una transferencia con reembolso completo.</p>}
+      {testConnect && walletTransactions.some(item => item.status === "transfer_review") && <button className="manageButton" disabled={requesting} onClick={recoverRefund}>{requesting ? "Procesando…" : "Recuperar transferencia reembolsada (prueba)"}</button>}
 
       <section className="bankCard">
         <div>
@@ -399,7 +415,7 @@ export default function WalletPage() {
               <div className="transactionIcon">🏦</div>
 
               <div>
-                <strong>{payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión"}</strong>
+                <strong>{payout.status === "reversed" ? "Recuperado por reembolso (pruebas)" : payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión"}</strong>
                 <p>{formatDate(payout.createdAt)}</p>
                 <small>Status: {String(payout.status || "pending").toUpperCase()}</small>
               </div>
