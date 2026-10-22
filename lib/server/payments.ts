@@ -3,6 +3,12 @@ import { ApiError } from "./firebase-admin";
 
 export function paymentConfig() {
   const test = process.env.NEXT_PUBLIC_ROADLINK_ENV === "test";
+  if (!test && process.env.ROADLINK_LIVE_PAYMENTS_ENABLED !== "true") {
+    throw new ApiError(503, "Los pagos reales aún no están habilitados.");
+  }
+  if (!test && (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.FIREBASE_SERVICE_ACCOUNT_JSON)) {
+    throw new ApiError(503, "La configuración de pagos reales está incompleta.");
+  }
   const key = test ? process.env.STRIPE_TEST_SECRET_KEY : process.env.STRIPE_SECRET_KEY;
   const webhook = test ? process.env.STRIPE_TEST_WEBHOOK_SECRET : process.env.STRIPE_WEBHOOK_SECRET;
   if (!key || (test && !key.startsWith("sk_test_")) || (!test && !key.startsWith("sk_live_"))) {

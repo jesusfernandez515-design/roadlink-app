@@ -174,3 +174,10 @@ test('full-refund recovery verifies ownership and Stripe source, and retries wit
  process.env.NEXT_PUBLIC_ROADLINK_ENV='production';assert.equal((await invoke(h)).status,404);
  }finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
 });
+test('production payments remain closed without explicit activation and complete server configuration',()=>{
+ const h=harness(),policy=h.load('lib/server/payments.ts'),saved={...process.env};
+ try{process.env.NEXT_PUBLIC_ROADLINK_ENV='production';process.env.STRIPE_SECRET_KEY='sk_live_fake';delete process.env.ROADLINK_LIVE_PAYMENTS_ENABLED;assert.throws(()=>policy.paymentConfig(),e=>e.status===503);
+ process.env.ROADLINK_LIVE_PAYMENTS_ENABLED='true';delete process.env.STRIPE_WEBHOOK_SECRET;delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;assert.throws(()=>policy.paymentConfig(),e=>e.status===503);
+ process.env.STRIPE_WEBHOOK_SECRET='whsec_fake';process.env.FIREBASE_SERVICE_ACCOUNT_JSON='{}';assert.equal(policy.paymentConfig().test,false);
+ }finally{process.env=saved;}
+});
