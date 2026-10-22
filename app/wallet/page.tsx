@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  addDoc,
   collection,
   doc,
   onSnapshot,
@@ -52,7 +51,7 @@ type WalletTransaction = {
 type PayoutRequest = {
   id: string;
   amount?: number;
-  status?: "pending" | "approved" | "rejected" | "paid";
+  status?: string;
   createdAt?: string;
   updatedAt?: string;
   paidAt?: string;
@@ -78,6 +77,8 @@ export default function WalletPage() {
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
   const [message, setMessage] = useState("Loading wallet...");
+  const [connect, setConnect] = useState<{ connected: boolean; ready: boolean } | null>(null);
+  const testConnect = process.env.NEXT_PUBLIC_ROADLINK_ENV === "test";
   const [reads, setReads] = useState<Record<string, boolean>>({});
   const walletReady = ["profile", "bookings", "wallet", "payouts"].every((key) => reads[key]);
   const [requesting, setRequesting] = useState(false);
@@ -97,6 +98,17 @@ export default function WalletPage() {
       stop();
       const current = ++generation;
       const active = () => generation === current && auth.currentUser?.uid === user?.uid;
+      setConnect(null);
+      if (user && testConnect) {
+        void user.getIdToken().then((token) => fetch("/api/connect/status", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }))
+          .then(async (response) => {
+            const data = await response.json();
+            if (active()) {
+              if (response.ok) setConnect(data);
+              else setMessage(data.error || "No se pudo verificar Connect.");
+            }
+          }).catch(() => { if (active()) setMessage("No se pudo consultar Stripe. Recarga para reintentar."); });
+      }
       setReads({});
       setBanking({}); setBookings([]); setWalletTransactions([]); setPayouts([]);
       const loaded = (key: string, cached: boolean) => {
@@ -323,11 +335,11 @@ export default function WalletPage() {
 
     const payoutActivity = payouts.map((payout) => ({
       id: `payout-${payout.id}`,
-      title: payout.status === "paid" ? "Payout Sent" : "Payout Request",
+      title: payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión",
       subtitle: "Driver payout activity",
       detail: String(payout.status || "pending").toUpperCase(),
       amount: Number(payout.amount || 0),
-      sign: payout.status === "paid" ? "-" : "hold",
+      sign: ["paid", "transferred"].includes(payout.status || "") ? "-" : "hold",
       date: payout.paidAt || payout.updatedAt || payout.createdAt || "",
       icon: "🏦",
     }));
@@ -339,77 +351,38 @@ export default function WalletPage() {
     );
   }, [completedBookings, payouts, walletTransactions]);
 
-  async function requestPayout() {
-    if (!walletReady) return;
-    if (!userId) {
-      setMessage("Please sign in first.");
-      return;
-    }
-
-    if (!bankReady) {
-      setMessage("Please add your banking information before requesting a payout.");
-      return;
-    }
-
-    if (availableBalance <= 0) {
-      setMessage("No available balance to request.");
-      return;
-    }
-
-    const hasActiveRequest = payouts.some(
-      (item) => item.status === "pending" || item.status === "approved"
-    );
-
-    if (hasActiveRequest) {
-      setMessage("You already have an active payout request.");
-      return;
-    }
-
+  async function connectAction(mode: "onboard" | "dashboard") {
+    if (!auth.currentUser || requesting) return;
+    setRequesting(true);
     try {
-      setRequesting(true);
-      setMessage("");
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch("/api/connect/onboarding", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo abrir Stripe.");
+      const url = new URL(data.url);
+      if (url.protocol !== "https:" || !["connect.stripe.com", "dashboard.stripe.com"].includes(url.hostname)) throw new Error("Stripe devolvió un enlace no válido.");
+      window.location.assign(url.href);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo abrir Stripe."); }
+    finally { setRequesting(false); }
+  }
 
-      const now = new Date().toISOString();
-
-      await addDoc(collection(db, "payoutRequests"), {
-        userId,
-        email: userEmail,
-        driverEmail: userEmail,
-        amount: availableBalance,
-        status: "pending",
-        bankName: banking.bankName || "",
-        accountHolder: banking.accountHolder || "",
-        accountNumberLast4: banking.accountNumberLast4 || "",
-        payoutMethod: banking.payoutMethod || "manual_bank_transfer",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await addDoc(collection(db, "notifications"), {
-        userId,
-        type: "payout",
-        title: "Payout Requested",
-        message: `Your payout request for ${money(availableBalance)} was submitted.`,
-        read: false,
-        createdAt: now,
-        actionUrl: "/wallet",
-      });
-
-      await addDoc(collection(db, "auditLogs"), {
-        action: "Payout Requested",
-        targetId: userId,
-        targetType: "wallet",
-        details: `${userEmail} requested payout for ${money(availableBalance)}`,
-        severity: "info",
-        createdAt: now,
-      });
-
-      setMessage("Payout request submitted successfully.");
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    } finally {
-      setRequesting(false);
-    }
+  async function requestPayout() {
+    if (!walletReady || requesting || !auth.currentUser) return;
+    if (!testConnect) { setMessage("Los retiros aún no están habilitados en este entorno."); return; }
+    if (!connect?.ready) { setMessage("Completa primero el registro del conductor en Stripe."); return; }
+    const rows = walletTransactions.filter((item) => ["available", "transferring"].includes(item.status || ""));
+    if (!rows.length) return;
+    setRequesting(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      for (const row of rows) {
+        const response = await fetch("/api/connect/transfer", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ walletId: row.id }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No se pudo transferir. Reintenta para conciliar la operación.");
+      }
+      setMessage("Importe enviado a tu saldo Stripe de pruebas. Esto no confirma un depósito bancario. Consulta los retiros en el panel de Stripe.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo completar la transferencia."); }
+    finally { setRequesting(false); }
   }
 
   function money(value?: number) {
@@ -453,34 +426,18 @@ export default function WalletPage() {
         </div>
       </section>
 
-      {message && <p className="message">{message}</p>}
+      {message && <p className="message" role="status">{message}</p>}
+      {walletTransactions.some((item) => item.status === "transfer_review") && <p className="message" role="alert">Hay una transferencia con reembolso o cambio concurrente. Está bloqueada para conciliación; no se volverá a enviar. Contacta al administrador del piloto.</p>}
 
       <section className="bankCard">
         <div>
-          <p className="eyebrow">Bank Account</p>
-          <h2>{bankReady ? "Ready for payouts" : "Banking needed"}</h2>
-
-          <div className="bankRows">
-            <BankInfo label="Account Holder" value={banking.accountHolder || "Not added"} />
-            <BankInfo label="Bank Name" value={banking.bankName || "Not added"} />
-            <BankInfo
-              label="Account"
-              value={banking.accountNumberLast4 ? `****${banking.accountNumberLast4}` : "Not added"}
-            />
-            <BankInfo
-              label="Payout Method"
-              value={
-                banking.payoutMethod === "stripe_connect_pending"
-                  ? "Stripe Connect Coming Soon"
-                  : "Manual Bank Transfer"
-              }
-            />
-          </div>
+          <p className="eyebrow">Stripe Connect · Solo pruebas</p>
+          <h2>{connect?.ready ? "Cuenta Stripe lista" : connect?.connected ? "Completa el registro en Stripe" : "Conecta tu cuenta del conductor"}</h2>
+          <p>Registra tus datos directamente en Stripe. RoadLink no pide números de cuenta bancaria.</p>
+          <p>Una transferencia al saldo Stripe no equivale a un depósito en el banco.</p>
         </div>
-
-        <Link href="/wallet/settings" className="manageButton">
-          Manage Banking
-        </Link>
+        <button className="manageButton" disabled={!testConnect || requesting} onClick={() => connectAction("onboard")}>Conectar o completar Stripe</button>
+        {connect?.connected && <button className="manageButton" disabled={requesting} onClick={() => connectAction("dashboard")}>Abrir panel de Stripe</button>}
       </section>
 
       <section className="stats">
@@ -490,20 +447,20 @@ export default function WalletPage() {
         <Metric icon="✅" label="Available" value={money(availableBalance)} />
         <Metric icon="⏳" label="Pending Trips" value={money(pendingBalance)} />
         <Metric icon="📤" label="Requested" value={money(activePayoutRequests)} />
-        <Metric icon="💸" label="Paid Out" value={money(totalPaidOut)} />
+        <Metric icon="💸" label="Enviado a Stripe (pruebas)" value={money(walletTransactions.filter((item) => item.status === "transferred").reduce((sum, item) => sum + Number(item.amount || 0), 0))} />
         <Metric icon="🚗" label="Completed Trips" value={walletReady ? String(bookings.filter((item) => item.status === "completed").length) : "—"} />
       </section>
 
       <section className="payoutCard">
         <div>
           <p className="eyebrow">Payout Center</p>
-          <h2>Request your balance</h2>
+          <h2>Transferir a Stripe de pruebas</h2>
           <p>Available to request: <strong>{money(availableBalance)}</strong></p>
           <p>Pending or approved payout requests are reserved and not counted as available money.</p>
         </div>
 
-        <button onClick={requestPayout} disabled={!walletReady || requesting || availableBalance <= 0}>
-          {requesting ? "Requesting..." : "Request Payout"}
+        <button onClick={requestPayout} disabled={!testConnect || !connect?.ready || !walletReady || requesting || !walletTransactions.some((item) => ["available", "transferring"].includes(item.status || ""))}>
+          {requesting ? "Procesando…" : "Transferir o reintentar en Stripe"}
         </button>
       </section>
 
@@ -522,7 +479,7 @@ export default function WalletPage() {
               <div className="transactionIcon">🏦</div>
 
               <div>
-                <strong>{payout.status === "paid" ? "Payout Sent" : "Payout Request"}</strong>
+                <strong>{payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión"}</strong>
                 <p>{formatDate(payout.createdAt)}</p>
                 <small>Status: {String(payout.status || "pending").toUpperCase()}</small>
               </div>

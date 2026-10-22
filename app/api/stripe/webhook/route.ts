@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         const full = refunded === cents;
         tx.update(paymentRef, { refundedCents: refunded, status: full ? "refunded" : "partially_refunded", updatedAt: now });
         tx.update(db.collection("bookings").doc(payment.bookingId), { paymentStatus: full ? "refunded" : "partially_refunded", updatedAt: now });
-        tx.update(db.collection("walletTransactions").doc(`wallet-${paymentRef.id}`), { amount: Math.round(payment.driverAmount * (1 - refunded / cents) * 100) / 100, refundedCents: refunded, status: full ? "refunded" : wallet?.status === "available" ? "available" : "pending_payout", updatedAt: now });
+        tx.update(db.collection("walletTransactions").doc(`wallet-${paymentRef.id}`), { amount: Math.round(payment.driverAmount * (1 - refunded / cents) * 100) / 100, refundedCents: refunded, status: ["transferring", "transferred", "transfer_review"].includes(wallet?.status || "") ? "transfer_review" : full ? "refunded" : wallet?.status === "available" ? "available" : "pending_payout", updatedAt: now });
         tx.set(eventRef, { type: event.type, processedAt: now });
       });
     }

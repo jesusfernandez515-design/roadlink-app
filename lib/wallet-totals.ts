@@ -9,7 +9,7 @@ export function retainedPayment(item: {
   type?: string; status?: string; amount?: number;
   grossAmount?: number; platformFee?: number; refundedCents?: number;
 }) {
-  if (item.type !== "ride_payment" || !["pending_payout", "available", "paid"].includes(item.status || "")) {
+  if (item.type !== "ride_payment" || !["pending_payout", "available", "paid", "transferring", "transferred", "transfer_review"].includes(item.status || "")) {
     return { gross: 0, fee: 0, net: 0 };
   }
   const cents = (value: number | undefined) => Math.max(0, Math.round(Number(value || 0) * 100));

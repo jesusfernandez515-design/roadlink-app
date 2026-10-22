@@ -3,7 +3,7 @@ class ApiError extends Error{constructor(status,message){super(message);this.sta
 function database(seed={}){
  const rows=new Map(Object.entries(seed).map(([k,v])=>[k,structuredClone(v)])); let n=0;
  const snapshot=(ref)=>({id:ref.id,ref,exists:rows.has(ref.path),data:()=>rows.has(ref.path)?structuredClone(rows.get(ref.path)):undefined});
- const ref=(p)=>({path:p,id:p.split('/').pop()});
+ const ref=(p)=>({path:p,id:p.split('/').pop(),get:async()=>snapshot(ref(p)),set:async(v,o)=>rows.set(p,o?.merge?{...rows.get(p),...v}:v)});
  function collection(p,filters=[],limit=Infinity){return {doc:(id)=>ref(`${p}/${id||`auto${++n}`}`),where:(k,op,v)=>collection(p,[...filters,[k,v]],limit),limit:(v)=>collection(p,filters,v),get:async()=>{const docs=[...rows.keys()].filter(k=>k.startsWith(p+'/')&&filters.every(([f,v])=>rows.get(k)[f]===v)).slice(0,limit).map(k=>snapshot(ref(k)));return {docs,size:docs.length};}};}
  return {rows,collection,runTransaction:async cb=>{const writes=[];const result=await cb({get:async r=>r.path?snapshot(r):r.get(),set:(r,v,o)=>writes.push(()=>rows.set(r.path,o?.merge?{...rows.get(r.path),...v}:v)),update:(r,v)=>writes.push(()=>{assert(rows.has(r.path)); rows.set(r.path,{...rows.get(r.path),...v});})});writes.forEach(f=>f());return result;}};
 }
@@ -12,7 +12,7 @@ function harness(seed={},identity={uid:'p',email:'p@example.com',email_verified:
  const stripe={webhooks:sdk.webhooks,checkout:{sessions:{create:async(data,opts)=>{if(!sessions.has(opts.idempotencyKey))sessions.set(opts.idempotencyKey,{...data,id:`cs_test_${++seq}`,url:'https://checkout.stripe.com/test',status:'open'});return sessions.get(opts.idempotencyKey);},retrieve:async id=>[...sessions.values()].find(s=>s.id===id)}}};
  let configError=false;
  const helper={ApiError,documentId:v=>{if(typeof v!=='string'||!/^[\w-]{1,128}$/.test(v))throw new ApiError(400,'Invalid id');return v;},requirePassenger:async req=>{if(req.headers.get('authorization')!=='Bearer valid')throw new ApiError(401,'Invalid token');return {user:identity,db};},serverFirebase:()=>({db}),apiFailure:e=>Response.json({error:e.message},{status:e.status||500})};
- const cache={};function load(relative){const file=path.resolve(relative);if(cache[file])return cache[file];const out={exports:{}};cache[file]=out.exports;const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const req=id=>{if(id.endsWith('firebase-admin'))return helper;if(id.endsWith('/payments'))return {...load('lib/server/payments.ts'),paymentConfig:()=>{if(configError)throw new ApiError(503,'Not configured');return {stripe,test:true,webhook:'whsec_test'};}};if(id==='./firebase-admin')return helper;return require(id);};new Function('require','module','exports',js)(req,out,out.exports);cache[file]=out.exports;return out.exports;}
+ const cache={};function load(relative){const file=path.resolve(relative);if(cache[file])return cache[file];const out={exports:{}};cache[file]=out.exports;const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const req=id=>{if(id.endsWith('/connect'))return load('lib/server/connect.ts');if(id.endsWith('firebase-admin'))return helper;if(id.endsWith('/payments'))return {...load('lib/server/payments.ts'),paymentConfig:()=>{if(configError)throw new ApiError(503,'Not configured');return {stripe,test:true,webhook:'whsec_test'};}};if(id==='./firebase-admin')return helper;return require(id);};new Function('require','module','exports',js)(req,out,out.exports);cache[file]=out.exports;return out.exports;}
  const routes={reserve:load('app/api/bookings/reserve/route.ts'),cancel:load('app/api/bookings/cancel/route.ts'),checkout:load('app/api/stripe/create-checkout-session/route.ts'),webhook:load('app/api/stripe/webhook/route.ts')};
  const call=(name,body,token='valid')=>routes[name].POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}));
  const event=async(type,object,id='evt_'+type)=>{const body=JSON.stringify({id,type,livemode:false,data:{object}});const signature=sdk.webhooks.generateTestHeaderString({payload:body,secret:'whsec_test'});return routes.webhook.POST(new Request('https://preview.example/api',{method:'POST',body,headers:{'stripe-signature':signature}}));};
@@ -83,4 +83,44 @@ test('test schedule adjustment is scoped, idempotent and unavailable in producti
   assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('walletTransactions/')).length,0);
   assert.equal((await invoke(h)).status,200);assert.deepEqual(h.db.rows.get('rides/r'),adjusted);
  } finally { if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous; }
+});
+test('Connect transfers use verified server amounts and retry an ambiguous result without duplicates',async()=>{
+ const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3';
+ const seed={['connectAccounts/'+uid]:{accountId:'acct_driver'},'walletTransactions/w':{driverId:uid,bookingId:'b',paymentId:'pay',status:'available',amount:8.8},'bookings/b':{driverId:uid,status:'completed',paymentStatus:'paid'},'payments/pay':{bookingId:'b',status:'paid',stripeCheckoutSessionId:'cs_test_ok',driverAmount:8.8,stripePaymentIntentId:'pi_test'}};
+ const h=harness(seed,{uid});let calls=0,fail=true;const transfers=new Map();
+ h.stripe.accounts={retrieve:async()=>({metadata:{roadlinkUserId:uid},capabilities:{transfers:'active'},payouts_enabled:true})};
+ h.stripe.paymentIntents={retrieve:async()=>({livemode:false,status:'succeeded',latest_charge:{id:'ch_test',amount_refunded:0,currency:'usd'}})};
+ h.stripe.transfers={create:async(params,options)=>{calls++;assert.equal(params.amount,880);assert.equal(params.destination,'acct_driver');assert.equal(params.source_transaction,'ch_test');if(!transfers.has(options.idempotencyKey))transfers.set(options.idempotencyKey,{id:'tr_once'});if(fail){fail=false;throw Error('ambiguous connection failure');}return transfers.get(options.idempotencyKey);}};
+ const invoke=(h,body={walletId:'w',amount:99999})=>h.load('app/api/connect/transfer/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify(body)}));
+ const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;
+ try {
+  process.env.NEXT_PUBLIC_ROADLINK_ENV='production';assert.equal((await invoke(h)).status,404);
+  process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+  assert.equal((await invoke(harness(seed))).status,403);
+  assert.equal((await invoke(h)).status,500);assert.equal(h.db.rows.get('walletTransactions/w').status,'transferring');
+  assert.equal((await invoke(h)).status,200);assert.equal(transfers.size,1);assert.equal(h.db.rows.get('walletTransactions/w').status,'transferred');
+  assert.equal(h.db.rows.get('payoutRequests/connect-w').status,'transferred');
+  assert.equal((await invoke(h)).status,200);assert.equal(calls,2);
+ } finally {if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});
+test('Connect refuses unpaid, unfinished and refunded earnings before calling Stripe transfers',async()=>{
+ const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3';const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try {for (const booking of [{status:'confirmed',paymentStatus:'paid'},{status:'completed',paymentStatus:'unpaid'},{status:'completed',paymentStatus:'refunded'}]) {
+  const h=harness({['connectAccounts/'+uid]:{accountId:'acct_d'},'walletTransactions/w':{driverId:uid,bookingId:'b',paymentId:'pay',status:'available',amount:8.8},'bookings/b':{...booking,driverId:uid},'payments/pay':{status:'paid',bookingId:'b',driverAmount:8.8,stripeCheckoutSessionId:'cs_test_ok'}},{uid});
+  h.stripe.accounts={retrieve:async()=>({metadata:{roadlinkUserId:uid},capabilities:{transfers:'active'},payouts_enabled:true})};
+  const result=await h.load('app/api/connect/transfer/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({walletId:'w'})}));assert.equal(result.status,409);assert.equal(h.db.rows.get('walletTransactions/w').status,'available');
+ }}finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});
+test('Connect onboarding retries reuse the same account and never accept bank details',async()=>{
+ const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',h=harness({}, {uid,email:'driver@example.com'});const accounts=new Map();
+ h.stripe.accounts={create:async(params,options)=>{assert.equal(params.controller.stripe_dashboard.type,'express');assert.equal(params.controller.losses.payments,'application');assert.equal(params.external_account,undefined);if(!accounts.has(options.idempotencyKey))accounts.set(options.idempotencyKey,{id:'acct_once'});return accounts.get(options.idempotencyKey);},retrieve:async()=>({metadata:{roadlinkUserId:uid}})};
+ h.stripe.accountLinks={create:async(params)=>{assert.equal(params.account,'acct_once');assert.equal(params.return_url,'https://preview.example/wallet?connect=return');return {url:'https://connect.stripe.com/setup/test'};}};
+ const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try{for(let i=0;i<2;i++){const r=await h.load('app/api/connect/onboarding/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({mode:'onboard',accountId:'acct_attacker',return_url:'https://attacker.example'})}));assert.equal(r.status,200);}assert.equal(accounts.size,1);assert.equal(h.db.rows.get('connectAccounts/'+uid).accountId,'acct_once');}
+ finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});
+test('refunds after a Connect transfer freeze reconciliation instead of creating spendable funds',async()=>{
+ const h=harness({'payments/pay':{bookingId:'b',stripePaymentIntentId:'pi_ref',amount:10,cents:1000,driverAmount:8.8,status:'paid'},'bookings/b':{status:'completed',paymentStatus:'paid'},'walletTransactions/wallet-pay':{amount:8.8,status:'transferred',transferId:'tr_done'}});
+ assert.equal((await h.event('charge.refunded',{payment_intent:'pi_ref',amount:1000,amount_refunded:500,currency:'usd'},'evt_transfer_refund')).status,200);
+ const row=h.db.rows.get('walletTransactions/wallet-pay');assert.equal(row.status,'transfer_review');assert.equal(row.amount,4.4);assert.equal(row.transferId,'tr_done');
 });
