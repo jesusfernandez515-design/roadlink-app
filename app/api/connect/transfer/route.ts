@@ -1,3 +1,4 @@
+import { v2Request, v2AccountPath, v2Ready } from "../../../../lib/server/connect-v2";
 import { apiFailure, ApiError, documentId } from "../../../../lib/server/firebase-admin";
 import { connectDriver } from "../../../../lib/server/connect";
 export async function POST(request: Request) {
@@ -7,8 +8,8 @@ export async function POST(request: Request) {
     const ref = db.collection("walletTransactions").doc(documentId(walletId));
     const account = (await db.collection("connectAccounts").doc(user.uid).get()).data();
     if (!account?.accountId) throw new ApiError(409, "Conecta tu cuenta con Stripe primero.");
-    const destination = await stripe.accounts.retrieve(account.accountId);
-    if (destination.metadata.roadlinkUserId !== user.uid || destination.capabilities?.transfers !== "active" || !destination.payouts_enabled) throw new ApiError(409, "Completa los requisitos de tu cuenta en Stripe.");
+    const destination = await v2Request("GET", v2AccountPath(account.accountId));
+    if (destination.metadata.roadlinkUserId !== user.uid || !v2Ready(destination)) throw new ApiError(409, "Completa los requisitos de tu cuenta en Stripe.");
     const requestRef = db.collection("payoutRequests").doc(`connect-${ref.id}`);
     const job = await db.runTransaction(async (tx) => {
       const row = (await tx.get(ref)).data();

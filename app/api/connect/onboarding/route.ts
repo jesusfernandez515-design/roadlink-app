@@ -1,3 +1,4 @@
+import { v2Request, v2AccountPath } from "../../../../lib/server/connect-v2";
 import { apiFailure, ApiError } from "../../../../lib/server/firebase-admin";
 import { connectDriver } from "../../../../lib/server/connect";
 export async function POST(request: Request) {
@@ -22,12 +23,19 @@ export async function POST(request: Request) {
     let accountId = record.accountId;
     if (!accountId) {
       stage = "crear la cuenta del conductor";
-      const account = await stripe.accounts.create({ country: "US", email: user.email, capabilities: { transfers: { requested: true } }, controller: { fees: { payer: "application" }, losses: { payments: "application" }, requirement_collection: "stripe", stripe_dashboard: { type: "express" } }, metadata: { roadlinkUserId: user.uid, environment: "test" } }, { idempotencyKey: `connect-test-enabled-v2-${user.uid}-${record.startedAt}` });
+      const account = await v2Request("POST", "/v2/core/accounts", {
+        contact_email: user.email, display_name: "Conductor de pruebas de RoadLink",
+        identity: { country: "us", entity_type: "individual" }, dashboard: "express",
+        defaults: { responsibilities: { fees_collector: "application", losses_collector: "application" } },
+        configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true }, payouts: { requested: true } } } } },
+        metadata: { roadlinkUserId: user.uid, environment: "test" },
+        include: ["configuration.recipient", "requirements"],
+      }, `connect-v2-${user.uid}-${record.startedAt}`);
       accountId = account.id;
       await ref.set({ accountId, userId: user.uid, environment: "test" }, { merge: true });
     }
     stage = "consultar la cuenta del conductor";
-    const account = await stripe.accounts.retrieve(accountId);
+    const account = await v2Request("GET", v2AccountPath(accountId));
     if (account.metadata.roadlinkUserId !== user.uid) throw new ApiError(409, "La cuenta requiere revisión.");
     if (mode === "dashboard") {
       const link = await stripe.accounts.createLoginLink(accountId);
@@ -35,7 +43,7 @@ export async function POST(request: Request) {
     }
     const origin = new URL(request.url).origin;
     stage = "abrir el registro del conductor";
-    const link = await stripe.accountLinks.create({ account: accountId, type: "account_onboarding", refresh_url: `${origin}/wallet?connect=refresh`, return_url: `${origin}/wallet?connect=return` });
+    const link = await v2Request("POST", "/v2/core/account_links", { account: accountId, use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"], refresh_url: `${origin}/wallet?connect=refresh`, return_url: `${origin}/wallet?connect=return` } } });
     return Response.json({ url: link.url });
   } catch (error) {
     if ((error as { type?: string })?.type === "StripeInvalidRequestError") {

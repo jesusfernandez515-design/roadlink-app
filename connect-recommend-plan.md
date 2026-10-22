@@ -15,7 +15,7 @@ Approved configuration: RoadLink collects passenger payments, retains 12%, and t
 - Exercise an actual sandbox transfer and inspect its Stripe record. Unit/mocked checks do not prove a bank payout.
 - Bank deposits and their webhook status are not tracked by RoadLink. Driver consults Stripe dashboard. No account is labelled bank-paid based on a Connect transfer.
 - Automated transfer reversal, payout reconciliation/events, broader driver onboarding/country support, dispute operations and production readiness remain outside this test implementation. Do not enable real payments or merge to production as-is.
-- Account API uses explicit v1 controller properties supported by the repository's current Stripe SDK; no implicit SDK/API upgrade.
+- Account creation, retrieval and onboarding use Accounts v2 JSON requests pinned to 2026-09-30.preview. Recipient stripe_balance transfers and payouts must both be active. Existing Checkout/webhook API versions and SDK remain unchanged.
 
 ## Official references
 - https://docs.stripe.com/connect/separate-charges-and-transfers

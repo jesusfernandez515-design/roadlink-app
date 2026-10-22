@@ -279,7 +279,7 @@ export default function WalletPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudo abrir Stripe.");
       const url = new URL(data.url);
-      if (url.protocol !== "https:" || !["connect.stripe.com", "dashboard.stripe.com"].includes(url.hostname)) throw new Error("Stripe devolvió un enlace no válido.");
+      if (url.protocol !== "https:" || !["connect.stripe.com", "dashboard.stripe.com", "accounts.stripe.com"].includes(url.hostname)) throw new Error("Stripe devolvió un enlace no válido.");
       window.location.assign(url.href);
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo abrir Stripe."); }
     finally { setRequesting(false); }
