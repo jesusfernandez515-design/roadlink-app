@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { isPendingBooking, retainedPayment } from "../../lib/wallet-totals";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -76,6 +76,8 @@ export default function WalletPage() {
   const walletReady = ["profile", "bookings", "wallet", "payouts"].every((key) => reads[key]);
   const [requesting, setRequesting] = useState(false);
 
+  const refreshWallet = useRef<(silent?: boolean) => Promise<void>>(async () => {});
+
   useEffect(() => {
     let generation = 0;
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -88,45 +90,54 @@ export default function WalletPage() {
       setConnect(null); setReads({});
       setBanking({}); setBookings([]); setWalletTransactions([]); setPayouts([]);
       setUserId(user?.uid || ""); setUserEmail(user?.email || "");
+      refreshWallet.current = async () => {};
       if (!user) { setMessage("Inicia sesión con la cuenta del conductor para ver la cartera."); return; }
-      let running = false;
-      const refresh = async () => {
-        if (running || !active()) return;
-        running = true;
-        controller = new AbortController();
-        const signal = controller.signal;
-        const timeout = setTimeout(() => controller?.abort(), 15000);
+      let serial = 0;
+      const refresh = async (silent = true) => {
+        if (!active()) return;
+        const requestSerial = ++serial;
+        controller?.abort();
+        const currentController = new AbortController();
+        controller = currentController;
+        const signal = currentController.signal;
+        const latest = () => active() && requestSerial === serial;
+        const timeout = setTimeout(() => currentController.abort(), 15000);
         try {
-          setMessage("Consultando la cartera…");
+          if (!silent) setMessage("Consultando la cartera…");
           const token = await Promise.race([
             user.getIdToken(),
-            new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(new Error("La sesión o conexión tardó demasiado. Pulsa Reintentar.")), { once: true })),
+            new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(new Error("La sesión o conexión tardó demasiado. Pulsa Actualizar cartera.")), { once: true })),
           ]);
-          if (!active() || signal.aborted) return;
+          if (!latest() || signal.aborted) return;
           const response = await fetch("/api/connect/wallet", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "No se pudo consultar la cartera.");
-          if (!active()) return;
+          if (!latest() || signal.aborted) return;
           setBookings(data.bookings);
           setWalletTransactions(data.walletTransactions.sort((a: WalletTransaction, b: WalletTransaction) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
           setPayouts(data.payouts.sort((a: PayoutRequest, b: PayoutRequest) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
           setReads({ profile: true, bookings: true, wallet: true, payouts: true });
-          setMessage("");
+          setMessage(previous => !silent || ["Loading wallet...", "Consultando la cartera…"].includes(previous) ? "" : previous);
           // Stripe readiness is independent: it must never block wallet balances.
           void fetch("/api/connect/status", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) })
-            .then(async (result) => { const state = await result.json(); if (active()) { if (result.ok) setConnect(state); else setMessage(state.error || "Stripe no está disponible."); } })
-            .catch(() => { if (active()) setMessage("La cartera cargó, pero Stripe no respondió. Recarga para volver a consultar Connect."); });
+            .then(async (result) => { const state = await result.json(); if (latest()) { if (result.ok) setConnect(state); else setMessage(state.error || "Stripe no está disponible."); } })
+            .catch(() => { if (latest()) setMessage("La cartera cargó, pero Stripe no respondió. Pulsa Actualizar cartera."); });
         } catch (error) {
-          if (active()) {
+          if (latest()) {
             setReads({});
-            setMessage(signal.aborted ? "La consulta tardó demasiado. Pulsa Reintentar cartera." : error instanceof Error ? error.message : "No se pudo consultar la cartera.");
+            setMessage(signal.aborted ? "La consulta tardó demasiado. Pulsa Actualizar cartera." : error instanceof Error ? error.message : "No se pudo consultar la cartera.");
           }
-        } finally { clearTimeout(timeout); running = false; }
+        } finally { clearTimeout(timeout); }
       };
-      void refresh();
+      refreshWallet.current = (silent = true) => refresh(silent);
+      void refresh(false);
       interval = setInterval(() => { void refresh(); }, 30000);
     });
-    return () => { generation++; unsubscribeAuth(); controller?.abort(); if (interval) clearInterval(interval); };
+    const onFocus = () => { void refreshWallet.current(); };
+    const onVisible = () => { if (document.visibilityState === "visible") onFocus(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { generation++; refreshWallet.current = async () => {}; unsubscribeAuth(); controller?.abort(); if (interval) clearInterval(interval); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   function bookingGross(booking: Booking) {
@@ -301,7 +312,7 @@ export default function WalletPage() {
       }
       setMessage("Importe enviado a tu saldo Stripe de pruebas. Esto no confirma un depósito bancario. Consulta los retiros en el panel de Stripe.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo completar la transferencia."); }
-    finally { setRequesting(false); }
+    finally { await refreshWallet.current(); setRequesting(false); }
   }
 
   async function recoverRefund() {
@@ -316,7 +327,7 @@ export default function WalletPage() {
       }
       setMessage("Importe de prueba recuperado del saldo Stripe del conductor. Reembolso conciliado.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo conciliar."); }
-    finally { setRequesting(false); }
+    finally { await refreshWallet.current(); setRequesting(false); }
   }
 
   function money(value?: number) {
@@ -361,7 +372,7 @@ export default function WalletPage() {
       </section>
 
       {message && <p className="message" role="status">{message}</p>}
-      {!walletReady && <button className="manageButton" onClick={() => window.location.reload()}>Reintentar cartera</button>}
+      <button className="manageButton" disabled={requesting} onClick={() => { void refreshWallet.current(false); }}>Actualizar cartera</button>
       {walletTransactions.some((item) => item.status === "transfer_review") && <p className="message" role="alert">Hay una transferencia con reembolso o cambio concurrente. Está bloqueada para conciliación; no se volverá a enviar. Puedes recuperar una transferencia con reembolso completo.</p>}
       {testConnect && walletTransactions.some(item => item.status === "transfer_review") && <button className="manageButton" disabled={requesting} onClick={recoverRefund}>{requesting ? "Procesando…" : "Recuperar transferencia reembolsada (prueba)"}</button>}
 
