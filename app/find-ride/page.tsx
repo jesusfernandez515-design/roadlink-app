@@ -59,11 +59,11 @@ export default function FindRidePage() {
       })) as Ride[];
 
       const sorted = ridesData.filter((ride) => {
-        const departure = new Date(`${ride.date}T${ride.time}`).getTime();
+        const departure = new Date(`${ride.date}T${ride.time}-04:00`).getTime();
         return Number.isFinite(departure) && departure > Date.now() && Number(ride.seats) > 0;
       }).sort((a, b) => {
-        const dateA = new Date(`${a.date}T${a.time}`).getTime();
-        const dateB = new Date(`${b.date}T${b.time}`).getTime();
+        const dateA = new Date(`${a.date}T${a.time}-04:00`).getTime();
+        const dateB = new Date(`${b.date}T${b.time}-04:00`).getTime();
         return dateA - dateB;
       });
 

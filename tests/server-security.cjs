@@ -190,3 +190,18 @@ test('ride cancellation accepts fully reconciled refunds but rejects partial ref
  for(const patch of [{status:'transfer_review',transferId:'tr_1'},{transferId:'tr_1'},{transferId:'tr_1',reversalId:'trr_1',recoveredCents:440}]){const x=harness({...seed,'walletTransactions/wallet-p':{...seed['walletTransactions/wallet-p'],...patch}},{uid:'d'});assert.equal((await invoke(x)).status,409);assert.equal(x.db.rows.get('rides/r').status,'active');}
  const partial=harness({...seed,'payments/p':{...seed['payments/p'],refundedCents:500}},{uid:'d'});assert.equal((await invoke(partial)).status,409);
 });
+
+ test('reservation uses Puerto Rico time independently of server timezone', async()=>{
+ const savedNow=Date.now;
+ Date.now=()=>Date.parse('2026-10-22T06:57:00Z');
+ try {
+  for(const time of ['04:05','03:00']) {
+   const h=harness({'rides/r':{...ride,date:'2026-10-22',time}});
+   const response=await h.load('app/api/bookings/reserve/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({rideId:'r'})}));
+   assert.equal(response.status,200);
+  }
+  const h=harness({'rides/r':{...ride,date:'2026-10-22',time:'02:40'}});
+  const response=await h.load('app/api/bookings/reserve/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({rideId:'r'})}));
+  assert.equal(response.status,409);
+ } finally {Date.now=savedNow;}
+ });

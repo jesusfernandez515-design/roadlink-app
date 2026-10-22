@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       }
       const ride = rideSnap.data()!;
       if (ride.driverId === user.uid) throw new ApiError(403, "You cannot reserve your own ride.");
-      const departure = new Date(`${ride.date}T${ride.time}`).getTime();
+      const departure = new Date(`${ride.date}T${ride.time}-04:00`).getTime();
       if (!Number.isFinite(departure) || departure <= Date.now() || ride.status !== "active" || !Number.isInteger(ride.seats) || ride.seats < 1) {
         throw new ApiError(409, "This ride is no longer available.");
       }
