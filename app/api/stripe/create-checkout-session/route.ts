@@ -17,7 +17,7 @@ export async function POST(request: Request) {
         throw new ApiError(409, "This booking cannot be paid.");
       }
       const ride = await tx.get(db.collection("rides").doc(value.rideId));
-      const departure = new Date(`${value.date}T${value.time}`).getTime();
+      const departure = new Date(`${value.date}T${value.time}-04:00`).getTime();
       if (!ride.exists || !["active", "full"].includes(ride.data()!.status) || !Number.isFinite(departure) || departure <= Date.now()) {
         throw new ApiError(409, "This ride cannot accept payment.");
       }

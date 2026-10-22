@@ -39,6 +39,7 @@ export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [message, setMessage] = useState("Loading your bookings...");
   const [payingId, setPayingId] = useState("");
+  const [paymentFeedback, setPaymentFeedback] = useState<{ bookingId: string; text: string } | null>(null);
 
   useEffect(() => {
     let unsubscribeByUid: (() => void) | undefined;
@@ -165,6 +166,7 @@ export default function MyBookingsPage() {
     try {
       setPayingId(booking.id);
       setMessage("Opening secure Stripe Checkout...");
+      setPaymentFeedback({ bookingId: booking.id, text: "Abriendo el pago seguro de Stripe…" });
 
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error("Please sign in first.");
@@ -187,7 +189,9 @@ export default function MyBookingsPage() {
 
       window.location.href = data.url;
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not open Stripe Checkout.");
+      const text = error instanceof Error ? error.message : "Could not open Stripe Checkout.";
+      setMessage(text);
+      setPaymentFeedback({ bookingId: booking.id, text });
       setPayingId("");
     }
   }
@@ -333,6 +337,7 @@ export default function MyBookingsPage() {
                       <Info label="Payment ID" value={booking.paymentId || "Not created"} />
                     </div>
 
+                    {paymentFeedback?.bookingId === booking.id && <p role="status" aria-live="polite">{paymentFeedback.text}</p>}
                     <div className="actions">
                       {!isPaid && !isCancelled && (
                         <button

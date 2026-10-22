@@ -205,3 +205,15 @@ test('ride cancellation accepts fully reconciled refunds but rejects partial ref
   assert.equal(response.status,409);
  } finally {Date.now=savedNow;}
  });
+
+test('checkout accepts future Puerto Rico departure and rejects past local departure',async()=>{
+ const savedNow=Date.now;Date.now=()=>Date.parse('2026-10-22T21:05:00Z');
+ try {
+  for(const [time,expected] of [['18:00',200],['17:00',409]]) {
+   const h=harness({'rides/r':{...ride,date:'2026-10-22',time},'bookings/b':{...booking,date:'2026-10-22',time}});
+   const response=await h.load('app/api/stripe/create-checkout-session/route.ts').POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({bookingId:'b'})}));
+   assert.equal(response.status,expected);
+   assert.equal(h.sessions.size,expected===200?1:0);
+  }
+ } finally {Date.now=savedNow;}
+});
