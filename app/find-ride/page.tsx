@@ -5,12 +5,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  addDoc,
   collection,
-  doc,
   getDocs,
   query,
-  runTransaction,
   where,
 } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
@@ -61,9 +58,12 @@ export default function FindRidePage() {
         ...item.data(),
       })) as Ride[];
 
-      const sorted = ridesData.sort((a, b) => {
-        const dateA = new Date(`${a.date || ""} ${a.time || ""}`).getTime();
-        const dateB = new Date(`${b.date || ""} ${b.time || ""}`).getTime();
+      const sorted = ridesData.filter((ride) => {
+        const departure = new Date(`${ride.date}T${ride.time}`).getTime();
+        return Number.isFinite(departure) && departure > Date.now() && Number(ride.seats) > 0;
+      }).sort((a, b) => {
+        const dateA = new Date(`${a.date}T${a.time}`).getTime();
+        const dateB = new Date(`${b.date}T${b.time}`).getTime();
         return dateA - dateB;
       });
 
@@ -173,139 +173,15 @@ export default function FindRidePage() {
     try {
       setLoadingRideId(ride.id);
 
-      const duplicateQuery = query(
-        collection(db, "bookings"),
-        where("rideId", "==", ride.id),
-        where("passengerId", "==", userId)
-      );
-
-      const duplicateSnapshot = await getDocs(duplicateQuery);
-
-      const activeStatuses = [
-        "reserved",
-        "confirmed",
-        "payment_pending",
-        "paid",
-        "completed",
-      ];
-
-      const hasActiveBooking = duplicateSnapshot.docs.some((item) => {
-        const data = item.data();
-        return activeStatuses.includes(String(data.status || ""));
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Please sign in first.");
+      const response = await fetch("/api/bookings/reserve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rideId: ride.id }),
       });
-
-      if (hasActiveBooking) {
-        setMessage("You already reserved this ride.");
-        setReservedRideIds((previous) =>
-          previous.includes(ride.id) ? previous : [...previous, ride.id]
-        );
-        router.push("/my-bookings");
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const bookingRef = doc(collection(db, "bookings"));
-      const rideRef = doc(db, "rides", ride.id);
-
-      const bookingPayload = await runTransaction(db, async (transaction) => {
-        const rideSnap = await transaction.get(rideRef);
-
-        if (!rideSnap.exists()) {
-          throw new Error("Ride no longer exists.");
-        }
-
-        const liveRide = rideSnap.data() as Ride;
-        const liveSeats = Number(liveRide.seats || 0);
-        const liveStatus = String(liveRide.status || "");
-
-        if (liveStatus !== "active") {
-          throw new Error("This ride is no longer active.");
-        }
-
-        if (liveSeats <= 0) {
-          throw new Error("No seats available for this ride.");
-        }
-
-        const amount = Number(liveRide.price || ride.price || 0);
-        const platformFee = Math.round(amount * 0.12 * 100) / 100;
-        const driverAmount = Math.max(amount - platformFee, 0);
-        const newSeats = liveSeats - 1;
-
-        const payload = {
-          rideId: ride.id,
-
-          passengerId: userId,
-          passengerEmail: userEmail,
-          passengerEmailLower: userEmail.toLowerCase(),
-
-          driverId: liveRide.driverId || ride.driverId || "",
-          driverEmail: liveRide.driverEmail || ride.driverEmail || "",
-
-          from: liveRide.from || ride.from || "",
-          to: liveRide.to || ride.to || "",
-          date: liveRide.date || ride.date || "",
-          time: liveRide.time || ride.time || "",
-
-          price: amount,
-          amount,
-          platformFee,
-          driverAmount,
-          currency: "USD",
-          seatsBooked: 1,
-
-          distanceText: liveRide.distanceText || ride.distanceText || "",
-          durationText: liveRide.durationText || ride.durationText || "",
-          distanceMiles: Number(liveRide.distanceMiles || ride.distanceMiles || 0),
-          durationMinutes: Number(liveRide.durationMinutes || ride.durationMinutes || 0),
-          mapUrl: liveRide.mapUrl || routeMapUrl(ride),
-
-          status: "reserved",
-          paymentStatus: "unpaid",
-          paymentId: "",
-          stripeCheckoutSessionId: "",
-
-          createdAt: now,
-          updatedAt: now,
-        };
-
-        transaction.set(bookingRef, payload);
-
-        transaction.update(rideRef, {
-          seats: newSeats,
-          status: newSeats <= 0 ? "full" : "active",
-          updatedAt: now,
-        });
-
-        return payload;
-      });
-
-      if (bookingPayload.driverId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: bookingPayload.driverId,
-          email: bookingPayload.driverEmail,
-          type: "booking",
-          title: "New Ride Booking",
-          message: `${userEmail} reserved a seat from ${bookingPayload.from} to ${bookingPayload.to}.`,
-          rideId: ride.id,
-          bookingId: bookingRef.id,
-          passengerId: userId,
-          passengerEmail: userEmail,
-          driverId: bookingPayload.driverId,
-          driverEmail: bookingPayload.driverEmail,
-          read: false,
-          createdAt: now,
-          actionUrl: `/ride-passengers?rideId=${ride.id}`,
-        });
-      }
-
-      await addDoc(collection(db, "auditLogs"), {
-        action: "Ride Seat Reserved",
-        targetId: bookingRef.id,
-        targetType: "booking",
-        details: `${userEmail} reserved ${bookingPayload.from} to ${bookingPayload.to}`,
-        severity: "success",
-        createdAt: now,
-      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not reserve this ride.");
 
       setReservedRideIds((previous) =>
         previous.includes(ride.id) ? previous : [...previous, ride.id]

@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import {
+  type WithFieldValue,
   collection,
   doc,
   limit,
@@ -1076,7 +1077,7 @@ export default function DisputesPage() {
           collection(db, "refundRequests"),
         );
 
-        const refundRequest: RefundRequest = {
+        const refundRequest: WithFieldValue<RefundRequest> = {
           id: reference.id,
           disputeId: dispute.id,
           bookingId: dispute.bookingId,

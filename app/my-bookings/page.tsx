@@ -4,12 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  addDoc,
   collection,
   doc,
   onSnapshot,
   query,
-  updateDoc,
   where,
 } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
@@ -47,6 +45,13 @@ export default function MyBookingsPage() {
     let unsubscribeByEmail: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeByUid?.();
+      unsubscribeByEmail?.();
+      unsubscribeByUid = undefined;
+      unsubscribeByEmail = undefined;
+      setBookings([]);
+      setUserId(user?.uid || "");
+      setUserEmail(user?.email || "");
       if (!user) {
         setMessage("Please sign in to view your bookings.");
         setBookings([]);
@@ -59,6 +64,7 @@ export default function MyBookingsPage() {
       setUserEmail(email);
 
       const mergeBookings = (uidBookings: Booking[], emailBookings: Booking[]) => {
+        if (auth.currentUser?.uid !== user.uid) return;
         const map = new Map<string, Booking>();
 
         [...uidBookings, ...emailBookings].forEach((booking) => {
@@ -160,15 +166,16 @@ export default function MyBookingsPage() {
       setPayingId(booking.id);
       setMessage("Opening secure Stripe Checkout...");
 
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Please sign in first.");
       const response = await fetch("/api/stripe/create-checkout-session", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           bookingId: booking.id,
-          userId,
-          userEmail: userEmail || booking.passengerEmail || "",
         }),
       });
 
@@ -189,25 +196,15 @@ export default function MyBookingsPage() {
     if (!booking.id) return;
 
     try {
-      const now = new Date().toISOString();
-
-      await updateDoc(doc(db, "bookings", booking.id), {
-        status: "cancelled",
-        updatedAt: now,
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Please sign in first.");
+      const response = await fetch("/api/bookings/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bookingId: booking.id }),
       });
-
-      await addDoc(collection(db, "notifications"), {
-        userId: booking.driverId || "",
-        email: booking.driverEmail || "",
-        title: "Booking cancelled",
-        message: `${userEmail || "Passenger"} cancelled a booking.`,
-        type: "booking",
-        read: false,
-        bookingId: booking.id,
-        rideId: booking.rideId || "",
-        createdAt: now,
-      });
-
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not cancel booking.");
       setMessage("Booking cancelled.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not cancel booking.");
@@ -219,7 +216,7 @@ export default function MyBookingsPage() {
   }
 
   function money(value: number) {
-    return `$${Math.round(value).toLocaleString()}`;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
   }
 
   function statusLabel(status?: string, paymentStatus?: string) {
@@ -262,7 +259,7 @@ export default function MyBookingsPage() {
           </div>
 
           <div className="scoreOrb">
-            <strong>{bookings.length}</strong>
+            <strong translate="no">{bookings.length}</strong>
             <span>Total Bookings</span>
           </div>
         </section>
@@ -715,7 +712,7 @@ function Metric({ icon, label, value }: { icon: string; label: string; value: st
     <div className="metric">
       <div className="metricIcon">{icon}</div>
       <span className="metricLabel">{label}</span>
-      <div className="metricValue">{value}</div>
+      <div className="metricValue" translate="no"><span key={value}>{value}</span></div>
     </div>
   );
 }
