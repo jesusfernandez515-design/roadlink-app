@@ -27,7 +27,7 @@ export async function POST(request: Request) {
         contact_email: user.email, display_name: "Conductor de pruebas de RoadLink",
         identity: { country: "us", entity_type: "individual" }, dashboard: "express",
         defaults: { responsibilities: { fees_collector: "application", losses_collector: "application" } },
-        configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true }, payouts: { requested: true } } } } },
+        configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
         metadata: { roadlinkUserId: user.uid, environment: "test" },
         include: ["configuration.recipient", "requirements"],
       }, `connect-v2-${user.uid}-${record.startedAt}`);
