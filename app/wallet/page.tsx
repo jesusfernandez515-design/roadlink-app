@@ -3,15 +3,8 @@
 import Link from "next/link";
 import { isPendingBooking, retainedPayment } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useState } from "react";
-import { auth, db } from "../../lib/firebase";
+import { auth } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
 
 type Booking = {
   id: string;
@@ -84,130 +77,56 @@ export default function WalletPage() {
   const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
-    let unsubscribeUser: (() => void) | undefined;
-    let unsubscribeBookings: (() => void) | undefined;
-    let unsubscribeWallet: (() => void) | undefined;
-    let unsubscribePayouts: (() => void) | undefined;
-
     let generation = 0;
-    const stop = () => {
-      unsubscribeUser?.(); unsubscribeBookings?.();
-      unsubscribeWallet?.(); unsubscribePayouts?.();
-    };
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let controller: AbortController | undefined;
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      stop();
       const current = ++generation;
-      const active = () => generation === current && auth.currentUser?.uid === user?.uid;
-      setConnect(null);
-      if (user && testConnect) {
-        void user.getIdToken().then((token) => fetch("/api/connect/status", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }))
-          .then(async (response) => {
-            const data = await response.json();
-            if (active()) {
-              if (response.ok) setConnect(data);
-              else setMessage(data.error || "No se pudo verificar Connect.");
-            }
-          }).catch(() => { if (active()) setMessage("No se pudo consultar Stripe. Recarga para reintentar."); });
-      }
-      setReads({});
+      if (interval) clearInterval(interval);
+      controller?.abort();
+      const active = () => current === generation && auth.currentUser?.uid === user?.uid;
+      setConnect(null); setReads({});
       setBanking({}); setBookings([]); setWalletTransactions([]); setPayouts([]);
-      const loaded = (key: string, cached: boolean) => {
-        if (active()) setReads((previous) => ({ ...previous, [key]: !cached }));
+      setUserId(user?.uid || ""); setUserEmail(user?.email || "");
+      if (!user) { setMessage("Inicia sesión con la cuenta del conductor para ver la cartera."); return; }
+      let running = false;
+      const refresh = async () => {
+        if (running || !active()) return;
+        running = true;
+        controller = new AbortController();
+        const signal = controller.signal;
+        const timeout = setTimeout(() => controller?.abort(), 15000);
+        try {
+          setMessage("Consultando la cartera…");
+          const token = await Promise.race([
+            user.getIdToken(),
+            new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(new Error("La sesión o conexión tardó demasiado. Pulsa Reintentar.")), { once: true })),
+          ]);
+          if (!active() || signal.aborted) return;
+          const response = await fetch("/api/connect/wallet", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "No se pudo consultar la cartera.");
+          if (!active()) return;
+          setBookings(data.bookings);
+          setWalletTransactions(data.walletTransactions.sort((a: WalletTransaction, b: WalletTransaction) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
+          setPayouts(data.payouts.sort((a: PayoutRequest, b: PayoutRequest) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
+          setReads({ profile: true, bookings: true, wallet: true, payouts: true });
+          setMessage("");
+          // Stripe readiness is independent: it must never block wallet balances.
+          void fetch("/api/connect/status", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) })
+            .then(async (result) => { const state = await result.json(); if (active()) { if (result.ok) setConnect(state); else setMessage(state.error || "Stripe no está disponible."); } })
+            .catch(() => { if (active()) setMessage("La cartera cargó, pero Stripe no respondió. Recarga para volver a consultar Connect."); });
+        } catch (error) {
+          if (active()) {
+            setReads({});
+            setMessage(signal.aborted ? "La consulta tardó demasiado. Pulsa Reintentar cartera." : error instanceof Error ? error.message : "No se pudo consultar la cartera.");
+          }
+        } finally { clearTimeout(timeout); running = false; }
       };
-      const failed = (key: string, code: string) => {
-        if (!active()) return;
-        setReads((previous) => ({ ...previous, [key]: false }));
-        setMessage(`No se pudo verificar la cartera (${key}: ${code}). Recarga la página. Los importes están ocultos hasta completar la lectura.`);
-      };
-      if (!user) {
-        setUserId("");
-        setUserEmail("");
-        setBanking({});
-        setBookings([]);
-        setWalletTransactions([]);
-        setPayouts([]);
-        setMessage("Please sign in to view your wallet.");
-        return;
-      }
-
-      setUserId(user.uid);
-      setUserEmail(user.email || "");
-      setMessage("");
-
-      unsubscribeUser = onSnapshot(
-        doc(db, "users", user.uid),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          if (!active()) return;
-          const data = snapshot.data() as UserProfile | undefined;
-          loaded("profile", snapshot.metadata.fromCache);
-          setBanking(data?.banking || {});
-        },
-        (error) => failed("profile", error.code)
-      );
-
-      unsubscribeBookings = onSnapshot(
-        query(collection(db, "bookings"), where("driverId", "==", user.uid)),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          if (!active()) return;
-          const data = snapshot.docs.map((item) => ({
-            id: item.id,
-            ...item.data(),
-          })) as Booking[];
-
-          setBookings(data);
-          loaded("bookings", snapshot.metadata.fromCache);
-        },
-        (error) => failed("bookings", error.code)
-      );
-
-      unsubscribeWallet = onSnapshot(
-        query(collection(db, "walletTransactions"), where("driverId", "==", user.uid)),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          if (!active()) return;
-          const data = snapshot.docs.map((item) => ({
-            id: item.id,
-            ...item.data(),
-          })) as WalletTransaction[];
-
-          data.sort((a, b) =>
-            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-          );
-
-          setWalletTransactions(data);
-          loaded("wallet", snapshot.metadata.fromCache);
-        },
-        (error) => failed("wallet", error.code)
-      );
-
-      unsubscribePayouts = onSnapshot(
-        query(collection(db, "payoutRequests"), where("userId", "==", user.uid)),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          if (!active()) return;
-          const data = snapshot.docs.map((item) => ({
-            id: item.id,
-            ...item.data(),
-          })) as PayoutRequest[];
-
-          data.sort((a, b) =>
-            String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-          );
-
-          setPayouts(data);
-          loaded("payouts", snapshot.metadata.fromCache);
-        },
-        (error) => failed("payouts", error.code)
-      );
+      void refresh();
+      interval = setInterval(() => { void refresh(); }, 30000);
     });
-
-    return () => {
-      generation++;
-      unsubscribeAuth();
-      stop();
-    };
+    return () => { generation++; unsubscribeAuth(); controller?.abort(); if (interval) clearInterval(interval); };
   }, []);
 
   function bookingGross(booking: Booking) {
@@ -427,6 +346,7 @@ export default function WalletPage() {
       </section>
 
       {message && <p className="message" role="status">{message}</p>}
+      {!walletReady && <button className="manageButton" onClick={() => window.location.reload()}>Reintentar cartera</button>}
       {walletTransactions.some((item) => item.status === "transfer_review") && <p className="message" role="alert">Hay una transferencia con reembolso o cambio concurrente. Está bloqueada para conciliación; no se volverá a enviar. Contacta al administrador del piloto.</p>}
 
       <section className="bankCard">

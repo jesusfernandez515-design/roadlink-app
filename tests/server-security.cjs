@@ -124,3 +124,14 @@ test('refunds after a Connect transfer freeze reconciliation instead of creating
  assert.equal((await h.event('charge.refunded',{payment_intent:'pi_ref',amount:1000,amount_refunded:500,currency:'usd'},'evt_transfer_refund')).status,200);
  const row=h.db.rows.get('walletTransactions/wallet-pay');assert.equal(row.status,'transfer_review');assert.equal(row.amount,4.4);assert.equal(row.transferId,'tr_done');
 });
+test('wallet server reads only the assigned driver and rejects truncated histories',async()=>{
+ const uid='XmpCtSTIS6cf7r8UMc2UxLFj6qH3';const previous=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ const invoke=h=>h.load('app/api/connect/wallet/route.ts').GET(new Request('https://preview.example/api',{headers:{authorization:'Bearer valid'}}));
+ try {
+  const seed={'bookings/own':{driverId:uid,status:'completed'},'bookings/foreign':{driverId:'other'},'walletTransactions/own':{driverId:uid,amount:8.8,status:'available'},'walletTransactions/foreign':{driverId:'other',amount:999},'payoutRequests/own':{userId:uid},'payoutRequests/foreign':{userId:'other'}};
+  const result=await invoke(harness(seed,{uid}));assert.equal(result.status,200);const data=await result.json();assert.equal(data.bookings.length,1);assert.equal(data.walletTransactions.length,1);assert.equal(data.walletTransactions[0].amount,8.8);assert.equal(data.payouts.length,1);
+  assert.equal((await invoke(harness(seed))).status,403);
+  for(let i=0;i<201;i++)seed['bookings/row'+i]={driverId:uid};
+  assert.equal((await invoke(harness(seed,{uid}))).status,409);
+ } finally{if(previous===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=previous;}
+});
