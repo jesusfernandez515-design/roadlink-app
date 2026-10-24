@@ -34,6 +34,8 @@ type Booking = {
   passengerEmail?: string;
   status?: string;
   seatsBooked?: number;
+  paymentStatus?: string;
+  driverAmount?: number;
 };
 
 export default function MyRidesPage() {
@@ -43,11 +45,47 @@ export default function MyRidesPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [message, setMessage] = useState("Loading your rides...");
 
+  const [busy, setBusy] = useState(false);
+  async function driverAction(bookingId: string, action: "confirm" | "complete" | "test-arrival") {
+    if (busy || !auth.currentUser) return;
+    setBusy(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch(action === "test-arrival" ? "/api/bookings/test-arrival" : "/api/bookings/driver-action", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bookingId, action }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo actualizar la reserva.");
+      setMessage(action === "test-arrival" ? "Fecha ficticia ajustada. Ya puedes probar Finalizar viaje del pasajero." : action === "confirm" ? "Reserva confirmada." : "Viaje terminado; importe habilitado en la cartera de pruebas.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo actualizar."); }
+    finally { setBusy(false); }
+  }
+
+  async function cancelRide(rideId: string) {
+    if (busy || !auth.currentUser) return;
+    if (!window.confirm("¿Cancelar este viaje? Se cancelarán sus reservas sin pago o completamente reembolsadas y se avisará a los pasajeros. Si hay pagos, primero deberán resolverse sus reembolsos.")) return;
+    setBusy(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch("/api/rides/cancel", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ rideId }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo cancelar el viaje.");
+      setRides(current => current.map(ride => ride.id === rideId ? { ...ride, status: "cancelled" } : ride));
+      setMessage("Viaje cancelado. Ya no admite nuevas reservas.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo cancelar."); }
+    finally { setBusy(false); }
+  }
+
   useEffect(() => {
     let unsubscribeRides: (() => void) | undefined;
     let unsubscribeBookings: (() => void) | undefined;
 
+    let generation = 0;
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeRides?.(); unsubscribeBookings?.();
+      const current = ++generation;
+      setRides([]); setBookings([]);
       if (!user) {
         setMessage("Please sign in to view your rides.");
         router.push("/login");
@@ -62,6 +100,7 @@ export default function MyRidesPage() {
       unsubscribeRides = onSnapshot(
         ridesQuery,
         (snapshot) => {
+          if (current !== generation || auth.currentUser?.uid !== user.uid) return;
           const ridesData = snapshot.docs.map((document) => ({
             id: document.id,
             ...document.data(),
@@ -85,6 +124,7 @@ export default function MyRidesPage() {
       unsubscribeBookings = onSnapshot(
         bookingsQuery,
         (snapshot) => {
+          if (current !== generation || auth.currentUser?.uid !== user.uid) return;
           const bookingData = snapshot.docs.map((document) => ({
             id: document.id,
             ...document.data(),
@@ -97,6 +137,7 @@ export default function MyRidesPage() {
     });
 
     return () => {
+      generation++;
       unsubscribeAuth();
       if (unsubscribeRides) unsubscribeRides();
       if (unsubscribeBookings) unsubscribeBookings();
@@ -112,15 +153,12 @@ export default function MyRidesPage() {
   }, [rides]);
 
   const reservedSeats = bookings
-    .filter((booking) => booking.status === "reserved")
+    .filter((booking) => ["reserved", "payment_pending", "paid", "confirmed"].includes(booking.status || ""))
     .reduce((total, booking) => total + Number(booking.seatsBooked || 1), 0);
 
   const estimatedEarnings = bookings
-    .filter((booking) => booking.status === "reserved" || booking.status === "completed")
-    .reduce((total, booking) => {
-      const ride = rides.find((item) => item.id === booking.rideId);
-      return total + Number(ride?.price || 0) * Number(booking.seatsBooked || 1);
-    }, 0);
+    .filter((booking) => booking.status === "completed" && booking.paymentStatus === "paid")
+    .reduce((total, booking) => total + Number(booking.driverAmount || 0), 0);
 
   function getPassengersForRide(rideId: string) {
     return bookings.filter(
@@ -174,6 +212,7 @@ export default function MyRidesPage() {
           <div className={getStatusClass(ride.status)}>● {ride.status}</div>
 
           <div className="actions">
+            {["active", "full"].includes(ride.status) && <button className="miniButton" disabled={busy} onClick={() => cancelRide(ride.id)}>{busy ? "Procesando…" : "Cancelar mi viaje"}</button>}
             <Link href={`/ride-passengers?rideId=${ride.id}`} className="manageButton">
               Passengers
             </Link>
@@ -190,6 +229,24 @@ export default function MyRidesPage() {
             )}
           </div>
         </div>
+        {passengers.map((booking) => (
+          <div key={booking.id} className="compactInfo">
+            <span>{booking.passengerEmail || "Pasajero"} · {booking.status} · {booking.paymentStatus || "unpaid"}</span>
+            {booking.paymentStatus === "paid" && booking.status === "paid" && (
+              <button className="miniButton" disabled={busy} onClick={() => driverAction(booking.id, "confirm")}>Confirmar reserva</button>
+            )}
+            {process.env.NEXT_PUBLIC_ROADLINK_ENV === "test" && booking.id === "UWfkcqsR5lRSwIxqghk5_DefaRi3pT2c5ZKs5gwc66lywFWN2" && booking.paymentStatus === "paid" && booking.status === "confirmed" && (
+              <button className="miniButton" disabled={busy} onClick={() => {
+                if (window.confirm("Solo pruebas: ¿mover este viaje ficticio a ayer para comprobar su finalización?")) void driverAction(booking.id, "test-arrival");
+              }}>Prueba: ajustar fecha a ayer</button>
+            )}
+            {booking.paymentStatus === "paid" && booking.status === "confirmed" && (
+              <button className="miniButton" disabled={busy} onClick={() => {
+                if (window.confirm("¿Confirmas que este pasajero terminó el viaje?")) void driverAction(booking.id, "complete");
+              }}>Finalizar viaje del pasajero</button>
+            )}
+          </div>
+        ))}
       </article>
     );
   }
@@ -643,7 +700,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
       <span className="metricLabel">{label}</span>
-      <div className="metricValue">{value}</div>
+      <div className="metricValue" translate="no"><span key={value}>{value}</span></div>
     </div>
   );
 }

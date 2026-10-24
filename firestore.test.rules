@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function pilot() {
+      return request.auth != null && request.auth.token.email_verified == true
+        && request.auth.uid in ['XmpCtSTIS6cf7r8UMc2UxLFj6qH3', 'DefaRi3pT2c5ZKs5gwc66lywFWN2'];
+    }
+    function own(data) {
+      return pilot() && (data.get('passengerId', '') == request.auth.uid || data.get('driverId', '') == request.auth.uid
+        || data.get('passengerEmail', '') == request.auth.token.email || data.get('driverEmail', '') == request.auth.token.email);
+    }
+    match /users/{uid} {
+      allow read: if pilot() && uid == request.auth.uid;
+      allow create: if pilot() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name','email','bio','city','state','photoURL','updatedAt'])
+        && request.resource.data.email == request.auth.token.email;
+      allow update: if pilot() && uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','bio','city','state','photoURL','updatedAt']);
+    }
+    match /rides/{rideId} {
+      allow read: if pilot();
+      allow create: if pilot() && request.auth.uid == 'XmpCtSTIS6cf7r8UMc2UxLFj6qH3'
+        && request.resource.data.driverId == request.auth.uid
+        && request.resource.data.driverEmail == request.auth.token.email
+        && request.resource.data.keys().hasOnly(['driverId','driverEmail','from','to','fromLat','fromLng','toLat','toLng','distanceText','durationText','distanceMiles','durationMinutes','date','time','seats','originalSeats','price','suggestedPrice','vehicle','notes','mapUrl','status','createdAt'])
+        && request.resource.data.seats is int && request.resource.data.seats >= 1 && request.resource.data.seats <= 6
+        && request.resource.data.originalSeats == request.resource.data.seats
+        && request.resource.data.price is number && request.resource.data.price > 0 && request.resource.data.price <= 1000
+        && request.resource.data.status == 'active';
+      allow update: if pilot() && resource.data.driverId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vehicle','notes','updatedAt']);
+    }
+    match /bookings/{id} { allow read: if own(resource.data); }
+    match /payments/{id} { allow read: if own(resource.data); }
+    match /walletTransactions/{id} { allow read: if pilot() && (resource.data.driverId == request.auth.uid || resource.data.get('driverEmail', '') == request.auth.token.email); }
+    match /payoutRequests/{id} {
+      allow read: if pilot() && resource.data.userId == request.auth.uid;
+    }
+    match /notifications/{id} {
+      allow read: if pilot() && (resource.data.get('userId', '') == request.auth.uid || resource.data.get('email', '') == request.auth.token.email);
+      allow update: if pilot() && resource.data.get('userId', '') == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && request.resource.data.read is bool;
+    }
+    // Chat creation and moderation need server-side booking authorization before pilot rollout.
+    match /chats/{id} { allow read: if own(resource.data); }
+    match /messages/{id} { allow read: if pilot() && request.auth.uid in [resource.data.senderId, resource.data.receiverId]; }
+    // Includes roles, audit records, payouts, Stripe events, devices and unknown collections.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

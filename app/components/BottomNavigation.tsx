@@ -117,6 +117,8 @@ export default function BottomNavigation() {
     [unreadMessages, unreadNotifications]
   );
 
+  if (pathname === "/") return null;
+
   return (
     <>
       <nav className="bottomNav">

@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import BottomNavigation from "./components/BottomNavigation";
 
 export const metadata: Metadata = {
-  title: "RoadLink",
+  title: "RoadLink | Más cerca de lo que importa",
   description:
-    "RoadLink helps drivers and passengers connect for safe, affordable long distance rides.",
+    "Conecta con personas que van en tu misma dirección. Encuentra viajes compartidos y publica tu ruta en Puerto Rico con RoadLink.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -18,10 +18,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#22c55e",
+  themeColor: "#080f0d",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+
 };
 
 export default function RootLayout({
@@ -30,8 +30,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="es">
+      <body style={{ margin: 0 }}>
+        {process.env.NEXT_PUBLIC_ROADLINK_ENV === "test" && (
+          <aside aria-label="Entorno de pruebas" style={{ background: "#20372a", color: "#f1eee5", padding: "10px 16px", textAlign: "center", fontFamily: "Arial, sans-serif", fontSize: 12, lineHeight: 1.5 }}>
+            RoadLink · Piloto privado de pruebas. Solo cuentas autorizadas. Los pagos y transferencias son ficticios.
+          </aside>
+        )}
         {children}
         <BottomNavigation />
       </body>

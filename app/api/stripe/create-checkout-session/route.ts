@@ -1,140 +1,65 @@
-import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { db } from "../../../../lib/firebase";
+import { ApiError, apiFailure, documentId, requirePassenger } from "../../../../lib/server/firebase-admin";
+import { bookingAmount, paymentConfig } from "../../../../lib/server/payments";
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.getroadlink.com";
-
-export async function POST(request: NextRequest) {
-  if (!stripeSecretKey) {
-    return NextResponse.json(
-      { error: "Payment service is not configured." },
-      { status: 503 }
-    );
-  }
-
-  const stripe = new Stripe(stripeSecretKey);
+export async function POST(request: Request) {
   try {
-    const body = await request.json();
-
-    const bookingId = String(body.bookingId || "").trim();
-    const userId = String(body.userId || "").trim();
-    const userEmail = String(body.userEmail || "").trim();
-
-    if (!bookingId) {
-      return NextResponse.json({ error: "bookingId is required." }, { status: 400 });
+    const { user, db } = await requirePassenger(request);
+    const { stripe, test } = paymentConfig();
+    const { bookingId: input } = await request.json();
+    const bookingId = documentId(input);
+    const ref = db.collection("bookings").doc(bookingId);
+    const booking = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new ApiError(404, "Booking not found.");
+      const value = snap.data()!;
+      if (value.passengerId !== user.uid) throw new ApiError(403, "This booking belongs to another passenger.");
+      if (!["reserved", "payment_pending"].includes(value.status) || !["unpaid", "pending"].includes(value.paymentStatus)) {
+        throw new ApiError(409, "This booking cannot be paid.");
+      }
+      const ride = await tx.get(db.collection("rides").doc(value.rideId));
+      const departure = new Date(`${value.date}T${value.time}-04:00`).getTime();
+      if (!ride.exists || !["active", "full"].includes(ride.data()!.status) || !Number.isFinite(departure) || departure <= Date.now()) {
+        throw new ApiError(409, "This ride cannot accept payment.");
+      }
+      bookingAmount(value);
+      tx.update(ref, { status: "payment_pending", paymentStatus: "pending", updatedAt: new Date().toISOString() });
+      return value;
+    });
+    if (booking.stripeCheckoutSessionId) {
+      const existing = await stripe.checkout.sessions.retrieve(booking.stripeCheckoutSessionId);
+      if (existing.status === "open" && existing.url) return Response.json({ url: existing.url, sessionId: existing.id });
+      throw new ApiError(409, "The checkout session is closed; payment status requires review.");
     }
-
-    const bookingRef = doc(db, "bookings", bookingId);
-    const bookingSnap = await getDoc(bookingRef);
-
-    if (!bookingSnap.exists()) {
-      return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-    }
-
-    const booking = bookingSnap.data();
-
-    const seatsBooked = Math.max(Number(booking.seatsBooked || 1), 1);
-    const baseAmount = Number(booking.amount || booking.price || 0);
-    const amount = Math.round(baseAmount * seatsBooked * 100) / 100;
-
-    if (!amount || amount <= 0) {
-      return NextResponse.json({ error: "Invalid booking amount." }, { status: 400 });
-    }
-
-    const platformFee = Math.round(amount * 0.12 * 100) / 100;
-    const driverAmount = Math.max(Math.round((amount - platformFee) * 100) / 100, 0);
-    const amountInCents = Math.round(amount * 100);
-
-    const now = new Date().toISOString();
-
+    const amounts = bookingAmount(booking);
+    // Use the origin serving the authenticated request, never a browser-supplied redirect URL.
+    const origin = new URL(request.url).origin;
+    const version = Number(booking.reservationVersion || 1);
+    const attempt = Number(booking.checkoutAttempt || 0);
     const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: userEmail || booking.passengerEmail || undefined,
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: amountInCents,
-            product_data: {
-              name: `RoadLink Ride: ${booking.from || "Origin"} to ${booking.to || "Destination"}`,
-              description: `Booking ${bookingId}`,
-            },
-          },
-        },
-      ],
-      metadata: {
-        bookingId,
-        rideId: String(booking.rideId || ""),
-        passengerId: userId || String(booking.passengerId || ""),
-        passengerEmail: userEmail || String(booking.passengerEmail || ""),
-        driverId: String(booking.driverId || ""),
-        driverEmail: String(booking.driverEmail || ""),
-        amount: String(amount),
-        platformFee: String(platformFee),
-        driverAmount: String(driverAmount),
-      },
-      success_url: `${appUrl}/my-bookings?payment=success&bookingId=${bookingId}`,
-      cancel_url: `${appUrl}/my-bookings?payment=cancelled&bookingId=${bookingId}`,
+      mode: "payment", customer_email: user.email, payment_method_types: ["card"],
+      client_reference_id: bookingId,
+      line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amounts.cents, product_data: { name: `RoadLink: ${booking.from} to ${booking.to}` } } }],
+      metadata: { bookingId, passengerId: user.uid, reservationVersion: String(version), environment: test ? "test" : "production" },
+      success_url: `${origin}/my-bookings?payment=success`, cancel_url: `${origin}/my-bookings?payment=cancelled`,
+    }, { idempotencyKey: `roadlink-${test ? "test" : "live"}-${bookingId}-${version}-${attempt}` });
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const current = snap.data();
+      if (!current || current.status !== "payment_pending" || Number(current.reservationVersion || 1) !== version) {
+        // A webhook may already have confirmed this exact session.
+        if (current?.status === "paid" && current.stripeCheckoutSessionId === session.id) return;
+        throw new ApiError(409, "Booking changed during checkout. Contact support.");
+      }
+      const now = new Date().toISOString();
+      const paymentId = `stripe-${session.id}`;
+      tx.set(db.collection("payments").doc(paymentId), {
+        bookingId, rideId: booking.rideId, passengerId: user.uid, passengerEmail: user.email || "",
+        driverId: booking.driverId, driverEmail: booking.driverEmail || "", ...amounts,
+        currency: "USD", status: "pending", provider: "stripe", stripeCheckoutSessionId: session.id,
+        reservationVersion: version, createdAt: now, updatedAt: now,
+      }, { merge: true });
+      tx.update(ref, { paymentId, stripeCheckoutSessionId: session.id, ...amounts, updatedAt: now });
     });
-
-    await setDoc(
-      doc(db, "payments", `stripe-${session.id}`),
-      {
-        bookingId,
-        rideId: String(booking.rideId || ""),
-        passengerId: userId || String(booking.passengerId || ""),
-        passengerEmail: userEmail || String(booking.passengerEmail || ""),
-        driverId: String(booking.driverId || ""),
-        driverEmail: String(booking.driverEmail || ""),
-        amount,
-        platformFee,
-        driverAmount,
-        seatsBooked,
-        currency: "USD",
-        provider: "stripe",
-        status: "pending",
-        type: "booking_payment",
-        stripeCheckoutSessionId: session.id,
-        stripePaymentIntentId: "",
-        checkoutUrl: session.url || "",
-        createdAt: now,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-
-    await setDoc(
-      bookingRef,
-      {
-        status: "payment_pending",
-        paymentStatus: "pending",
-        paymentId: `stripe-${session.id}`,
-        stripeCheckoutSessionId: session.id,
-        amount,
-        platformFee,
-        driverAmount,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-
-    return NextResponse.json({
-      url: session.url,
-      sessionId: session.id,
-    });
-  } catch (error: unknown) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not create Stripe Checkout session.",
-      },
-      { status: 500 }
-    );
-  }
+    return Response.json({ url: session.url, sessionId: session.id });
+  } catch (error) { return apiFailure(error); }
 }
