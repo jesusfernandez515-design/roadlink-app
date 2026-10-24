@@ -217,3 +217,60 @@ test('checkout accepts future Puerto Rico departure and rejects past local depar
   }
  } finally {Date.now=savedNow;}
 });
+
+test('integrated release rejects live payments even when a live key is present',()=>{
+ const h=harness(), policy=h.load('lib/server/payments.ts'), saved={...process.env};
+ try {
+  process.env.NEXT_PUBLIC_ROADLINK_ENV='production';
+  process.env.STRIPE_SECRET_KEY='sk_live_fake';
+  assert.throws(()=>policy.paymentConfig(),e=>e.status===503);
+ } finally {process.env=saved;}
+});
+
+test('integrated sandbox lifecycle reserves, pays, completes, transfers and recovers one refunded payment',async()=>{
+ const savedNow=Date.now, savedEnv=process.env.NEXT_PUBLIC_ROADLINK_ENV;
+ const driver='XmpCtSTIS6cf7r8UMc2UxLFj6qH3', passenger='DefaRi3pT2c5ZKs5gwc66lywFWN2';
+ const identity={uid:passenger,email:'passenger@example.com',email_verified:true};
+ const bookingId=`r_${passenger}`;
+ const h=harness({'rides/r':{...ride,driverId:driver,date:'2026-10-22',time:'18:00',durationMinutes:65},['connectAccounts/'+driver]:{accountId:'acct_driver'}},identity);
+ const post=(path,body)=>h.load(path).POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify(body)}));
+ let transfer, reversed=0, transferCalls=0, reversalCalls=0, chargeRefunded=0;
+ h.stripe.accounts={retrieve:async()=>({metadata:{roadlinkUserId:driver},configuration:{recipient:{capabilities:{stripe_balance:{stripe_transfers:{status:'active'},payouts:{status:'active'}}}}}})};
+ h.stripe.paymentIntents={retrieve:async()=>({livemode:false,status:'succeeded',latest_charge:{id:'ch_lifecycle',currency:'usd',amount:1000,amount_refunded:chargeRefunded}})};
+ h.stripe.transfers={
+  create:async(data)=>{transferCalls++;transfer={...data,id:'tr_lifecycle',livemode:false,amount_reversed:0};return transfer;},
+  retrieve:async()=>({...transfer,amount_reversed:reversed}),
+  createReversal:async(id,data)=>{reversalCalls++;reversed=data.amount;return {id:'trr_lifecycle',amount:reversed};},
+  listReversals:async()=>({data:[{id:'trr_lifecycle',amount:reversed}]}),
+ };
+ try {
+  process.env.NEXT_PUBLIC_ROADLINK_ENV='test';Date.now=()=>Date.parse('2026-10-22T21:05:00Z');
+  assert.equal((await h.call('reserve',{rideId:'r'})).status,200);
+  assert.equal(h.db.rows.get('rides/r').seats,1);
+  assert.equal((await h.call('checkout',{bookingId})).status,200);
+  const session=[...h.sessions.values()][0];
+  const paid={...paidSession,id:session.id,metadata:session.metadata,payment_intent:'pi_lifecycle'};
+  assert.equal((await h.event('checkout.session.completed',paid,'evt_lifecycle_paid')).status,200);
+  assert.equal((await h.event('checkout.session.completed',paid,'evt_lifecycle_paid')).status,200);
+  const walletId=`wallet-stripe-${session.id}`;
+  assert.equal(h.db.rows.get('walletTransactions/'+walletId).amount,8.8);
+  Object.assign(identity,{uid:driver,email:'driver@example.com'});
+  assert.equal((await post('app/api/bookings/driver-action/route.ts',{bookingId,action:'confirm'})).status,200);
+  assert.equal((await post('app/api/bookings/driver-action/route.ts',{bookingId,action:'complete'})).status,409);
+  Date.now=()=>Date.parse('2026-10-22T23:06:00Z');
+  assert.equal((await post('app/api/bookings/driver-action/route.ts',{bookingId,action:'complete'})).status,200);
+  assert.equal(h.db.rows.get('rides/r').status,'completed');
+  assert.equal(h.db.rows.get('walletTransactions/'+walletId).status,'available');
+  assert.equal((await post('app/api/connect/transfer/route.ts',{walletId})).status,200);
+  assert.equal((await post('app/api/connect/transfer/route.ts',{walletId})).status,200);
+  assert.equal(transferCalls,1);assert.equal(transfer.amount,880);
+  chargeRefunded=1000;
+  assert.equal((await h.event('charge.refunded',{id:'ch_lifecycle',payment_intent:'pi_lifecycle',amount:1000,amount_refunded:1000,currency:'usd'},'evt_lifecycle_refund')).status,200);
+  assert.equal(h.db.rows.get('walletTransactions/'+walletId).status,'transfer_review');
+  assert.equal((await post('app/api/connect/reconcile/route.ts',{walletId})).status,200);
+  assert.equal((await post('app/api/connect/reconcile/route.ts',{walletId})).status,200);
+  assert.equal(reversalCalls,1);assert.equal(reversed,880);
+  assert.equal(h.db.rows.get('walletTransactions/'+walletId).amount,0);
+  assert.equal(h.db.rows.get('payoutRequests/connect-'+walletId).status,'reversed');
+ } finally {Date.now=savedNow;if(savedEnv===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=savedEnv;}
+});

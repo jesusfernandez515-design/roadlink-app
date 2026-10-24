@@ -3,6 +3,7 @@ import { ApiError } from "./firebase-admin";
 
 export function paymentConfig() {
   const test = process.env.NEXT_PUBLIC_ROADLINK_ENV === "test";
+  if (!test) throw new ApiError(503, "Los cobros reales están desactivados. RoadLink está en fase de pruebas.");
   const key = test ? process.env.STRIPE_TEST_SECRET_KEY : process.env.STRIPE_SECRET_KEY;
   const webhook = test ? process.env.STRIPE_TEST_WEBHOOK_SECRET : process.env.STRIPE_WEBHOOK_SECRET;
   if (!key || (test && !key.startsWith("sk_test_")) || (!test && !key.startsWith("sk_live_"))) {
