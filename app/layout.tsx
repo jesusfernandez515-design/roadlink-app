@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import AppExperienceProvider from "./components/AppExperience";
 import BottomNavigation from "./components/BottomNavigation";
 import BrandHeader from "./components/BrandHeader";
 import "./globals.css";
@@ -42,9 +43,11 @@ export default function RootLayout({
             RoadLink · Piloto privado de pruebas. Solo cuentas autorizadas. Los pagos y transferencias son ficticios.
           </aside>
         )}
+        <AppExperienceProvider>
         <BrandHeader />
         {children}
         <BottomNavigation />
+        </AppExperienceProvider>
       </body>
     </html>
   );
