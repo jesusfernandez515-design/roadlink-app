@@ -288,3 +288,41 @@ test('profile photos require authentication and a ride or booking relationship, 
  const related=harness({'users/p':{name:'Passenger',photoURL:photo},'bookings/b':booking},{uid:'d'});
  assert.equal((await related.load('app/api/profiles/route.ts').GET(new Request('https://preview.example/api/profiles?uid=p',{headers:{authorization:'Bearer valid'}}))).status,200);
 });
+
+test('chat requires a real booking, rejects forged participants and creates one conversation',async()=>{
+ const h=harness({'bookings/b':booking,'rides/r':ride});
+ const post=(body,token='valid')=>h.load('app/api/chat/route.ts').POST(new Request('https://preview.example/api/chat',{method:'POST',headers:{authorization:'Bearer '+token},body:JSON.stringify(body)}));
+ assert.equal((await post({action:'open',bookingId:'b'},'bad')).status,401);
+ assert.equal((await post({action:'open',rideId:'r',passengerId:'victim'})).status,200);
+ assert.equal((await post({action:'open',bookingId:'b'})).status,200);
+ assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('chats/')).length,1);
+ const stranger=harness({'bookings/b':booking},{uid:'stranger'});
+ assert.equal((await stranger.load('app/api/chat/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({action:'open',bookingId:'b'})}))).status,403);
+ const noBooking=harness({'rides/r':ride});
+ assert.equal((await noBooking.load('app/api/chat/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({action:'open',rideId:'r'})}))).status,403);
+});
+test('chat sending derives identity, deduplicates notifications and protects private history',async()=>{
+ const seed={'bookings/b':booking,'chats/r_d_p':{rideId:'r',bookingId:'b',driverId:'d',passengerId:'p',unread:{p:0,d:0}}};
+ const h=harness(seed);
+ const route=h.load('app/api/chat/route.ts');
+ const post=(body)=>route.POST(new Request('https://preview.example/api/chat',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify(body)}));
+ const body={action:'send',chatId:'r_d_p',messageId:'test-message-1',text:'Hola, prueba de coordinación.',senderId:'victim',receiverId:'victim'};
+ assert.equal((await post(body)).status,200);assert.equal((await post(body)).status,200);
+ const messages=[...h.db.rows.entries()].filter(([k])=>k.startsWith('messages/'));assert.equal(messages.length,1);assert.equal(messages[0][1].senderId,'p');assert.equal(messages[0][1].receiverId,'d');
+ assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('notifications/')).length,1);
+ assert.equal(h.db.rows.get('chats/r_d_p').unread.d,1);assert.equal(h.db.rows.get('chats/r_d_p').unread.p,0);
+ assert.equal((await post({...body,text:'Changed'})).status,409);
+ assert.equal((await post({...body,messageId:'another',text:' '.repeat(8)})).status,400);
+ assert.equal((await post({...body,messageId:'another',text:'x'.repeat(2001)})).status,400);
+ const get=await route.GET(new Request('https://preview.example/api/chat?chatId=r_d_p',{headers:{authorization:'Bearer valid'}}));assert.equal(get.status,200);const data=await get.json();assert.equal(data.messages.length,1);assert.equal(data.messages[0].senderEmail,undefined);
+ const stranger=harness(Object.fromEntries(h.db.rows),{uid:'stranger'});
+ assert.equal((await stranger.load('app/api/chat/route.ts').GET(new Request('https://preview.example/api/chat?chatId=r_d_p',{headers:{authorization:'Bearer valid'}}))).status,403);
+ const driver=harness(Object.fromEntries(h.db.rows),{uid:'d'});driver.db.rows.get('chats/r_d_p').unread.p=5;assert.equal((await driver.load('app/api/chat/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid'},body:JSON.stringify({action:'read',chatId:'r_d_p',userId:'p'})}))).status,200);assert.equal(driver.db.rows.get('chats/r_d_p').unread.d,0);assert.equal(driver.db.rows.get('chats/r_d_p').unread.p,5);
+ h.db.rows.set('bookings/b',{...booking,status:'cancelled'});assert.equal((await post({...body,messageId:'closed'})).status,409);
+});
+test('chat rejects mismatched booking documents and an oversized history',async()=>{
+ const h=harness({'bookings/b':booking,'chats/chat':{bookingId:'b',rideId:'foreign',driverId:'d',passengerId:'p'}});
+ assert.equal((await h.load('app/api/chat/route.ts').GET(new Request('https://preview.example/api/chat?chatId=chat',{headers:{authorization:'Bearer valid'}}))).status,403);
+ const seed={'bookings/b':booking,'chats/chat':{bookingId:'b',rideId:'r',driverId:'d',passengerId:'p'}};for(let n=0;n<101;n++)seed['messages/m'+n]={chatId:'chat',text:'test',senderId:'p'};
+ const long=harness(seed);assert.equal((await long.load('app/api/chat/route.ts').GET(new Request('https://preview.example/api/chat?chatId=chat',{headers:{authorization:'Bearer valid'}}))).status,409);
+});

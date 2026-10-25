@@ -14,6 +14,7 @@ type Chat = {
   driverId?: string;
   passengerId?: string;
   unreadCount?: number;
+  unread?: Record<string, number>;
 };
 
 export default function BottomNavigation() {
@@ -28,6 +29,9 @@ export default function BottomNavigation() {
     let unsubscribeNotifications: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      unsubscribeDriverChats?.();
+      unsubscribePassengerChats?.();
+      unsubscribeNotifications?.();
       setUnreadMessages(0);
       setUnreadNotifications(0);
 
@@ -51,7 +55,7 @@ export default function BottomNavigation() {
         });
 
         const total = Array.from(chatMap.values()).reduce(
-          (sum, chat) => sum + Number(chat.unreadCount || 0),
+          (sum, chat) => sum + Number(chat.unread?.[user.uid] ?? chat.unreadCount ?? 0),
           0
         );
 

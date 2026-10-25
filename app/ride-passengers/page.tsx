@@ -12,7 +12,6 @@ import {
   getDoc,
   onSnapshot,
   query,
-  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -388,30 +387,12 @@ function RidePassengersContent() {
     if (!currentUser || !ride || !booking.passengerId) return;
 
     try {
-      const chatId = `${ride.id}_${currentUser.uid}_${booking.passengerId}`;
       setLoadingId(`chat-${booking.id}`);
-
-      await setDoc(
-        doc(db, "chats", chatId),
-        {
-          id: chatId,
-          chatId,
-          rideId: ride.id,
-          driverId: currentUser.uid,
-          driverEmail: currentUser.email || ride.driverEmail || "",
-          passengerId: booking.passengerId,
-          passengerEmail: booking.passengerEmail || "",
-          participants: [currentUser.uid, booking.passengerId],
-          participantEmails: [
-            currentUser.email || ride.driverEmail || "",
-            booking.passengerEmail || "",
-          ],
-          updatedAt: new Date().toISOString(),
-          createdAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-
+      const token = await currentUser.getIdToken();
+      const response = await fetch("/api/chat", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "open", bookingId: booking.id }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo abrir el chat.");
+      const chatId = result.chatId;
       router.push(`/chat?chatId=${chatId}`);
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not open chat.");
