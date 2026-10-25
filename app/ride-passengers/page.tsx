@@ -62,30 +62,46 @@ function RidePassengersContent() {
   const rideId = searchParams.get("rideId") || "";
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [ownRides, setOwnRides] = useState<Ride[]>([]);
   const [ride, setRide] = useState<Ride | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [message, setMessage] = useState("Loading passengers...");
   const [loadingId, setLoadingId] = useState("");
 
   useEffect(() => {
-    if (!rideId) {
-      setMessage("Missing ride ID.");
-      return;
-    }
-
     let unsubscribeBookings: (() => void) | undefined;
+    let disposed = false;
+    let authVersion = 0;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      const version = ++authVersion;
+      unsubscribeBookings?.();
+      unsubscribeBookings = undefined;
+      setRide(null);
+      setBookings([]);
+      setOwnRides([]);
+      setCurrentUser(user);
+      setMessage("Cargando viajes…");
       if (!user) {
         router.push("/login");
         return;
       }
 
-      setCurrentUser(user);
+      if (!rideId) {
+        unsubscribeBookings = onSnapshot(query(collection(db, "rides"), where("driverId", "==", user.uid)), snapshot => {
+          if (disposed || version !== authVersion) return;
+          const rows = snapshot.docs.map(item => ({ ...item.data(), id: item.id } as Ride));
+          rows.sort((a, b) => `${b.date || ""} ${b.time || ""}`.localeCompare(`${a.date || ""} ${a.time || ""}`));
+          setOwnRides(rows);
+          setMessage(rows.length ? "" : "Todavía no has publicado viajes.");
+        }, error => { if (!disposed && version === authVersion) setMessage(error.message); });
+        return;
+      }
 
       try {
         const rideSnap = await getDoc(doc(db, "rides", rideId));
 
+        if (disposed || version !== authVersion) return;
         if (!rideSnap.exists()) {
           setMessage("Ride not found.");
           return;
@@ -96,7 +112,7 @@ function RidePassengersContent() {
           id: rideSnap.id,
         } as Ride;
 
-        if (rideData.driverId && rideData.driverId !== user.uid) {
+        if (rideData.driverId !== user.uid) {
           setMessage("You can only manage passengers for your own rides.");
           return;
         }
@@ -112,6 +128,7 @@ function RidePassengersContent() {
         unsubscribeBookings = onSnapshot(
           bookingsQuery,
           (snapshot) => {
+            if (disposed || version !== authVersion) return;
             const data = snapshot.docs.map((document) => ({
               ...document.data(),
               id: document.id,
@@ -132,6 +149,7 @@ function RidePassengersContent() {
     });
 
     return () => {
+      disposed = true;
       unsubscribeAuth();
       if (unsubscribeBookings) unsubscribeBookings();
     };
@@ -312,7 +330,23 @@ function RidePassengersContent() {
           )}
         </section>
 
-        <section className="stats">
+        {!rideId && (
+          <section className="results" aria-label="Selecciona un viaje">
+            <h2>Selecciona un viaje</h2>
+            <p>Abre una ruta para consultar sus pasajeros y gestionar las reservas.</p>
+            {message && <p role="status">{message}</p>}
+            {ownRides.map(item => (
+              <article className="passengerCard" key={item.id}>
+                <h3>{item.from || "Origen"} → {item.to || "Destino"}</h3>
+                <p>{item.date} · {item.time} · {item.status === "completed" ? "Terminado" : item.status === "cancelled" ? "Cancelado" : "Activo"}</p>
+                <Link className="outlineButton" href={`/ride-passengers?rideId=${encodeURIComponent(item.id)}`}>Ver pasajeros</Link>
+              </article>
+            ))}
+            {!ownRides.length && !message.startsWith("Cargando") && <Link className="miniButton" href="/offer-ride">Ofrecer un viaje</Link>}
+          </section>
+        )}
+
+        {ride && <section className="stats">
           <Metric label="Passengers" value={String(metrics.active.length)} icon="👥" />
           <Metric label="Seats Booked" value={String(metrics.seats)} icon="💺" />
           <Metric label="Paid" value={String(metrics.paid.length)} icon="💳" />
@@ -321,7 +355,7 @@ function RidePassengersContent() {
           <Metric label="Driver Net" value={formatMoney(metrics.driverNet)} icon="🏦" />
           <Metric label="Platform Fee" value={formatMoney(metrics.platformFees)} icon="📊" />
           <Metric label="Cancelled" value={String(metrics.cancelled.length)} icon="❌" />
-        </section>
+        </section>}
 
         {ride && (
           <section className="rideSummary">
@@ -353,10 +387,10 @@ function RidePassengersContent() {
           </section>
         )}
 
-        <section className="results">
+        {rideId && <section className="results">
           {message && <p className="message">{message}</p>}
 
-          {metrics.active.length === 0 ? (
+          {!ride ? null : metrics.active.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">👥</div>
               <h2>No passengers yet</h2>
@@ -430,7 +464,7 @@ function RidePassengersContent() {
               </article>
             ))
           )}
-        </section>
+        </section>}
       </section>
 
       <style>{`
