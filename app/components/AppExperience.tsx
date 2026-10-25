@@ -28,8 +28,14 @@ export default function AppExperienceProvider({ children }: { children: React.Re
     if (path === "/dashboard" && mode) router.replace(experienceHome(mode));
   }, [mode, path, router]);
   useEffect(() => {
-    const manifest = document.querySelector('link[rel="manifest"]');
-    manifest?.setAttribute("href", mode ? `/manifest-${mode}.json` : "/manifest.json");
+    let manifest = document.head.querySelector<HTMLLinkElement>("#roadlink-app-manifest");
+    if (!manifest) {
+      manifest = document.createElement("link");
+      manifest.id = "roadlink-app-manifest";
+      manifest.rel = "manifest";
+      document.head.appendChild(manifest);
+    }
+    manifest.href = mode ? `/manifest-${mode}.json` : "/manifest.json";
   }, [mode, path]);
   return <ExperienceContext.Provider value={mode}>{children}</ExperienceContext.Provider>;
 }

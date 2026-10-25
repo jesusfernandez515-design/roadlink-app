@@ -8,7 +8,6 @@ export const metadata: Metadata = {
   title: "RoadLink | Más cerca de lo que importa",
   description:
     "Conecta con personas que van en tu misma dirección. Encuentra viajes compartidos y publica tu ruta en Puerto Rico con RoadLink.",
-  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     title: "RoadLink",
