@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { canPayBooking } from "../../lib/booking-payment";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
@@ -163,6 +164,10 @@ export default function MyBookingsPage() {
     }
 
     if (!booking.id) return;
+    if (!canPayBooking(booking)) {
+      setPaymentFeedback({ bookingId: booking.id, text: "Esta reserva ya no admite pagos. Actualiza la página para consultar su estado." });
+      return;
+    }
 
     try {
       setPayingId(booking.id);
@@ -225,6 +230,9 @@ export default function MyBookingsPage() {
   }
 
   function statusLabel(status?: string, paymentStatus?: string) {
+    if (paymentStatus === "refunded") return "Reembolsado";
+    if (paymentStatus === "partially_refunded") return "Reembolso parcial";
+    if (status === "completed") return "Completed";
     if (paymentStatus === "paid") return "Paid";
     if (paymentStatus === "pending") return "Payment Pending";
     if (status === "payment_pending") return "Payment Pending";
@@ -237,6 +245,7 @@ export default function MyBookingsPage() {
   }
 
   function statusClass(status?: string, paymentStatus?: string) {
+    if (["refunded", "partially_refunded"].includes(paymentStatus || "")) return "done";
     if (paymentStatus === "paid" || status === "paid") return "paid";
     if (paymentStatus === "pending" || status === "payment_pending") return "pending";
     if (status === "cancelled" || status === "rejected") return "bad";
@@ -340,7 +349,7 @@ export default function MyBookingsPage() {
 
                     {paymentFeedback?.bookingId === booking.id && <p role="status" aria-live="polite">{paymentFeedback.text}</p>}
                     <div className="actions">
-                      {!isPaid && !isCancelled && (
+                      {canPayBooking(booking) && (
                         <button
                           className="payButton"
                           onClick={() => startPayment(booking)}
