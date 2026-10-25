@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -239,11 +240,7 @@ export default function PassengerProfilePage() {
           <div className="glow" />
 
           <div className="avatarWrap">
-            {displayPhoto ? (
-              <img src={displayPhoto} alt={displayName} className="avatarImage" />
-            ) : (
-              <div className="avatar">{displayName.charAt(0).toUpperCase()}</div>
-            )}
+            <ProfileIdentity uid={passengerId} name={displayName} photoURL={displayPhoto} role="Pasajero" size={110} showName={false} />
 
             {verified && <div className="verifyDot">✓</div>}
           </div>

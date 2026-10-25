@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -304,7 +305,7 @@ export default function FindRidePage() {
 
               <div className="infoGrid">
                 <Info label="Vehicle" value={ride.vehicle || "Not specified"} icon="🚘" />
-                <Info label="Driver" value={ride.driverEmail || "RoadLink Driver"} icon="👤" />
+                <ProfileIdentity uid={ride.driverId} name={ride.driverEmail} role="Conductor" />
                 {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
               </div>
 

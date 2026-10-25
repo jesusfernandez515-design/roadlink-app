@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged, User } from "firebase/auth";
@@ -507,9 +508,7 @@ function RidePassengersContent() {
             metrics.active.map((booking) => (
               <article key={booking.id} className="passengerCard">
                 <div className="passengerTop">
-                  <div className="avatar">
-                    {(booking.passengerEmail || "P").charAt(0).toUpperCase()}
-                  </div>
+                  <Link href={`/passenger-profile?passengerId=${booking.passengerId || ""}`} aria-label="Ver perfil del pasajero"><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" showName={false} /></Link>
 
                   <div>
                     <p className="eyebrow">Passenger</p>
