@@ -167,8 +167,8 @@ export default function ProfilePage() {
     <main className="page">
       <section className="hero">
         <div className="heroTop">
-          <div className="avatarShell">
-            <ProfileIdentity photoURL={displayPhoto} name={displayName} role="Perfil" size={96} showName={false} />
+          <div style={{ flexShrink: 0 }}>
+            <ProfileIdentity photoURL={displayPhoto} name={displayName} role="Perfil" size={80} showName={false} />
             <Link href="/profile/edit" style={{ display: "block", fontSize: 12, textAlign: "center", marginTop: 8 }}>Cambiar foto</Link>
           </div>
 
