@@ -11,16 +11,19 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "RoadLink",
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "black",
   },
   icons: {
-    icon: "/roadlink-logo.png",
-    apple: "/roadlink-logo.png",
+    icon: [
+      { url: "/icons/roadlink-luxury.svg", type: "image/svg+xml" },
+      { url: "/icons/roadlink-luxury-32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: { url: "/icons/roadlink-luxury-180.png", sizes: "180x180", type: "image/png" },
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#080f0d",
+  themeColor: "#070d11",
   width: "device-width",
   initialScale: 1,
 

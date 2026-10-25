@@ -1,25 +1,33 @@
 {
   "name": "RoadLink",
   "short_name": "RoadLink",
-  "description": "Long Distance Ride Sharing",
+  "description": "Viajes compartidos. Más cerca de lo que importa.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#22c55e",
+  "background_color": "#070d11",
+  "theme_color": "#070d11",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/roadlink-logo.png",
+      "src": "/icons/roadlink-luxury-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "/roadlink-logo.png",
+      "src": "/icons/roadlink-luxury-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/roadlink-luxury-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ]
+  ],
+  "id": "/",
+  "lang": "es-PR"
 }
