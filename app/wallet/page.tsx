@@ -345,7 +345,7 @@ export default function WalletPage() {
   }
 
   return (
-    <main className="page">
+    <main className="page walletPage">
       <section className="hero">
         <div className="topNav">
           <Link href="/dashboard" className="miniButton">Dashboard</Link>
@@ -369,12 +369,12 @@ export default function WalletPage() {
               : "No payout requests yet"}
           </small>
         </div>
+        <div className="walletToolbar"><button className="manageButton" disabled={requesting} onClick={() => { void refreshWallet.current(false); }}>Actualizar cartera</button></div>
       </section>
 
       {message && <p className="message" role="status">{message}</p>}
-      <button className="manageButton" disabled={requesting} onClick={() => { void refreshWallet.current(false); }}>Actualizar cartera</button>
       {walletTransactions.some((item) => item.status === "transfer_review") && <p className="message" role="alert">Hay una transferencia con reembolso o cambio concurrente. Está bloqueada para conciliación; no se volverá a enviar. Puedes recuperar una transferencia con reembolso completo.</p>}
-      {testConnect && walletTransactions.some(item => item.status === "transfer_review") && <button className="manageButton" disabled={requesting} onClick={recoverRefund}>{requesting ? "Procesando…" : "Recuperar transferencia reembolsada (prueba)"}</button>}
+      {testConnect && walletTransactions.some(item => item.status === "transfer_review") && <div className="walletRecovery"><button className="manageButton" disabled={requesting} onClick={recoverRefund}>{requesting ? "Procesando…" : "Recuperar transferencia reembolsada (prueba)"}</button></div>}
 
       <section className="bankCard">
         <div>
@@ -383,8 +383,10 @@ export default function WalletPage() {
           <p>Registra tus datos directamente en Stripe. RoadLink no pide números de cuenta bancaria.</p>
           <p>Una transferencia al saldo Stripe no equivale a un depósito en el banco.</p>
         </div>
+        <div className="bankActions">
         <button className="manageButton" disabled={!testConnect || requesting} onClick={() => connectAction("onboard")}>Conectar o completar Stripe</button>
         {connect?.ready && <button className="manageButton" disabled={requesting} onClick={() => connectAction("dashboard")}>Abrir panel de Stripe</button>}
+        </div>
       </section>
 
       <section className="stats">
@@ -645,6 +647,46 @@ export default function WalletPage() {
           text-decoration: none;
           font-weight: 900;
           text-align: center;
+        }
+
+        .walletToolbar {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 18px;
+        }
+        .walletRecovery {
+          max-width: 980px;
+          margin: 0 auto 18px;
+          display: flex;
+          justify-content: flex-end;
+        }
+        .bankActions {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          width: 260px;
+          max-width: 100%;
+        }
+        .walletPage .manageButton,
+        .walletPage .payoutCard > button {
+          min-height: 48px;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          cursor: pointer;
+          background: var(--brand-gold, #d9c39d);
+          color: #0b1719;
+          border: 1px solid var(--brand-gold, #d9c39d);
+          box-shadow: none;
+        }
+        .walletToolbar .manageButton {
+          background: var(--brand-surface, #101a20);
+          color: var(--brand-ivory, #f3f0e8);
+          border-color: var(--brand-border, #cdb68c44);
+        }
+        @media (max-width: 900px) {
+          .bankActions { width: 100%; }
+          .walletToolbar .manageButton,
+          .walletRecovery .manageButton { width: 100%; }
         }
 
         .stats {
