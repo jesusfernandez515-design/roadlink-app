@@ -147,7 +147,7 @@ export default function EditProfilePage() {
         });
       }
 
-      setMessage("Perfil y foto guardados correctamente.");
+      window.location.replace("/profile");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not save profile.");
     } finally {
