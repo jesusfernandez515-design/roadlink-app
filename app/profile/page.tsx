@@ -3,6 +3,7 @@
 import { useAppRouter } from "../components/useAppRouter";
 import Link from "../components/AppLink";
 import ProfileIdentity from "../components/ProfileIdentity";
+import { useAppExperience } from "../components/AppExperience";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -26,6 +27,7 @@ type UserProfile = {
 
 export default function ProfilePage() {
   const appRouter = useAppRouter();
+  const isPassenger = useAppExperience() === "passenger";
   const [profile, setProfile] = useState<UserProfile>({});
   const [message, setMessage] = useState("Cargando perfil…");
 
@@ -145,12 +147,13 @@ export default function ProfilePage() {
     return Math.min(
       100,
       40 +
-        (profile.emailVerified ? 15 : 0) +
-        (profile.phoneVerified ? 15 : 0) +
-        (driverVerified ? 25 : 0) +
-        (profile.licenseVerified ? 5 : 0)
+        (profile.emailVerified ? (isPassenger ? 30 : 15) : 0) +
+        (profile.phoneVerified ? (isPassenger ? 30 : 15) : 0) +
+        (!isPassenger && driverVerified ? 25 : 0) +
+        (!isPassenger && profile.licenseVerified ? 5 : 0)
     );
   }, [
+    isPassenger,
     profile.emailVerified,
     profile.phoneVerified,
     profile.licenseVerified,
@@ -186,11 +189,11 @@ export default function ProfilePage() {
 
         <div className="badges">
           <span className={profile.emailVerified ? "badge good" : "badge bad"}>{profile.emailVerified ? "✓ Correo verificado" : "Correo pendiente"}</span>
-          <span className="badge role">{profile.role === "driver" ? "Conductor" : profile.role === "admin" ? "Administración" : "Miembro"}</span>
+          <span className="badge role">{isPassenger ? "Pasajero" : profile.role === "driver" ? "Conductor" : profile.role === "admin" ? "Administración" : "Miembro"}</span>
           <span className="badge good">{trustLevel}</span>
-          <span className={driverVerified ? "badge good" : "badge bad"}>
+          {!isPassenger && <span className={driverVerified ? "badge good" : "badge bad"}>
             {driverVerified ? "✓ Conductor verificado" : "Conductor sin verificar"}
-          </span>
+          </span>}
         </div>
 
         {message && <p className="message">{message}</p>}
@@ -198,7 +201,9 @@ export default function ProfilePage() {
 
       <section className="statsGrid">
         <Stat title="Información del perfil" value={`${trustScore}/100`} icon="✅" />
-        <Stat title="Conductor" value={driverVerified ? "Verificado" : "Pendiente"} icon="🚗" />
+        {isPassenger
+          ? <Stat title="Teléfono" value={profile.phoneVerified ? "Verificado" : "Pendiente"} icon="📱" />
+          : <Stat title="Conductor" value={driverVerified ? "Verificado" : "Pendiente"} icon="🚗" />}
         <Stat title="Correo" value={profile.emailVerified ? "Verificado" : "Pendiente"} icon="📧" />
         <Stat title="Ubicación" value={profile.city || profile.state ? `${profile.city || ""} ${profile.state || ""}` : "Sin añadir"} icon="📍" />
       </section>
@@ -223,8 +228,11 @@ export default function ProfilePage() {
 
         <div className="buttonGrid">
           <ProfileLink href="/profile/edit" icon="📝" title="Editar perfil" />
-          <ProfileLink href="/driver-verification" icon="🛡️" title="Verificación" />
-          <ProfileLink href="/dashboard/driver" icon="🚗" title="Panel del conductor" />
+          {!isPassenger && <>
+            <ProfileLink href="/driver-verification" icon="🛡️" title="Verificación" />
+            <ProfileLink href="/dashboard/driver" icon="🚗" title="Panel del conductor" />
+          </>}
+          {isPassenger && <ProfileLink href="/find-ride" icon="🔎" title="Buscar viaje" />}
           <ProfileLink href="/wallet" icon="💰" title="Cartera" />
         </div>
       </section>
@@ -234,7 +242,7 @@ export default function ProfilePage() {
         <h2>Mi cuenta</h2>
 
         <div className="buttonGrid">
-          <ProfileLink href="/my-rides" icon="🚘" title="Mis viajes" />
+          {!isPassenger && <ProfileLink href="/my-rides" icon="🚘" title="Mis viajes" />}
           <ProfileLink href="/my-bookings" icon="🎟️" title="Mis reservas" />
           <ProfileLink href="/reviews" icon="⭐" title="Reseñas" />
           <ProfileLink href="/notifications" icon="🔔" title="Notificaciones" />
