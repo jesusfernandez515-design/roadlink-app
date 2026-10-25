@@ -274,3 +274,17 @@ test('integrated sandbox lifecycle reserves, pays, completes, transfers and reco
   assert.equal(h.db.rows.get('payoutRequests/connect-'+walletId).status,'reversed');
  } finally {Date.now=savedNow;if(savedEnv===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=savedEnv;}
 });
+
+test('profile photos require authentication and a ride or booking relationship, and never leak private fields',async()=>{
+ const photo='data:image/jpeg;base64,AAAA';
+ const h=harness({'users/d':{name:'Driver',photoURL:photo,email:'private@example.com',stripeAccountId:'secret',bio:'private'},'rides/r':ride,'users/stranger':{name:'Stranger',photoURL:photo},'users/p':{name:'Me',photoURL:'javascript:alert(1)'}});
+ const route=h.load('app/api/profiles/route.ts');
+ const read=(uid,token='valid')=>route.GET(new Request('https://preview.example/api/profiles?uid='+encodeURIComponent(uid),{headers:{authorization:'Bearer '+token}}));
+ assert.equal((await read('d','bad')).status,401);
+ assert.equal((await read('stranger')).status,403);
+ assert.equal((await read('../d')).status,400);
+ const response=await read('d');assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'private, no-store');assert.deepEqual(await response.json(),{name:'Driver',photoURL:photo});
+ assert.deepEqual(await (await read('p')).json(),{name:'Me',photoURL:''});
+ const related=harness({'users/p':{name:'Passenger',photoURL:photo},'bookings/b':booking},{uid:'d'});
+ assert.equal((await related.load('app/api/profiles/route.ts').GET(new Request('https://preview.example/api/profiles?uid=p',{headers:{authorization:'Bearer valid'}}))).status,200);
+});

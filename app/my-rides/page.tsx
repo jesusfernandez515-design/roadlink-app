@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -231,7 +232,7 @@ export default function MyRidesPage() {
         </div>
         {passengers.map((booking) => (
           <div key={booking.id} className="compactInfo">
-            <span>{booking.passengerEmail || "Pasajero"} · {booking.status} · {booking.paymentStatus || "unpaid"}</span>
+            <div><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" /><p>{booking.status} · {booking.paymentStatus || "unpaid"}</p></div>
             {booking.paymentStatus === "paid" && booking.status === "paid" && (
               <button className="miniButton" disabled={busy} onClick={() => driverAction(booking.id, "confirm")}>Confirmar reserva</button>
             )}

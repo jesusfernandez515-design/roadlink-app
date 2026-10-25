@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -25,7 +26,7 @@ type UserProfile = {
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile>({});
   const [message, setMessage] = useState("Loading profile...");
-  const [photoBroken, setPhotoBroken] = useState(false);
+
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
@@ -92,7 +93,7 @@ export default function ProfilePage() {
           const data = snapshot.data() as UserProfile | undefined;
           const savedPhoto = data?.photoURL || fallbackPhoto || "";
 
-          setPhotoBroken(false);
+
 
           setProfile({
             name: data?.name || fallbackName,
@@ -167,16 +168,8 @@ export default function ProfilePage() {
       <section className="hero">
         <div className="heroTop">
           <div className="avatarShell">
-            {displayPhoto && !photoBroken ? (
-              <img
-                src={displayPhoto}
-                alt={displayName}
-                className="avatarImage"
-                onError={() => setPhotoBroken(true)}
-              />
-            ) : (
-              <div className="avatar">{initials}</div>
-            )}
+            <ProfileIdentity photoURL={displayPhoto} name={displayName} role="Perfil" size={96} showName={false} />
+            <Link href="/profile/edit" style={{ display: "block", fontSize: 12, textAlign: "center", marginTop: 8 }}>Cambiar foto</Link>
           </div>
 
           <div className="heroText">

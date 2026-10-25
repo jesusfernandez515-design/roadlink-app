@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -467,7 +468,7 @@ function RideDetailsContent() {
 
             <div className="infoGrid">
               <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not specified"} />
-              <Info icon="👤" label="Driver" value={ride.driverEmail || "RoadLink Driver"} />
+              <ProfileIdentity uid={ride.driverId} name={ride.driverEmail} role="Conductor" />
               <Info icon="💵" label="Price per Seat" value={formatMoney(ride.price)} />
               {ride.notes && <Info icon="📝" label="Trip Notes" value={ride.notes} />}
             </div>

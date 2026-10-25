@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -333,7 +334,7 @@ export default function MyBookingsPage() {
                       <Info label="Trip Total" value={money(total)} />
                       <Info label="Platform Fee" value={money(platformFee)} />
                       <Info label="Driver Amount" value={money(driverAmount)} />
-                      <Info label="Driver" value={booking.driverEmail || "Not assigned"} />
+                      <ProfileIdentity uid={booking.driverId} name={booking.driverEmail} role="Conductor" />
                       <Info label="Payment ID" value={booking.paymentId || "Not created"} />
                     </div>
 

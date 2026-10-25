@@ -23,7 +23,7 @@ export default function EditProfilePage() {
   const [city, setCity] = useState("");
   const [stateValue, setStateValue] = useState("");
   const [photoURL, setPhotoURL] = useState("");
-  const [message, setMessage] = useState("Loading profile...");
+  const [message, setMessage] = useState("Cargando perfil...");
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
 
@@ -35,7 +35,9 @@ export default function EditProfilePage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setMessage("Please sign in to edit your profile.");
+        setUserId("");
+        setPhotoURL("");
+        setMessage("Inicia sesión para editar tu perfil.");
         return;
       }
 
@@ -65,7 +67,7 @@ export default function EditProfilePage() {
 
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          const maxSize = 500;
+          const maxSize = 400;
           const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
 
           canvas.width = Math.round(img.width * ratio);
@@ -95,14 +97,15 @@ export default function EditProfilePage() {
       setProcessing(true);
       setMessage("");
 
-      if (!file.type.startsWith("image/")) {
-        setMessage("Please choose a valid image.");
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024) {
+        setMessage("Elige una foto JPG, PNG o WebP de hasta 10 MB.");
         return;
       }
 
       const imageData = await resizeImage(file);
+      if (imageData.length > 350000) throw new Error("La foto es demasiado grande. Elige otra imagen.");
       setPhotoURL(imageData);
-      setMessage("Photo ready. Press Save Profile.");
+      setMessage("Foto lista. Pulsa Guardar perfil.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Photo failed.");
     } finally {
@@ -111,8 +114,8 @@ export default function EditProfilePage() {
   }
 
   async function saveProfile() {
-    if (!userId) {
-      setMessage("Please sign in first.");
+    if (!userId || auth.currentUser?.uid !== userId) {
+      setMessage("Inicia sesión primero.");
       return;
     }
 
@@ -139,11 +142,12 @@ export default function EditProfilePage() {
       if (auth.currentUser) {
         await updateProfile(auth.currentUser, {
           displayName: finalName,
-          photoURL: photoURL || null,
+          // Firebase Auth limits profile URLs; the compressed photo lives in Firestore.
+          ...(photoURL.startsWith("data:") ? {} : { photoURL: photoURL || null }),
         });
       }
 
-      setMessage("Profile saved successfully.");
+      setMessage("Perfil y foto guardados correctamente.");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not save profile.");
     } finally {
@@ -155,13 +159,13 @@ export default function EditProfilePage() {
     <main className="page">
       <section className="card">
         <div className="topNav">
-          <Link href="/profile" className="miniButton">Back to Profile</Link>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
+          <Link href="/profile" className="miniButton">Volver al perfil</Link>
+          <Link href="/dashboard" className="miniButton">Panel</Link>
         </div>
 
-        <p className="eyebrow">Edit Profile</p>
-        <h1>Identity & <span>Photo</span></h1>
-        <p className="subtitle">Update your public RoadLink profile information.</p>
+        <p className="eyebrow">Editar perfil</p>
+        <h1>Identidad y <span>foto</span></h1>
+        <p className="subtitle">Añade una foto donde se vea tu rostro para que conductores y pasajeros puedan reconocerte.</p>
 
         <section className="photoPanel">
           <div className="avatarWrap">
@@ -173,14 +177,15 @@ export default function EditProfilePage() {
           </div>
 
           <label htmlFor="photoUpload" className="uploadButton">
-            {processing ? "Processing..." : "Choose Photo"}
+            {processing ? "Procesando..." : "Elegir foto"}
           </label>
 
           <input
             id="photoUpload"
             className="hiddenFile"
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={saving || processing}
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) handlePhoto(file);
@@ -193,29 +198,29 @@ export default function EditProfilePage() {
             className="removeButton"
             onClick={() => {
               setPhotoURL("");
-              setMessage("Photo removed. Press Save Profile.");
+              setMessage("Foto eliminada. Pulsa Guardar perfil.");
             }}
           >
-            Remove
+            Eliminar foto
           </button>
         </section>
 
-        {message && <p className="message">{message}</p>}
+        {message && <p className="message" role="status" aria-live="polite">{message}</p>}
 
-        <label>Display Name</label>
+        <label>Nombre público</label>
         <input value={name} onChange={(event) => setName(event.target.value)} />
 
-        <label>Bio</label>
+        <label>Sobre ti</label>
         <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
 
-        <label>City</label>
+        <label>Ciudad</label>
         <input value={city} onChange={(event) => setCity(event.target.value)} />
 
-        <label>State</label>
+        <label>Estado</label>
         <input value={stateValue} onChange={(event) => setStateValue(event.target.value)} />
 
         <button onClick={saveProfile} disabled={saving || processing} className="saveButton">
-          {saving ? "Saving..." : "Save Profile"}
+          {saving ? "Guardando..." : "Guardar perfil"}
         </button>
       </section>
 
