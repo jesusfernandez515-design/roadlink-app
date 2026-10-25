@@ -67,10 +67,7 @@ export default function LoginPage() {
       await user.reload();
 
       if (!user.emailVerified) {
-        await sendEmailVerification(user, {
-          url: "https://getroadlink.com/auth/action",
-          handleCodeInApp: false,
-        });
+        await sendEmailVerification(user);
 
         await signOut(auth);
 
@@ -133,10 +130,9 @@ export default function LoginPage() {
       setLoading(true);
       setMessage("");
 
-      await sendPasswordResetEmail(auth, cleanEmail, {
-        url: "https://getroadlink.com/login",
-        handleCodeInApp: false,
-      });
+      // Use Firebase's hosted action handler. Preview hostnames change with
+      // deployments and may not be authorized as email continuation domains.
+      await sendPasswordResetEmail(auth, cleanEmail);
 
       setMessage("Password reset email sent. Please check your Gmail.");
     } catch (error: any) {
