@@ -25,7 +25,7 @@ type UserProfile = {
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile>({});
-  const [message, setMessage] = useState("Loading profile...");
+  const [message, setMessage] = useState("Cargando perfil…");
 
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function ProfilePage() {
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setMessage("Please sign in to view your profile.");
+        setMessage("Inicia sesión para consultar tu perfil.");
         return;
       }
 
@@ -124,7 +124,7 @@ export default function ProfilePage() {
   }, []);
 
   const displayName = profile.name || "RoadLink User";
-  const displayEmail = profile.email || "No email found";
+  const displayEmail = profile.email || "Sin correo registrado";
   const displayPhoto = profile.photoURL || "";
 
   const initials = useMemo(() => {
@@ -156,7 +156,7 @@ export default function ProfilePage() {
   ]);
 
   const trustLevel =
-    trustScore >= 85 ? "Premium" : trustScore >= 65 ? "Trusted" : "Basic";
+    trustScore >= 85 ? "Perfil avanzado" : trustScore >= 65 ? "Perfil completo" : "Perfil básico";
 
   async function handleSignOut() {
     await signOut(auth);
@@ -173,20 +173,21 @@ export default function ProfilePage() {
           </div>
 
           <div className="heroText">
-            <p className="eyebrow">RoadLink Account</p>
-            <h1>Welcome back, {displayName}</h1>
+            <p className="eyebrow">Tu cuenta RoadLink</p>
+            <h1>Bienvenido, {displayName}</h1>
             <p className="email">{displayEmail}</p>
           </div>
         </div>
 
         {profile.bio && <p className="bio">{profile.bio}</p>}
+        {!displayPhoto && <p className="message">Añade tu foto para que tus acompañantes puedan reconocerte. <Link href="/profile/edit">Completar mi perfil</Link></p>}
 
         <div className="badges">
-          <span className="badge good">✓ Email</span>
-          <span className="badge role">{profile.role || "member"}</span>
+          <span className={profile.emailVerified ? "badge good" : "badge bad"}>{profile.emailVerified ? "✓ Correo verificado" : "Correo pendiente"}</span>
+          <span className="badge role">{profile.role === "driver" ? "Conductor" : profile.role === "admin" ? "Administración" : "Miembro"}</span>
           <span className="badge good">{trustLevel}</span>
           <span className={driverVerified ? "badge good" : "badge bad"}>
-            {driverVerified ? "✓ Driver" : "Not Verified"}
+            {driverVerified ? "✓ Conductor verificado" : "Conductor sin verificar"}
           </span>
         </div>
 
@@ -194,16 +195,16 @@ export default function ProfilePage() {
       </section>
 
       <section className="statsGrid">
-        <Stat title="Trust Score" value={`${trustScore}/100`} icon="✅" />
-        <Stat title="Driver" value={driverVerified ? "Verified" : "Pending"} icon="🚗" />
-        <Stat title="Email" value={profile.emailVerified ? "Verified" : "Pending"} icon="📧" />
-        <Stat title="Location" value={profile.city || profile.state ? `${profile.city || ""} ${profile.state || ""}` : "Not Set"} icon="📍" />
+        <Stat title="Información del perfil" value={`${trustScore}/100`} icon="✅" />
+        <Stat title="Conductor" value={driverVerified ? "Verificado" : "Pendiente"} icon="🚗" />
+        <Stat title="Correo" value={profile.emailVerified ? "Verificado" : "Pendiente"} icon="📧" />
+        <Stat title="Ubicación" value={profile.city || profile.state ? `${profile.city || ""} ${profile.state || ""}` : "Sin añadir"} icon="📍" />
       </section>
 
       <section className="trustCard">
         <div className="trustHeader">
           <div>
-            <p className="eyebrow">Trust Score</p>
+            <p className="eyebrow">Información del perfil</p>
             <h2>{trustScore}/100</h2>
           </div>
           <strong>{trustLevel}</strong>
@@ -215,30 +216,30 @@ export default function ProfilePage() {
       </section>
 
       <section className="sectionCard">
-        <p className="eyebrow">Main Actions</p>
-        <h2>Control Center</h2>
+        <p className="eyebrow">Accesos principales</p>
+        <h2>Tu centro de control</h2>
 
         <div className="buttonGrid">
-          <ProfileLink href="/profile/edit" icon="📝" title="Edit Profile" />
-          <ProfileLink href="/driver-verification" icon="🛡️" title="Verification" />
-          <ProfileLink href="/dashboard/driver" icon="🚗" title="Driver Dashboard" />
-          <ProfileLink href="/wallet" icon="💰" title="Wallet" />
+          <ProfileLink href="/profile/edit" icon="📝" title="Editar perfil" />
+          <ProfileLink href="/driver-verification" icon="🛡️" title="Verificación" />
+          <ProfileLink href="/dashboard/driver" icon="🚗" title="Panel del conductor" />
+          <ProfileLink href="/wallet" icon="💰" title="Cartera" />
         </div>
       </section>
 
       <section className="sectionCard">
-        <p className="eyebrow">RoadLink Activity</p>
-        <h2>My Account</h2>
+        <p className="eyebrow">Actividad RoadLink</p>
+        <h2>Mi cuenta</h2>
 
         <div className="buttonGrid">
-          <ProfileLink href="/my-rides" icon="🚘" title="My Rides" />
-          <ProfileLink href="/my-bookings" icon="🎟️" title="My Bookings" />
-          <ProfileLink href="/reviews" icon="⭐" title="Reviews" />
-          <ProfileLink href="/notifications" icon="🔔" title="Notifications" />
-          <ProfileLink href="/messages" icon="💬" title="Messages" />
+          <ProfileLink href="/my-rides" icon="🚘" title="Mis viajes" />
+          <ProfileLink href="/my-bookings" icon="🎟️" title="Mis reservas" />
+          <ProfileLink href="/reviews" icon="⭐" title="Reseñas" />
+          <ProfileLink href="/notifications" icon="🔔" title="Notificaciones" />
+          <ProfileLink href="/messages" icon="💬" title="Mensajes" />
           <button onClick={handleSignOut} className="actionButton danger">
             <span>🚪</span>
-            <strong>Sign Out</strong>
+            <strong>Cerrar sesión</strong>
           </button>
         </div>
       </section>

@@ -34,6 +34,6 @@ export default function ProfileIdentity({ uid, name = "", role, size = 52, photo
     <span style={{ width: size, height: size, flexShrink: 0, borderRadius: "50%", overflow: "hidden", display: "grid", placeItems: "center", background: "#182124", border: "1px solid #887653", color: "#d9c39d" }}>
       {image && !broken ? <img src={image} alt={`Foto de ${label}`} onError={() => setBroken(true)} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <UserRound size={size * 0.48} aria-label={`${role} sin foto`} />}
     </span>
-    {showName && <span style={{ minWidth: 0, overflowWrap: "anywhere" }}><small style={{ display: "block", color: "#b8aa92" }}>{role}</small><span>{label}</span>{!image && <small style={{ display: "block", color: "#a6a5a0" }}>Sin foto de perfil</small>}</span>}
+    {showName && <span style={{ minWidth: 0, overflowWrap: "anywhere" }}><small style={{ display: "block", color: "#b8aa92" }}>{role}</small><span>{label}</span>{(!image || broken) && <small style={{ display: "block", color: "#a6a5a0" }}>Sin foto de perfil</small>}</span>}
   </span>;
 }
