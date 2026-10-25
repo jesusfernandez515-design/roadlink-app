@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { experienceFromPath, experienceHome, type AppExperience } from "../../lib/app-experience";
+import { experienceFromPath, appPath, type AppExperience } from "../../lib/app-experience";
 
 const ExperienceContext = createContext<AppExperience | null>(null);
 export const useAppExperience = () => useContext(ExperienceContext);
@@ -25,17 +25,9 @@ export default function AppExperienceProvider({ children }: { children: React.Re
     }
   }, [explicit]);
   useEffect(() => {
-    if (path === "/dashboard" && mode) router.replace(experienceHome(mode));
+    if (!mode) return;
+    const next = appPath(path + window.location.search + window.location.hash, mode);
+    if (next !== path + window.location.search + window.location.hash) router.replace(next);
   }, [mode, path, router]);
-  useEffect(() => {
-    let manifest = document.head.querySelector<HTMLLinkElement>("#roadlink-app-manifest");
-    if (!manifest) {
-      manifest = document.createElement("link");
-      manifest.id = "roadlink-app-manifest";
-      manifest.rel = "manifest";
-      document.head.appendChild(manifest);
-    }
-    manifest.href = mode ? `/manifest-${mode}.json` : "/manifest.json";
-  }, [mode, path]);
   return <ExperienceContext.Provider value={mode}>{children}</ExperienceContext.Provider>;
 }

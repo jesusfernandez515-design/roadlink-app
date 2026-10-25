@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "../../components/AppLink";
 export default function WalletSettingsPage() {
   return <main style={{ padding: 24, maxWidth: 640, margin: "auto" }}>
     <h1>Cuenta del conductor</h1>

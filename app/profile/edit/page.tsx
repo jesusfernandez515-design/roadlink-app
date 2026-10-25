@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { useAppRouter } from "../../components/useAppRouter";
+import Link from "../../components/AppLink";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../../lib/firebase";
 import { onAuthStateChanged, updateProfile } from "firebase/auth";
@@ -16,6 +17,7 @@ type UserProfile = {
 };
 
 export default function EditProfilePage() {
+  const appRouter = useAppRouter();
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [name, setName] = useState("");
@@ -147,7 +149,7 @@ export default function EditProfilePage() {
         });
       }
 
-      window.location.replace("/profile");
+      appRouter.replace("/profile");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Could not save profile.");
     } finally {

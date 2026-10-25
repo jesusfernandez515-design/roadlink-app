@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "./components/AppLink";
 import Image from "next/image";
 import { ArrowUpRight, ArrowRight, MapPin, ChevronDown, Route, Users, Compass } from "lucide-react";
 import styles from "./luxury.module.css";

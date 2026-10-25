@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/AppLink";
 import { isPendingBooking, retainedPayment } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "../../lib/firebase";

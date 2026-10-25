@@ -5,7 +5,8 @@ export async function POST(request: Request) {
   try {
     const { user, db } = await requirePassenger(request);
     const { stripe, test } = paymentConfig();
-    const { bookingId: input } = await request.json();
+    const { bookingId: input, appExperience } = await request.json();
+    const appPrefix = appExperience === "driver" ? "/conductor" : appExperience === "passenger" ? "/pasajero" : "";
     const bookingId = documentId(input);
     const ref = db.collection("bookings").doc(bookingId);
     const booking = await db.runTransaction(async (tx) => {
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
       client_reference_id: bookingId,
       line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amounts.cents, product_data: { name: `RoadLink: ${booking.from} to ${booking.to}` } } }],
       metadata: { bookingId, passengerId: user.uid, reservationVersion: String(version), environment: test ? "test" : "production" },
-      success_url: `${origin}/my-bookings?payment=success`, cancel_url: `${origin}/my-bookings?payment=cancelled`,
+      success_url: `${origin}${appPrefix}/my-bookings?payment=success`, cancel_url: `${origin}${appPrefix}/my-bookings?payment=cancelled`,
     }, { idempotencyKey: `roadlink-${test ? "test" : "live"}-${bookingId}-${version}-${attempt}` });
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);

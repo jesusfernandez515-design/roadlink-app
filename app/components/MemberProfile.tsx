@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "./AppLink";
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../../lib/firebase";

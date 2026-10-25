@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { useAppRouter } from "../components/useAppRouter";
+import Link from "../components/AppLink";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
@@ -24,6 +25,7 @@ type UserProfile = {
 };
 
 export default function ProfilePage() {
+  const appRouter = useAppRouter();
   const [profile, setProfile] = useState<UserProfile>({});
   const [message, setMessage] = useState("Cargando perfil…");
 
@@ -160,7 +162,7 @@ export default function ProfilePage() {
 
   async function handleSignOut() {
     await signOut(auth);
-    window.location.href = "/login";
+    appRouter.replace("/login");
   }
 
   return (

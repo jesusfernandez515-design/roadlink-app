@@ -2,8 +2,8 @@
   "name": "RoadLink Conductor",
   "short_name": "RL Conductor",
   "description": "RoadLink para conductores. Viajes compartidos en Puerto Rico.",
-  "start_url": "/conductor",
-  "scope": "/",
+  "start_url": "/conductor/",
+  "scope": "/conductor/",
   "display": "standalone",
   "background_color": "#070d11",
   "theme_color": "#070d11",
@@ -28,6 +28,6 @@
       "purpose": "maskable"
     }
   ],
-  "id": "/conductor",
+  "id": "/conductor/",
   "lang": "es-PR"
 }

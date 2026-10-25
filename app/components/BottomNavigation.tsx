@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "./AppLink";
 import { House, Search, Plus, MessageCircle, UserRound, Ticket, CarFront } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -8,6 +8,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 
+import { appPath } from "../../lib/app-experience";
 import { useAppExperience } from "./AppExperience";
 
 type Chat = {
@@ -116,13 +117,13 @@ export default function BottomNavigation() {
 
   const navItems = useMemo(
     () => experience === "driver" ? [
-      { href: "/conductor", label: "Inicio", icon: House, badge: 0 },
+      { href: "/conductor/", label: "Inicio", icon: House, badge: 0 },
       { href: "/my-rides", label: "Mis viajes", icon: CarFront, badge: 0 },
       { href: "/offer-ride", label: "Publicar", icon: Plus, badge: 0 },
       { href: "/messages", label: "Mensajes", icon: MessageCircle, badge: unreadMessages },
       { href: "/profile", label: "Perfil", icon: UserRound, badge: unreadNotifications },
     ] : experience === "passenger" ? [
-      { href: "/pasajero", label: "Inicio", icon: House, badge: 0 },
+      { href: "/pasajero/", label: "Inicio", icon: House, badge: 0 },
       { href: "/find-ride", label: "Buscar", icon: Search, badge: 0 },
       { href: "/my-bookings", label: "Reservas", icon: Ticket, badge: 0 },
       { href: "/messages", label: "Mensajes", icon: MessageCircle, badge: unreadMessages },
@@ -144,7 +145,8 @@ export default function BottomNavigation() {
       <nav className="bottomNav">
         {navItems.map((item) => {
           const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+            pathname.replace(/\/$/, "") === appPath(item.href, experience).replace(/\/$/, "") ||
+            (!["/conductor/", "/pasajero/"].includes(appPath(item.href, experience)) && pathname.startsWith(`${appPath(item.href, experience).replace(/\/$/, "")}/`));
 
           return (
             <Link

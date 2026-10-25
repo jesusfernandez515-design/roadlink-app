@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "./AppLink";
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { ArrowUpRight, CarFront, MapPin, UsersRound, Wallet, Ticket, MessageCircle, Bell, UserRound } from "lucide-react";

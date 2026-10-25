@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/AppLink";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useAppRouter as useRouter } from "../components/useAppRouter";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../../lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -235,11 +235,6 @@ export default function MyRidesPage() {
             <div><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" /><p>{booking.status} · {booking.paymentStatus || "unpaid"}</p></div>
             {booking.paymentStatus === "paid" && booking.status === "paid" && (
               <button className="miniButton" disabled={busy} onClick={() => driverAction(booking.id, "confirm")}>Confirmar reserva</button>
-            )}
-            {process.env.NEXT_PUBLIC_ROADLINK_ENV === "test" && booking.id === "UWfkcqsR5lRSwIxqghk5_DefaRi3pT2c5ZKs5gwc66lywFWN2" && booking.paymentStatus === "paid" && booking.status === "confirmed" && (
-              <button className="miniButton" disabled={busy} onClick={() => {
-                if (window.confirm("Solo pruebas: ¿mover este viaje ficticio a ayer para comprobar su finalización?")) void driverAction(booking.id, "test-arrival");
-              }}>Prueba: ajustar fecha a ayer</button>
             )}
             {booking.paymentStatus === "paid" && booking.status === "confirmed" && (
               <button className="miniButton" disabled={busy} onClick={() => {

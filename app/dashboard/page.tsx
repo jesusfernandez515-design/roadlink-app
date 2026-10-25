@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/AppLink";
 import { completedPaymentNet } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";

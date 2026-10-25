@@ -2,8 +2,8 @@
   "name": "RoadLink Pasajero",
   "short_name": "RL Pasajero",
   "description": "RoadLink para pasajeros. Viajes compartidos en Puerto Rico.",
-  "start_url": "/pasajero",
-  "scope": "/",
+  "start_url": "/pasajero/",
+  "scope": "/pasajero/",
   "display": "standalone",
   "background_color": "#070d11",
   "theme_color": "#070d11",
@@ -28,6 +28,6 @@
       "purpose": "maskable"
     }
   ],
-  "id": "/pasajero",
+  "id": "/pasajero/",
   "lang": "es-PR"
 }

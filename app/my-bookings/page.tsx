@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { useAppExperience } from "../components/AppExperience";
+import Link from "../components/AppLink";
 import { canPayBooking } from "../../lib/booking-payment";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
@@ -36,6 +37,7 @@ type Booking = {
 };
 
 export default function MyBookingsPage() {
+  const appExperience = useAppExperience();
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -183,7 +185,7 @@ export default function MyBookingsPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          bookingId: booking.id,
+          bookingId: booking.id, appExperience,
         }),
       });
 

@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/AppLink";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useAppRouter as useRouter } from "../components/useAppRouter";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,

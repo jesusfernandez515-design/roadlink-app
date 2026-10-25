@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import Link from "../components/AppLink";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useAppRouter as useRouter } from "../components/useAppRouter";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
