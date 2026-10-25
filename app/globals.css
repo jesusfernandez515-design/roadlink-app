@@ -1,4 +1,89 @@
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
+:root {
+  color-scheme: dark;
+  --brand-ink: #070d11;
+  --brand-surface: #101a20;
+  --brand-surface-raised: #142129;
+  --brand-ivory: #f3f0e8;
+  --brand-gold: #d9c39d;
+  --brand-gold-muted: #b7a07b;
+  --brand-muted: #a9b0ad;
+  --brand-border: rgba(205, 182, 140, .24);
+  --brand-serif: Georgia, 'Times New Roman', serif;
+  --brand-sans: Arial, Helvetica, sans-serif;
 }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+body { margin: 0; background: var(--brand-ink); color: var(--brand-ivory); font-family: var(--brand-sans); -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+html[data-roadlink-brand] :is(button, input, select, textarea) { font-family: var(--brand-sans); }
+html[data-roadlink-brand] :is(a,button,input,select,textarea,summary):focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 4px; }
+html[data-roadlink-brand] :is(h1,h2,h3) { font-family: var(--brand-serif) !important; font-weight: 400 !important; letter-spacing: -.035em; }
+html[data-roadlink-brand] body { background: var(--brand-ink) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) { color: var(--brand-ivory); font-family: var(--brand-sans) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]):is(.page,.dashboard,.profilePage,.walletPage),
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.page,.dashboard,.profilePage,.walletPage) { background: radial-gradient(ellipse at top right,rgba(37,66,56,.2),transparent 55%),var(--brand-ink) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(h1,h2,h3) { color: var(--brand-ivory); line-height: 1.15; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(h1,h2) span,
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.eyebrow,.logo span,.brand span,.brandText span) { color: var(--brand-gold) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) .eyebrow { font-family: var(--brand-sans) !important; letter-spacing: .16em; font-weight: 600 !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.card,.hero,.heroCard,.homeCard,.sectionCard,.profileCard,.rideCard,.bookingCard,.statCard,.metricCard,.actionCard,.panel,.panelCard,.conversationCard,.messageCard,.walletCard,.paymentCard,.historyCard,.emptyBox,.securityBox,.infoCard,.userCard,.settingsCard,.accountCard,.metric,.stat,.bankCard,.payoutCard,.history,.transaction,.trustCard,.activityItem,.tripBox,.emptyCard) {
+  background: linear-gradient(145deg,rgba(255,255,255,.025),transparent 70%),var(--brand-surface) !important;
+  border: 1px solid var(--brand-border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 36px rgba(0,0,0,.2) !important;
+}
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.subtitle,.description,.muted,.email,.subtext,.helper,.hint) { color: var(--brand-muted) !important; line-height: 1.75; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),select,textarea) {
+  background: #0a1319 !important;
+  color: var(--brand-ivory) !important;
+  border: 1px solid #cdb68c44 !important;
+  border-radius: 6px !important;
+  min-height: 46px;
+  accent-color: var(--brand-gold);
+}
+html[data-roadlink-brand] main:not([data-brand-home]) :is(input,textarea)::placeholder { color: #8e9994 !important; opacity: 1; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(input,select,textarea):focus { border-color: var(--brand-gold) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(button,a[class*="Button"],a[class*="button"]) { font-family: var(--brand-sans) !important; font-weight: 600 !important; border-radius: 6px !important; letter-spacing: .015em; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(button,a)[class*="primary"],
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.payButton,.submitButton,.greenButton,.publishButton,.reserveButton,.mainButton,.saveButton,.sendButton,button[type=submit]) {
+  background: var(--brand-gold) !important;
+  color: #0b1719 !important;
+  border: 1px solid var(--brand-gold) !important;
+  box-shadow: none !important;
+}
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.miniButton,.secondaryButton,.outlineButton,.social,.backButton,.linkButton,.forgotButton,.tabButton) { background: #111e25 !important; color: var(--brand-ivory) !important; border: 1px solid var(--brand-border) !important; box-shadow: none !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.dangerButton,.deleteButton,.cancelButton,.rejectButton) { color: #f0b9b5 !important; background: #3b2023 !important; border-color: #a55c6477 !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(button,a)[class*="primary"]:hover:not(:disabled) { background: #ead8b8 !important; }
+html[data-roadlink-brand] :is(button,input,select,textarea):disabled { cursor: not-allowed; opacity: .55; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.cardIcon,.statIcon,.metricIcon,.actionIcon,.iconBox,.iconCircle) { color: var(--brand-gold) !important; background: #cdb68c12 !important; border: 1px solid #cdb68c22; border-radius: 8px !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="text-emerald-"],
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="text-green-"],
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="text-cyan-"] { color: var(--brand-gold) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="bg-slate-9"],
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="bg-[#030712]"] { background-color: var(--brand-ink) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="bg-emerald-"],
+html[data-roadlink-brand] main:not([data-brand-home]) [class*="bg-green-"] { background-color: #cdb68c16 !important; border-color: var(--brand-border) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) button[class*="bg-emerald-"],
+html[data-roadlink-brand] main:not([data-brand-home]) a[class*="bg-emerald-"] { background: var(--brand-gold) !important; color: #0b1719 !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.balanceBox,.balanceCard,.summaryCard,.earningsCard,.priceBox,.priceCard) { background: linear-gradient(145deg,#243d31,#13251e) !important; border: 1px solid #cdb68c55 !important; border-radius: 10px !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.balanceValue,.priceValue,.statValue,.metricValue) { color: var(--brand-gold) !important; font-variant-numeric: tabular-nums; }
+.brandBar { background: #070d11; color: var(--brand-ivory); border-bottom: 1px solid var(--brand-border); padding: 20px max(5%,calc((100vw - 1280px)/2)); display: flex; justify-content: space-between; align-items: center; gap: 20px; font-family: var(--brand-sans); }
+.brandBar a { text-decoration: none; color: inherit; }
+.brandBarLogo { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 24px; letter-spacing: -.7px; }
+.brandBarLogo > svg { width: 32px; height: 36px; color: var(--brand-gold); }
+.brandBarLogo b { color: var(--brand-gold); font-weight: 600; }
+.brandBar nav { display: flex; gap: 24px; align-items: center; font-size: 11px; }
+.brandBar nav a:last-child { padding: 9px 16px; border: 1px solid var(--brand-border); border-radius: 3px; }
+.brandBar a:hover { color: var(--brand-gold); }
+.sandboxNotice { background: #14251e; border-bottom: 1px solid #cdb68c22; color: #e3dfd2; padding: 9px 16px; text-align: center; font-family: var(--brand-sans); font-size: 11px; line-height: 1.6; }
+html[data-roadlink-brand] .bottomNav { border-radius: 12px !important; background: #0b151bf5 !important; border: 1px solid #cdb68c55 !important; box-shadow: 0 15px 40px #0008 !important; }
+html[data-roadlink-brand] .bottomNav .navItem { border-radius: 7px !important; font-family: var(--brand-sans) !important; font-weight: 500 !important; color: #b3bab5 !important; }
+html[data-roadlink-brand] .bottomNav .navItem.active { background: #cdb68c16 !important; border-color: #cdb68c66 !important; color: var(--brand-gold) !important; box-shadow: none !important; }
+html[data-roadlink-brand] .bottomNav .navIcon { display: flex; align-items: center; justify-content: center; }
+html[data-roadlink-brand] .bottomNav .navBadge { background: #bc716b !important; box-shadow: none !important; }
+@media(max-width:640px) { .brandBar { padding: 17px 5%; } .brandBarLogo { font-size: 22px; } .brandBar nav { gap: 12px; } .brandBar nav a:not(:last-child) { display: none; } .sandboxNotice { font-size: 10px; } }
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior: auto; } *,*::before,*::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.balanceBox,.balanceCard,.metric,.stat,.card,.priceBox) strong { color: var(--brand-gold) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.avatar,.avatarShell) { background: #203329 !important; border-color: var(--brand-gold-muted) !important; box-shadow: none !important; color: var(--brand-gold) !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.actionButton,.actionLink) { background: var(--brand-surface) !important; border: 1px solid var(--brand-border) !important; color: var(--brand-ivory) !important; border-radius: 8px !important; box-shadow: none !important; }
+html[data-roadlink-brand] main:not([data-brand-home]) :is(.negative,.error,.danger,.errorMessage,.negativeAmount) { color: #ecaaa3 !important; }
