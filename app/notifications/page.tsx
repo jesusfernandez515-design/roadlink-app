@@ -244,7 +244,6 @@ export default function NotificationsPage() {
   async function markOneAsRead(notificationId: string) {
     await updateDoc(doc(db, "notifications", notificationId), {
       read: true,
-      readAt: new Date().toISOString(),
     });
   }
 
@@ -273,7 +272,6 @@ export default function NotificationsPage() {
       unread.forEach((item) => {
         batch.update(doc(db, "notifications", item.id), {
           read: true,
-          readAt: new Date().toISOString(),
         });
       });
 
@@ -299,7 +297,6 @@ export default function NotificationsPage() {
       unread.forEach((item) => {
         batch.update(doc(db, "notifications", item.id), {
           read: true,
-          readAt: new Date().toISOString(),
         });
       });
 
