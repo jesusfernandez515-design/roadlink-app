@@ -6,15 +6,12 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
   onSnapshot,
   query,
-  updateDoc,
   where,
-  writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 
@@ -211,6 +208,8 @@ function RidePassengersContent() {
   }
 
   function getStatusClass(status?: string, paymentStatus?: string) {
+    if (status === "completed") return "status completedStatus";
+    if (status === "cancelled" || status === "rejected") return "status cancelledStatus";
     if (paymentStatus === "paid" || status === "paid") return "status paidStatus";
     if (status === "reserved") return "status reservedStatus";
     if (status === "confirmed") return "status confirmedStatus";
@@ -221,166 +220,53 @@ function RidePassengersContent() {
   }
 
   function statusLabel(booking: Booking) {
+    if (["completed", "cancelled", "rejected", "confirmed"].includes(booking.status || "")) return booking.status;
+    if (booking.paymentStatus === "refunded") return "Reembolsado";
     if (booking.paymentStatus === "paid") return "paid";
     if (booking.paymentStatus === "pending") return "payment pending";
     return booking.status || "reserved";
   }
 
-  async function notifyPassenger(booking: Booking, title: string, text: string, type = "ride") {
-    if (!booking.passengerId) return;
-
-    await addDoc(collection(db, "notifications"), {
-      userId: booking.passengerId,
-      type,
-      title,
-      message: text,
-      rideId,
-      bookingId: booking.id,
-      driverId: ride?.driverId || currentUser?.uid || "",
-      passengerId: booking.passengerId,
-      read: false,
-      createdAt: new Date().toISOString(),
-      actionUrl: "/my-bookings",
-    });
-  }
-
-  async function writeAudit(action: string, booking: Booking | null, details: string) {
-    await addDoc(collection(db, "auditLogs"), {
-      action,
-      targetId: booking?.id || ride?.id || rideId,
-      targetType: booking ? "booking" : "ride",
-      details,
-      severity: "info",
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  async function updateBookingStatus(booking: Booking, status: string) {
-    if (!ride) return;
-
-    const confirmed = confirm(`Mark this booking as ${status}?`);
-    if (!confirmed) return;
-
+  async function updateBookingStatus(booking: Booking, status: "confirmed" | "completed") {
+    if (!ride || !currentUser || loadingId) return;
+    if (!window.confirm(status === "confirmed" ? "¿Confirmar esta reserva pagada?" : "¿Confirmas que este pasajero terminó el viaje?")) return;
+    setLoadingId(`${booking.id}-${status}`);
+    setMessage("");
     try {
-      setLoadingId(`${booking.id}-${status}`);
-      setMessage("");
-
-      const now = new Date().toISOString();
-
-      await updateDoc(doc(db, "bookings", booking.id), {
-        status,
-        updatedAt: now,
+      const token = await currentUser.getIdToken();
+      const response = await fetch("/api/bookings/driver-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bookingId: booking.id, action: status === "confirmed" ? "confirm" : "complete" }),
       });
-
-      if (status === "cancelled" || status === "rejected") {
-        const seatsToReturn = Number(booking.seatsBooked || 1);
-        const currentSeats = Number(ride.seats || 0);
-
-        await updateDoc(doc(db, "rides", ride.id), {
-          seats: currentSeats + seatsToReturn,
-          status: "active",
-          updatedAt: now,
-        });
-
-        setRide({
-          ...ride,
-          seats: currentSeats + seatsToReturn,
-          status: "active",
-        });
-
-        await notifyPassenger(
-          booking,
-          "Booking Cancelled",
-          `Your booking from ${ride.from || "origin"} to ${ride.to || "destination"} was cancelled.`,
-          "booking"
-        );
-      }
-
-      if (status === "confirmed") {
-        await notifyPassenger(
-          booking,
-          "Booking Confirmed",
-          `Your booking from ${ride.from || "origin"} to ${ride.to || "destination"} was confirmed.`,
-          "booking"
-        );
-      }
-
-      if (status === "completed") {
-        await notifyPassenger(
-          booking,
-          "Ride Completed",
-          `Your ride from ${ride.from || "origin"} to ${ride.to || "destination"} was completed.`,
-          "ride"
-        );
-      }
-
-      await writeAudit(
-        "Booking Status Updated",
-        booking,
-        `${booking.passengerEmail || "Passenger"} marked as ${status}`
-      );
-
-      setMessage(`Booking marked as ${status}.`);
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    } finally {
-      setLoadingId("");
-    }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo actualizar la reserva.");
+      const latest = await getDoc(doc(db, "rides", ride.id));
+      if (latest.exists()) setRide({ ...latest.data(), id: latest.id } as Ride);
+      setMessage(status === "confirmed" ? "Reserva confirmada." : "Viaje del pasajero terminado; importe habilitado en la cartera de pruebas.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo actualizar la reserva.");
+    } finally { setLoadingId(""); }
   }
 
-  async function updateRideStatus(status: "completed" | "cancelled") {
-    if (!ride) return;
-
-    const confirmed = confirm(`Mark this ride as ${status}?`);
-    if (!confirmed) return;
-
+  async function cancelRide() {
+    if (!ride || !currentUser || loadingId) return;
+    if (!window.confirm("¿Cancelar este viaje? Los pagos y reembolsos deben estar resueltos antes de cancelarlo.")) return;
+    setLoadingId("ride-cancelled");
+    setMessage("");
     try {
-      setLoadingId(`ride-${status}`);
-      setMessage("");
-
-      const now = new Date().toISOString();
-      const batch = writeBatch(db);
-
-      batch.update(doc(db, "rides", ride.id), {
-        status,
-        updatedAt: now,
+      const token = await currentUser.getIdToken();
+      const response = await fetch("/api/rides/cancel", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rideId: ride.id }),
       });
-
-      metrics.active.forEach((booking) => {
-        batch.update(doc(db, "bookings", booking.id), {
-          status,
-          updatedAt: now,
-        });
-      });
-
-      await batch.commit();
-
-      await Promise.all(
-        metrics.active.map((booking) =>
-          notifyPassenger(
-            booking,
-            status === "completed" ? "Ride Completed" : "Ride Cancelled",
-            status === "completed"
-              ? `Your ride from ${ride.from || "origin"} to ${ride.to || "destination"} was completed.`
-              : `Your ride from ${ride.from || "origin"} to ${ride.to || "destination"} was cancelled.`,
-            "ride"
-          )
-        )
-      );
-
-      await writeAudit(
-        status === "completed" ? "Ride Completed" : "Ride Cancelled",
-        null,
-        `${ride.from || "Origin"} to ${ride.to || "Destination"} marked as ${status}`
-      );
-
-      setRide({ ...ride, status });
-      setMessage(`Ride marked as ${status}.`);
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
-    } finally {
-      setLoadingId("");
-    }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo cancelar el viaje.");
+      setRide({ ...ride, status: "cancelled" });
+      setMessage("Viaje cancelado. Ya no admite nuevas reservas.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "No se pudo cancelar el viaje.");
+    } finally { setLoadingId(""); }
   }
 
   async function openChat(booking: Booking) {
@@ -458,21 +344,12 @@ function RidePassengersContent() {
               </a>
             )}
 
-            <button
-              className="completeButton"
-              onClick={() => updateRideStatus("completed")}
-              disabled={loadingId === "ride-completed" || ride.status === "completed"}
-            >
-              {loadingId === "ride-completed" ? "Updating..." : "Complete Ride"}
-            </button>
-
-            <button
-              className="cancelRideButton"
-              onClick={() => updateRideStatus("cancelled")}
-              disabled={loadingId === "ride-cancelled" || ride.status === "cancelled"}
-            >
-              {loadingId === "ride-cancelled" ? "Updating..." : "Cancel Ride"}
-            </button>
+            {["active", "full"].includes(ride.status || "") && (
+              <button className="cancelRideButton" onClick={cancelRide} disabled={!!loadingId}>
+                {loadingId === "ride-cancelled" ? "Procesando…" : "Cancelar mi viaje"}
+              </button>
+            )}
+            <p>Confirma y finaliza cada reserva pagada desde la tarjeta del pasajero. Solo puedes finalizar después de la llegada prevista.</p>
           </section>
         )}
 
@@ -522,33 +399,25 @@ function RidePassengersContent() {
                     {loadingId === `chat-${booking.id}` ? "Opening..." : "Chat"}
                   </button>
 
-                  {booking.status !== "confirmed" && (
+                  {booking.status === "paid" && booking.paymentStatus === "paid" && ["active", "full"].includes(ride?.status || "") && (
                     <button
                       className="confirmButton"
                       onClick={() => updateBookingStatus(booking, "confirmed")}
-                      disabled={loadingId === `${booking.id}-confirmed`}
+                      disabled={!!loadingId}
                     >
-                      {loadingId === `${booking.id}-confirmed` ? "Updating..." : "Confirm"}
+                      {loadingId === `${booking.id}-confirmed` ? "Updating..." : "Confirmar reserva"}
                     </button>
                   )}
 
-                  {booking.status !== "completed" && (
+                  {booking.status === "confirmed" && booking.paymentStatus === "paid" && ["active", "full"].includes(ride?.status || "") && (
                     <button
                       className="completeButton"
                       onClick={() => updateBookingStatus(booking, "completed")}
-                      disabled={loadingId === `${booking.id}-completed`}
+                      disabled={!!loadingId}
                     >
-                      {loadingId === `${booking.id}-completed` ? "Updating..." : "Complete"}
+                      {loadingId === `${booking.id}-completed` ? "Updating..." : "Finalizar viaje del pasajero"}
                     </button>
                   )}
-
-                  <button
-                    className="cancelButton"
-                    onClick={() => updateBookingStatus(booking, "cancelled")}
-                    disabled={loadingId === `${booking.id}-cancelled`}
-                  >
-                    {loadingId === `${booking.id}-cancelled` ? "Updating..." : "Cancel Passenger"}
-                  </button>
 
                   <Link href={`/ride-details?rideId=${rideId}`} className="outlineButton">
                     Ride Details
