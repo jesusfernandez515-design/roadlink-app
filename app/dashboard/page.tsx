@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { completedPaymentNet } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -55,6 +56,7 @@ export default function DashboardPage() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [driverBookings, setDriverBookings] = useState<Booking[]>([]);
   const [passengerBookings, setPassengerBookings] = useState<Booking[]>([]);
+  const [walletRecords, setWalletRecords] = useState<Parameters<typeof completedPaymentNet>[0][] | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [message, setMessage] = useState("Loading dashboard...");
 
@@ -63,6 +65,7 @@ export default function DashboardPage() {
     let unsubscribeRides: (() => void) | undefined;
     let unsubscribeDriverBookings: (() => void) | undefined;
     let unsubscribePassengerBookings: (() => void) | undefined;
+    let unsubscribeWallet: (() => void) | undefined;
     let unsubscribeNotifications: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -71,6 +74,8 @@ export default function DashboardPage() {
       unsubscribeDriverBookings?.();
       unsubscribePassengerBookings?.();
       unsubscribeNotifications?.();
+      unsubscribeWallet?.();
+      setWalletRecords(null);
       if (!user) {
         setProfile({});
         setAvatar("R");
@@ -144,6 +149,19 @@ export default function DashboardPage() {
         (error) => setMessage(error.message)
       );
 
+      unsubscribeWallet = onSnapshot(
+        query(collection(db, "walletTransactions"), where("driverId", "==", user.uid)),
+        (snapshot) => {
+          if (auth.currentUser?.uid === user.uid) setWalletRecords(snapshot.docs.map(item => item.data()));
+        },
+        () => {
+          if (auth.currentUser?.uid === user.uid) {
+            setWalletRecords(null);
+            setMessage("No se pudieron verificar las ganancias. Consulta la cartera o vuelve a cargar el panel.");
+          }
+        }
+      );
+
       unsubscribeNotifications = onSnapshot(
         query(collection(db, "notifications"), where("userId", "==", user.uid)),
         (snapshot) => {
@@ -165,6 +183,7 @@ export default function DashboardPage() {
       if (unsubscribeDriverBookings) unsubscribeDriverBookings();
       if (unsubscribePassengerBookings) unsubscribePassengerBookings();
       if (unsubscribeNotifications) unsubscribeNotifications();
+      unsubscribeWallet?.();
     };
   }, []);
 
@@ -217,10 +236,9 @@ export default function DashboardPage() {
   );
 
   const earnings = useMemo(() => {
-    return completedBookings.reduce((total, booking) => {
-      return total + Number(booking.price || 0) * Number(booking.seatsBooked || 1);
-    }, 0);
-  }, [completedBookings]);
+    if (walletRecords === null) return null;
+    return walletRecords.reduce((cents, payment) => cents + Math.round(completedPaymentNet(payment) * 100), 0) / 100;
+  }, [walletRecords]);
 
   const unreadNotifications = notifications.filter((item) => !item.read).length;
   const recentActivity = notifications.slice(0, 3);
@@ -255,7 +273,7 @@ export default function DashboardPage() {
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="💰" title="Earnings" value={`$${earnings}`} href="/wallet" />
+          <Metric icon="💰" title="Ganancias netas" value={earnings === null ? "—" : `$${earnings.toFixed(2)}`} href="/wallet" />
           <Metric icon="🚘" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
           <Metric icon="🎟️" title="Reservations" value={String(activeDriverBookings.length)} href="/ride-passengers" />
           <Metric icon="🔔" title="Notifications" value={String(unreadNotifications)} href="/notifications" alert={unreadNotifications > 0} />

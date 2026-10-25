@@ -21,3 +21,11 @@ test('recorded payments reconcile full refunds and partial refunds in cents', ()
   assert.deepEqual(retainedPayment({...payment,status:'refunded',amount:0,refundedCents:1000}),{gross:0,fee:0,net:0});
   assert.deepEqual(retainedPayment({...payment,amount:4.4,refundedCents:500}),{gross:5,fee:0.6,net:4.4});
 });
+
+test('dashboard earned net excludes refunded and pending trips and never counts a transfer twice', () => {
+ const {completedPaymentNet}=mod.exports;
+ const paid={type:'ride_payment',status:'transferred',grossAmount:10,amount:8.8,platformFee:1.2};
+ const rows=[paid,{...paid,status:'refunded',amount:0,refundedCents:1000},{...paid,status:'pending_payout'},{...paid,type:'driver_payout',amount:8.8}];
+ assert.equal(rows.reduce((sum,row)=>sum+completedPaymentNet(row),0),8.8);
+ assert.equal(completedPaymentNet({...paid,status:'available',amount:4.4,refundedCents:500}),4.4);
+});

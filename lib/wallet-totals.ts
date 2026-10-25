@@ -18,3 +18,10 @@ export function retainedPayment(item: {
   const net = Math.min(gross, cents(item.amount));
   return { gross: gross / 100, fee: (gross - net) / 100, net: net / 100 };
 }
+
+// Only completed/settled ride payments contribute to earned driver revenue.
+// Transfer rows are excluded by retainedPayment, so payouts are not counted twice.
+export function completedPaymentNet(item: Parameters<typeof retainedPayment>[0]) {
+  if (!["available", "paid", "transferring", "transferred", "transfer_review"].includes(item.status || "")) return 0;
+  return retainedPayment(item).net;
+}
