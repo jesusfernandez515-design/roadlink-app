@@ -14,6 +14,9 @@ import {
   where,
 } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
+import { isPendingBooking, retainedPayment } from "../../lib/wallet-totals";
+
+type PaymentRow = Parameters<typeof retainedPayment>[0] & { bookingId?: string; rideId?: string };
 
 type Ride = {
   id: string;
@@ -62,6 +65,9 @@ function RidePassengersContent() {
   const rideId = searchParams.get("rideId") || "";
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [paymentsLoaded, setPaymentsLoaded] = useState(false);
+  const [paymentsError, setPaymentsError] = useState("");
   const [ownRides, setOwnRides] = useState<Ride[]>([]);
   const [ride, setRide] = useState<Ride | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -70,6 +76,7 @@ function RidePassengersContent() {
 
   useEffect(() => {
     let unsubscribeBookings: (() => void) | undefined;
+    let unsubscribePayments: (() => void) | undefined;
     let disposed = false;
     let authVersion = 0;
 
@@ -77,6 +84,11 @@ function RidePassengersContent() {
       const version = ++authVersion;
       unsubscribeBookings?.();
       unsubscribeBookings = undefined;
+      unsubscribePayments?.();
+      unsubscribePayments = undefined;
+      setPayments([]);
+      setPaymentsLoaded(false);
+      setPaymentsError("");
       setRide(null);
       setBookings([]);
       setOwnRides([]);
@@ -118,6 +130,16 @@ function RidePassengersContent() {
         }
 
         setRide(rideData);
+        unsubscribePayments = onSnapshot(query(collection(db, "walletTransactions"), where("driverId", "==", user.uid)), snapshot => {
+          if (disposed || version !== authVersion) return;
+          setPayments(snapshot.docs.map(item => item.data() as PaymentRow).filter(item => item.rideId === rideId));
+          setPaymentsLoaded(true);
+          setPaymentsError("");
+        }, () => {
+          if (disposed || version !== authVersion) return;
+          setPaymentsLoaded(false);
+          setPaymentsError("No se pudieron consultar los pagos registrados. Recarga la página para reintentar.");
+        });
 
         const bookingsQuery = query(
           collection(db, "bookings"),
@@ -152,6 +174,7 @@ function RidePassengersContent() {
       disposed = true;
       unsubscribeAuth();
       if (unsubscribeBookings) unsubscribeBookings();
+      unsubscribePayments?.();
     };
   }, [rideId, router]);
 
@@ -164,13 +187,7 @@ function RidePassengersContent() {
     const paid = bookings.filter(
       (booking) => booking.paymentStatus === "paid" || booking.status === "paid"
     );
-    const pendingPayment = bookings.filter(
-      (booking) =>
-        booking.paymentStatus === "pending" ||
-        booking.paymentStatus === "unpaid" ||
-        booking.status === "payment_pending" ||
-        booking.status === "reserved"
-    );
+    const pendingPayment = bookings.filter(isPendingBooking);
     const cancelled = bookings.filter((booking) =>
       ["cancelled", "rejected"].includes(String(booking.status || ""))
     );
@@ -180,26 +197,13 @@ function RidePassengersContent() {
       0
     );
 
-    const gross = active.reduce(
-      (total, booking) => total + bookingTotal(booking),
-      0
-    );
-
-    const platformFees = active.reduce(
-      (total, booking) =>
-        total + Number(booking.platformFee || bookingTotal(booking) * 0.12 || 0),
-      0
-    );
-
-    const driverNet = active.reduce(
-      (total, booking) =>
-        total +
-        Number(
-          booking.driverAmount ||
-            Math.max(bookingTotal(booking) - bookingTotal(booking) * 0.12, 0)
-        ),
-      0
-    );
+    const totals = payments.reduce((sum, payment) => {
+      const retained = retainedPayment(payment);
+      return { gross: sum.gross + retained.gross, fee: sum.fee + retained.fee, net: sum.net + retained.net };
+    }, { gross: 0, fee: 0, net: 0 });
+    const gross = totals.gross;
+    const platformFees = totals.fee;
+    const driverNet = totals.net;
 
     return {
       active,
@@ -212,12 +216,11 @@ function RidePassengersContent() {
       platformFees,
       driverNet,
     };
-  }, [bookings]);
+  }, [bookings, payments]);
 
   function bookingTotal(booking: Booking) {
     return (
-      Number(booking.amount || booking.price || ride?.price || 0) *
-      Number(booking.seatsBooked || 1)
+      Number(booking.amount ?? (Number(booking.price ?? ride?.price ?? 0) * Number(booking.seatsBooked ?? 1)))
     );
   }
 
@@ -351,9 +354,9 @@ function RidePassengersContent() {
           <Metric label="Seats Booked" value={String(metrics.seats)} icon="💺" />
           <Metric label="Paid" value={String(metrics.paid.length)} icon="💳" />
           <Metric label="Pending Pay" value={String(metrics.pendingPayment.length)} icon="⏳" />
-          <Metric label="Gross" value={formatMoney(metrics.gross)} icon="💰" />
-          <Metric label="Driver Net" value={formatMoney(metrics.driverNet)} icon="🏦" />
-          <Metric label="Platform Fee" value={formatMoney(metrics.platformFees)} icon="📊" />
+          <Metric label="Pagos retenidos" value={paymentsLoaded ? formatMoney(metrics.gross) : "—"} icon="💰" />
+          <Metric label="Neto del conductor" value={paymentsLoaded ? formatMoney(metrics.driverNet) : "—"} icon="🏦" />
+          <Metric label="Comisión retenida" value={paymentsLoaded ? formatMoney(metrics.platformFees) : "—"} icon="📊" />
           <Metric label="Cancelled" value={String(metrics.cancelled.length)} icon="❌" />
         </section>}
 
@@ -389,6 +392,7 @@ function RidePassengersContent() {
 
         {rideId && <section className="results">
           {message && <p className="message">{message}</p>}
+          {paymentsError && <p role="alert" className="message">{paymentsError}</p>}
 
           {!ride ? null : metrics.active.length === 0 ? (
             <div className="empty">
@@ -411,7 +415,7 @@ function RidePassengersContent() {
                 <div className="passengerInfo">
                   <span>💺 {booking.seatsBooked || 1} seat</span>
                   <span>💵 {formatMoney(bookingTotal(booking))}</span>
-                  <span>🏦 Net {formatMoney(booking.driverAmount || bookingTotal(booking) * 0.88)}</span>
+                  <span>🏦 Neto retenido {paymentsLoaded ? formatMoney(payments.filter(item => item.bookingId === booking.id).reduce((sum, item) => sum + retainedPayment(item).net, 0)) : "—"}</span>
                   <span className={getStatusClass(booking.status, booking.paymentStatus)}>
                     ● {statusLabel(booking)}
                   </span>
