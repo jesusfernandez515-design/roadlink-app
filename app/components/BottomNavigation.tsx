@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { House, Search, Plus, MessageCircle, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -108,11 +109,11 @@ export default function BottomNavigation() {
 
   const navItems = useMemo(
     () => [
-      { href: "/dashboard", label: "Home", icon: "🏠", badge: 0 },
-      { href: "/find-ride", label: "Find", icon: "🔎", badge: 0 },
-      { href: "/offer-ride", label: "Offer", icon: "➕", badge: 0 },
-      { href: "/messages", label: "Messages", icon: "💬", badge: unreadMessages },
-      { href: "/profile", label: "Profile", icon: "👤", badge: unreadNotifications },
+      { href: "/dashboard", label: "Inicio", icon: House, badge: 0 },
+      { href: "/find-ride", label: "Buscar", icon: Search, badge: 0 },
+      { href: "/offer-ride", label: "Ofrecer", icon: Plus, badge: 0 },
+      { href: "/messages", label: "Mensajes", icon: MessageCircle, badge: unreadMessages },
+      { href: "/profile", label: "Perfil", icon: UserRound, badge: unreadNotifications },
     ],
     [unreadMessages, unreadNotifications]
   );
@@ -131,8 +132,9 @@ export default function BottomNavigation() {
               key={item.href}
               href={item.href}
               className={active ? "navItem active" : "navItem"}
+              aria-current={active ? "page" : undefined}
             >
-              <span className="navIcon">{item.icon}</span>
+              <span className="navIcon"><item.icon size={21} strokeWidth={1.5} aria-hidden="true" /></span>
 
               {item.badge > 0 && (
                 <span className="navBadge">
@@ -150,7 +152,7 @@ export default function BottomNavigation() {
         html,
         body {
           margin: 0;
-          background: #020617;
+          background: #070d11;
           overflow-x: hidden;
         }
 
