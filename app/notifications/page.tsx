@@ -37,6 +37,7 @@ type NotificationItem = {
 };
 
 type CategoryKey =
+  | "instant"
   | "message"
   | "payout"
   | "support"
@@ -52,6 +53,7 @@ const categories: {
   icon: string;
   description: string;
 }[] = [
+  { key: "instant", title: "Viajes de último minuto", icon: "🚕", description: "Solicitudes urgentes y propuestas de recogida." },
   {
     key: "message",
     title: "Mensajes nuevos",
@@ -109,7 +111,7 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [status, setStatus] = useState("Cargando notificaciones…");
   const [saving, setSaving] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<CategoryKey>("message");
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -182,6 +184,7 @@ export default function NotificationsPage() {
     const type = String(notification.type || "").toLowerCase();
     const combined = `${title} ${message} ${type}`;
 
+    if (type === "instant_request" || type === "instant_offer") return "instant";
     if (combined.includes("message") || combined.includes("mensaje") || combined.includes("chat")) return "message";
     if (combined.includes("payout") || combined.includes("payment") || combined.includes("wallet") || combined.includes("pago") || combined.includes("retiro")) return "payout";
     if (combined.includes("support") || combined.includes("soporte") || combined.includes("ticket")) return "support";
@@ -198,6 +201,7 @@ export default function NotificationsPage() {
 
     const category = getCategory(notification);
 
+    if (category === "instant") return "/ride-now";
     if (category === "message") {
       if (notification.chatId) return `/chat?chatId=${notification.chatId}`;
       return "/messages";
@@ -220,6 +224,7 @@ export default function NotificationsPage() {
 
   const grouped = useMemo(() => {
     const result: Record<CategoryKey, NotificationItem[]> = {
+      instant: [],
       message: [],
       payout: [],
       support: [],

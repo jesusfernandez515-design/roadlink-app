@@ -31,3 +31,14 @@ Lost authenticators require the an administrator-assisted support process that v
 51 automated checks pass, covering existing payment/auth rules plus guest ownership/consent and contact validation, request/quote expiry, stale quote rejection, idempotent acceptance, driver locks, cancellation release and TOTP resolution. Next test-mode production build passes.
 
 These checks mock Firebase/Stripe; they do not replace the next authenticated two-account browser rehearsal or actual authenticator enrollment. No real-money transaction is authorized.
+
+## Solicitudes de último minuto (28 de octubre de 2026)
+
+- Buscar viajes permite enviar la solicitud desde la misma pantalla y conserva los datos del invitado en memoria; no los pone en URLs ni almacenamiento local.
+- Al crear la solicitud, la misma transacción guarda una notificación privada por cada conductor autorizado. El directorio `instantDrivers/{uid}` (`enabled: true`) es solo del servidor; no se modifica desde el perfil. La lista sigue limitada a las dos cuentas autorizadas del piloto. El conductor piloto existente permanece habilitado. No se incorporaron cuentas ni se cambiaron reglas o permisos.
+- Todos los destinatarios ven una alerta en la aplicación Conductor mientras esté abierta y una entrada en Notificaciones → Viajes de último minuto. No hay entrega push con la app cerrada, SMS ni correo; requieren configurar un canal de entrega independiente.
+- Cada conductor puede enviar su propia propuesta o rechazar. Rechazar solo oculta esa versión para ese conductor, elimina su propuesta y cierra su alerta; la solicitud continúa para los demás.
+- El pasajero puede comparar propuestas. Su aceptación explícita del precio crea una sola reserva y bloquea al conductor en una transacción Firestore. Repetir la misma aceptación devuelve la reserva existente; intentar elegir otra propuesta después devuelve un conflicto, sin una segunda asignación.
+- Aceptar o cancelar cierra las alertas de solicitud. Las alertas caducadas se ocultan. Los datos de contacto del invitado siguen reservados para la cuenta propietaria y el conductor asignado.
+- Pruebas automatizadas con base en memoria: dos propuestas independientes, aceptación competitiva serializada, un solo viaje/reserva/bloqueo, rechazo individual, invalidación de propuestas rechazadas y cierre de alertas. Estas pruebas no sustituyen una prueba con varios dispositivos y Firestore real.
+- Pagos reales desactivados: no se modificó `lib/server/payments.ts` ni la configuración Stripe.

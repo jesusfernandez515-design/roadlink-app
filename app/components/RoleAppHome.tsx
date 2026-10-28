@@ -15,13 +15,13 @@ export default function RoleAppHome({ mode }: { mode: AppExperience }) {
   const [ready, setReady] = useState(false);
   useEffect(() => onAuthStateChanged(auth, current => { setUser(current); setReady(true); }), []);
   const cards = driver ? [
-    { href: "/ride-now", label: "Recogidas para ahora", text: "Atiende solicitudes de último minuto.", icon: CarFront },
+    { href: "/ride-now", label: "Solicitudes de viajes de último minuto", text: "Atiende solicitudes de último minuto.", icon: CarFront },
     { href: "/my-rides", label: "Mis viajes", text: "Tus rutas publicadas y su estado.", icon: CarFront },
     { href: "/ride-passengers", label: "Mis pasajeros", text: "Confirma reservas y finaliza cada viaje.", icon: UsersRound },
     { href: "/wallet", label: "Mi cartera", text: "Pagos, ganancias y transferencias.", icon: Wallet },
   ] : [
     { href: "/guests", label: "Viajes para invitados", text: "Reserva y paga por otra persona desde tu cuenta.", icon: UsersRound },
-    { href: "/ride-now", label: "Viajar ahora", text: "Solicita una recogida para ti o para un invitado.", icon: CarFront },
+    { href: "/ride-now", label: "Solicitar viaje de último minuto", text: "Solicita una recogida para ti o para un invitado.", icon: CarFront },
     { href: "/find-ride", label: "Buscar un viaje", text: "Encuentra personas que van hacia tu destino.", icon: MapPin },
     { href: "/my-bookings", label: "Mis reservas", text: "Consulta tu asiento, pago y recorrido.", icon: Ticket },
     { href: "/messages", label: "Mis mensajes", text: "Coordina los detalles con tu conductor.", icon: MessageCircle },

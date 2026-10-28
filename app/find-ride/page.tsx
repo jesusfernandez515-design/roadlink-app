@@ -1,5 +1,6 @@
 "use client";
-import { GuestPassengerForm, emptyGuestChoice, type GuestChoice } from "../components/GuestPassenger";
+import LastMinuteRequest from "../components/LastMinuteRequest";
+import { emptyGuestChoice, type GuestChoice } from "../components/GuestPassenger";
 
 import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
 
@@ -267,8 +268,7 @@ export default function FindRidePage() {
       </section>
 
       <section className="results">
-        <Link href="/ride-now" className="primaryButton">¿Sales ahora? Solicitar recogida</Link>
-        <GuestPassengerForm value={guestChoice} onChange={setGuestChoice} />
+        <LastMinuteRequest guest={guestChoice} onChange={setGuestChoice} />
         {message && <p className="message">{message}</p>}
 
         {rides.map((ride) => {

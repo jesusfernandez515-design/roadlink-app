@@ -1,11 +1,11 @@
 const {test}=require('node:test'); const assert=require('node:assert/strict'); const fs=require('node:fs'); const path=require('node:path'); const ts=require('typescript'); const Stripe=require('stripe');
 class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}
 function database(seed={}){
- const rows=new Map(Object.entries(seed).map(([k,v])=>[k,structuredClone(v)])); let n=0;
+ const rows=new Map(Object.entries(seed).map(([k,v])=>[k,structuredClone(v)])); let n=0; let transactionQueue=Promise.resolve();
  const snapshot=(ref)=>({id:ref.id,ref,exists:rows.has(ref.path),data:()=>rows.has(ref.path)?structuredClone(rows.get(ref.path)):undefined});
  const ref=(p)=>({path:p,id:p.split('/').pop(),get:async()=>snapshot(ref(p)),set:async(v,o)=>rows.set(p,o?.merge?{...rows.get(p),...v}:v)});
  function collection(p,filters=[],limit=Infinity){return {doc:(id)=>ref(`${p}/${id||`auto${++n}`}`),where:(k,op,v)=>collection(p,[...filters,[k,v]],limit),limit:(v)=>collection(p,filters,v),get:async()=>{const docs=[...rows.keys()].filter(k=>k.startsWith(p+'/')&&filters.every(([f,v])=>rows.get(k)[f]===v)).slice(0,limit).map(k=>snapshot(ref(k)));return {docs,size:docs.length};}};}
- return {rows,collection,runTransaction:async cb=>{const writes=[];const result=await cb({get:async r=>r.path?snapshot(r):r.get(),set:(r,v,o)=>writes.push(()=>rows.set(r.path,o?.merge?{...rows.get(r.path),...v}:v)),update:(r,v)=>writes.push(()=>{assert(rows.has(r.path)); rows.set(r.path,{...rows.get(r.path),...v});})});writes.forEach(f=>f());return result;}};
+ return {rows,collection,runTransaction:cb=>{const operation=transactionQueue.then(async()=>{const writes=[];const result=await cb({get:async r=>r.path?snapshot(r):r.get(),set:(r,v,o)=>writes.push(()=>rows.set(r.path,o?.merge?{...rows.get(r.path),...v}:v)),update:(r,v)=>writes.push(()=>{assert(rows.has(r.path)); rows.set(r.path,{...rows.get(r.path),...v});})});writes.forEach(f=>f());return result;});transactionQueue=operation.catch(()=>{});return operation;}};
 }
 function harness(seed={},identity={uid:'p',email:'p@example.com',email_verified:true}){
  const db=database(seed), sessions=new Map();let seq=0;const sdk=new Stripe('sk_test_fake');
@@ -75,7 +75,7 @@ test('instant ride flow validates quote, protects guest contact, reserves once a
  assert.equal((await h.post({action:'offer',requestId:'p',version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,200);
  h.passenger();
  assert.equal((await h.post({action:'accept',version,offerExpiresAt:'stale'})).status,409);
- const {expiresAt:offerExpiresAt,id:offerId}=h.db.rows.get('instantRequests/p').offer;
+ const {expiresAt:offerExpiresAt,id:offerId}=Object.values(h.db.rows.get('instantRequests/p').offers)[0];
  const accepted=await h.post({action:'accept',version,offerId,offerExpiresAt,price:0.01,passengerId:'victim'});
  assert.equal(accepted.status,200);const {bookingId}=await accepted.json();
  assert.equal((await h.post({action:'accept',version,offerId,offerExpiresAt})).status,200);
@@ -102,10 +102,65 @@ test('instant requests fail closed outside pilot and reject expired quotes, chan
  assert.equal((await h.post({action:'offer',requestId:'p',version:request.version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,409);
  h.db.rows.delete('instantDriverLocks/XmpCtSTIS6cf7r8UMc2UxLFj6qH3');
  await h.post({action:'offer',requestId:'p',version:request.version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20});
- const row=h.db.rows.get('instantRequests/p');row.offer.expiresAt='2000-01-01';h.db.rows.set('instantRequests/p',row);h.passenger();
+ const row=h.db.rows.get('instantRequests/p');Object.values(row.offers)[0].expiresAt='2000-01-01';h.db.rows.set('instantRequests/p',row);h.passenger();
  assert.equal((await h.post({action:'accept',version:request.version,offerExpiresAt:'2000-01-01'})).status,409);
  assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('bookings/')).length,0);
  }finally{if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
+});
+test('last-minute alerts reach every authorized driver, hide guest data and clear on cancellation',async()=>{
+ const saved=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try {
+ const h=instantHarness(), first='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',second='DefaRi3pT2c5ZKs5gwc66lywFWN2';
+ h.db.rows.set('instantDrivers/'+second,{enabled:true});
+ h.db.rows.set('instantDrivers/outsider',{enabled:true});
+ await h.post({action:'request',from:'Origen prueba',to:'Destino prueba',travelFor:'guest',guestConsent:true,guest:{name:'Invitada',phone:'555-555-0123',notes:'Privado'}});
+ const row=h.db.rows.get('instantRequests/p'),alerts=[...h.db.rows.values()].filter(value=>value.type==='instant_request');
+ assert.deepEqual(alerts.map(value=>value.userId).sort(),[first,second].sort());
+ assert.equal(JSON.stringify(alerts).includes('555-555'),false);assert.equal(JSON.stringify(alerts).includes('Origen prueba'),false);
+ h.driver();assert.equal((await h.post({action:'decline',requestId:'p',version:row.version})).status,200);
+ assert.equal((await (await h.get()).json()).requests.length,0);
+ assert.equal(h.db.rows.get('instantRequests/p').status,'open');
+ Object.assign(h.identity,{uid:second});assert.equal((await (await h.get()).json()).requests.length,1);
+ assert.equal((await h.post({action:'offer',requestId:'p',version:row.version,price:10,vehicle:'Auto',pickupMinutes:5,durationMinutes:15})).status,200);
+ h.passenger();await h.post({action:'cancel',version:row.version});
+ for(const id of [first,second])assert.equal(h.db.rows.get(`notifications/instant_${row.version}_${id}`).closed,true);
+ assert.equal((await h.post({action:'accept',version:row.version})).status,409);
+ } finally {if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
+});
+test('multiple drivers keep separate proposals and competing acceptance creates exactly one assignment',async()=>{
+ const saved=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try {
+ const h=instantHarness(), first='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',second='DefaRi3pT2c5ZKs5gwc66lywFWN2';
+ h.db.rows.set('instantDrivers/'+second,{enabled:true});
+ await h.post({action:'request',from:'Origen prueba',to:'Destino prueba'});
+ const version=h.db.rows.get('instantRequests/p').version;
+ h.driver();await h.post({action:'offer',requestId:'p',version,price:10,vehicle:'Auto uno',pickupMinutes:5,durationMinutes:15});
+ Object.assign(h.identity,{uid:second,email:'second@example.com'});await h.post({action:'offer',requestId:'p',version,price:12,vehicle:'Auto dos',pickupMinutes:4,durationMinutes:15});
+ const driverList=await (await h.get()).json();assert.equal(driverList.requests[0].offer.driverId,second);assert.equal(driverList.requests[0].offers,undefined);
+ h.passenger();const passengerList=await (await h.get()).json();assert.equal(passengerList.requests[0].offers.length,2);
+ const [a,b]=passengerList.requests[0].offers;
+ const select=offer=>h.post({action:'accept',version,offerId:offer.id,offerExpiresAt:offer.expiresAt});
+ const responses=await Promise.all([select(a),select(b)]);const results=await Promise.all(responses.map(r=>r.json()));
+ assert.equal(responses[0].status,200);assert.equal(responses[1].status,409);assert(results[0].bookingId);
+ const bookings=[...h.db.rows.values()].filter(value=>value.rideType==='now'&&value.passengerId==='p');
+ assert.equal(bookings.length,1);assert.equal(bookings[0].driverId,a.driverId);assert.equal(bookings[0].amount,10);
+ assert.equal(h.db.rows.has('instantDriverLocks/'+b.driverId),false);
+ assert.equal(h.db.rows.get('instantRequests/p').assignedDriverId,a.driverId);
+ for(const id of [first,second])assert.equal(h.db.rows.get(`notifications/instant_${version}_${id}`).closed,true);
+ } finally {if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
+});
+test('rejecting a quote invalidates it without removing another driver proposal',async()=>{
+ const saved=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try {
+ const h=instantHarness(),first='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',second='DefaRi3pT2c5ZKs5gwc66lywFWN2';h.db.rows.set('instantDrivers/'+second,{enabled:true});
+ await h.post({action:'request',from:'Origen',to:'Destino'});const version=h.db.rows.get('instantRequests/p').version;
+ const offer=()=>h.post({action:'offer',requestId:'p',version,price:10,vehicle:'Auto',pickupMinutes:5,durationMinutes:15});
+ h.driver();await offer();const old=h.db.rows.get('instantRequests/p').offers[first];
+ Object.assign(h.identity,{uid:second});await offer();h.driver();await h.post({action:'decline',requestId:'p',version});
+ assert.equal((await offer()).status,403);h.passenger();
+ assert.equal((await h.post({action:'accept',version,offerId:old.id,offerExpiresAt:old.expiresAt})).status,409);
+ const remaining=(await (await h.get()).json()).requests[0].offers;assert.equal(remaining.length,1);assert.equal(remaining[0].driverId,second);
+ } finally {if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
 });
 const paidSession={id:'cs_test_1',metadata:{bookingId:'b',passengerId:'p',reservationVersion:'1',environment:'test'},payment_status:'paid',amount_total:1000,currency:'usd',payment_intent:'pi_1'};
 test('reservation/cancellation preserves seats and blocks duplicate and foreign changes',async()=>{const h=harness({'rides/r':ride});assert.equal((await h.call('reserve',{rideId:'r'})).status,200);assert.equal(h.db.rows.get('rides/r').seats,1);assert.equal((await h.call('reserve',{rideId:'r'})).status,409);assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);assert.equal(h.db.rows.get('rides/r').seats,2);const other=harness({'bookings/b':{...booking,passengerId:'other'}});assert.equal((await other.call('cancel',{bookingId:'b'})).status,403);});
