@@ -8,15 +8,15 @@ function database(seed={}){
  return {rows,collection,runTransaction:cb=>{const operation=transactionQueue.then(async()=>{const writes=[];const result=await cb({get:async r=>r.path?snapshot(r):r.get(),set:(r,v,o)=>writes.push(()=>rows.set(r.path,o?.merge?{...rows.get(r.path),...v}:v)),update:(r,v)=>writes.push(()=>{assert(rows.has(r.path)); rows.set(r.path,{...rows.get(r.path),...v});})});writes.forEach(f=>f());return result;});transactionQueue=operation.catch(()=>{});return operation;}};
 }
 function harness(seed={},identity={uid:'p',email:'p@example.com',email_verified:true}){
- const db=database(seed), sessions=new Map();let seq=0;const sdk=new Stripe('sk_test_fake');
+ const db=database(seed), sessions=new Map(), pushMessages=[];let pushFailure=null;let seq=0;const sdk=new Stripe('sk_test_fake');
  const stripe={webhooks:sdk.webhooks,checkout:{sessions:{create:async(data,opts)=>{if(!sessions.has(opts.idempotencyKey))sessions.set(opts.idempotencyKey,{...data,id:`cs_test_${++seq}`,url:'https://checkout.stripe.com/test',status:'open'});return sessions.get(opts.idempotencyKey);},retrieve:async id=>[...sessions.values()].find(s=>s.id===id)}}};
  let configError=false;
  const helper={ApiError,documentId:v=>{if(typeof v!=='string'||!/^[\w-]{1,128}$/.test(v))throw new ApiError(400,'Invalid id');return v;},requirePassenger:async req=>{if(req.headers.get('authorization')!=='Bearer valid')throw new ApiError(401,'Invalid token');return {user:identity,db};},serverFirebase:()=>({db}),apiFailure:e=>Response.json({error:e.message},{status:e.status||500})};
- const cache={};function load(relative){const file=path.resolve(relative);if(cache[file])return cache[file];const out={exports:{}};cache[file]=out.exports;const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const req=id=>{if(id.endsWith('/connect-v2'))return {...load('lib/server/connect-v2.ts'),v2Request:async(method,p,body,key)=>{if(p==='/v2/core/accounts')return stripe.accounts.create(body,{idempotencyKey:key});if(p==='/v2/core/account_links')return stripe.accountLinks.create(body);return stripe.accounts.retrieve(p.split('/')[4].split('?')[0]);}};if(id.endsWith('/connect'))return load('lib/server/connect.ts');if(id.endsWith('firebase-admin'))return helper;if(id.endsWith('/guest'))return load('lib/server/guest.ts');if(id.endsWith('/payments'))return {...load('lib/server/payments.ts'),paymentConfig:()=>{if(configError)throw new ApiError(503,'Not configured');return {stripe,test:true,webhook:'whsec_test'};}};if(id==='./firebase-admin')return helper;return require(id);};new Function('require','module','exports',js)(req,out,out.exports);cache[file]=out.exports;return out.exports;}
+ const cache={};function load(relative){const file=path.resolve(relative);if(cache[file])return cache[file];const out={exports:{}};cache[file]=out.exports;const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const req=id=>{if(id.endsWith('/connect-v2'))return {...load('lib/server/connect-v2.ts'),v2Request:async(method,p,body,key)=>{if(p==='/v2/core/accounts')return stripe.accounts.create(body,{idempotencyKey:key});if(p==='/v2/core/account_links')return stripe.accountLinks.create(body);return stripe.accounts.retrieve(p.split('/')[4].split('?')[0]);}};if(id.endsWith('/connect'))return load('lib/server/connect.ts');if(id.endsWith('firebase-admin'))return helper;if(id.endsWith('/instant-drivers'))return load('lib/server/instant-drivers.ts');if(id.endsWith('/instant-push'))return load('lib/server/instant-push.ts');if(id==='firebase-admin/messaging')return {getMessaging:()=>({sendEachForMulticast:async message=>{pushMessages.push(message);const responses=message.tokens.map(()=>pushFailure?{success:false,error:{code:pushFailure}}:{success:true});return {responses,successCount:pushFailure?0:responses.length,failureCount:pushFailure?responses.length:0};}})};if(id.endsWith('/guest'))return load('lib/server/guest.ts');if(id.endsWith('/payments'))return {...load('lib/server/payments.ts'),paymentConfig:()=>{if(configError)throw new ApiError(503,'Not configured');return {stripe,test:true,webhook:'whsec_test'};}};if(id==='./firebase-admin')return helper;return require(id);};new Function('require','module','exports',js)(req,out,out.exports);cache[file]=out.exports;return out.exports;}
  const routes={reserve:load('app/api/bookings/reserve/route.ts'),cancel:load('app/api/bookings/cancel/route.ts'),checkout:load('app/api/stripe/create-checkout-session/route.ts'),webhook:load('app/api/stripe/webhook/route.ts')};
  const call=(name,body,token='valid')=>routes[name].POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}));
  const event=async(type,object,id='evt_'+type)=>{const body=JSON.stringify({id,type,livemode:false,data:{object}});const signature=sdk.webhooks.generateTestHeaderString({payload:body,secret:'whsec_test'});return routes.webhook.POST(new Request('https://preview.example/api',{method:'POST',body,headers:{'stripe-signature':signature}}));};
- return {db,call,event,routes,stripe,sessions,setConfigError:()=>configError=true,load};
+ return {db,call,event,routes,stripe,sessions,pushMessages,setPushFailure:code=>pushFailure=code,setConfigError:()=>configError=true,load};
 }
 const ride={driverId:'d',driverEmail:'d@example.com',from:'Guayama',to:'Patillas',date:'2099-11-02',time:'11:00',seats:2,originalSeats:2,status:'active',price:10};
 const booking={rideId:'r',passengerId:'p',driverId:'d',driverEmail:'d@example.com',from:'Guayama',to:'Patillas',date:'2099-11-02',time:'11:00',seatsBooked:1,price:10,status:'reserved',paymentStatus:'unpaid',reservationVersion:1};
@@ -161,6 +161,49 @@ test('rejecting a quote invalidates it without removing another driver proposal'
  assert.equal((await h.post({action:'accept',version,offerId:old.id,offerExpiresAt:old.expiresAt})).status,409);
  const remaining=(await (await h.get()).json()).requests[0].offers;assert.equal(remaining.length,1);assert.equal(remaining[0].driverId,second);
  } finally {if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
+});
+test('push configuration is closed outside test, tokens are hashed and enrollment uses the verified driver',async()=>{
+ const saved={...process.env};process.env.NEXT_PUBLIC_ROADLINK_ENV='test';process.env.NEXT_PUBLIC_FIREBASE_TEST_VAPID_KEY='B'+'a'.repeat(86);
+ try {
+ const h=instantHarness(),driver='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',policy=h.load('lib/server/instant-push.ts'),route=h.load('app/api/push/subscription/route.ts');
+ const token='test-device-token-for-push-1234567890';assert.equal(policy.pushDeviceId(token).length,64);assert.throws(()=>policy.pushDeviceId('x'),e=>e.status===400);
+ const post=(body,auth='valid')=>route.POST(new Request('https://preview.example/api/push/subscription',{method:'POST',headers:{authorization:'Bearer '+auth,'content-type':'application/json'},body:JSON.stringify(body)}));
+ assert.equal((await post({action:'enable',token})).status,403);h.driver();
+ assert.equal((await post({action:'enable',token,userId:'victim'})).status,200);
+ const id=policy.pushDeviceId(token);assert.equal(h.db.rows.get('pushDevices/'+id).userId,driver);
+ assert.equal((await post({action:'enable',token},'forged')).status,401);
+ h.passenger();await post({action:'disable',token});assert.equal(h.db.rows.get('pushDevices/'+id).enabled,true);
+ h.driver();await post({action:'disable',token});assert.equal(h.db.rows.get('pushDevices/'+id).enabled,false);
+ delete process.env.NEXT_PUBLIC_FIREBASE_TEST_VAPID_KEY;assert.equal((await post({action:'enable',token})).status,403);
+ process.env.NEXT_PUBLIC_ROADLINK_ENV='production';assert.equal(policy.pushKey(),'');assert.equal((await post({action:'enable',token})).status,503);
+ } finally {process.env=saved;}
+});
+test('push sends generic alerts only to subscribed drivers, deduplicates delivery and skips closed requests',async()=>{
+ const saved={...process.env};process.env.NEXT_PUBLIC_ROADLINK_ENV='test';process.env.NEXT_PUBLIC_FIREBASE_TEST_VAPID_KEY='B'+'a'.repeat(86);
+ try {
+ const h=instantHarness(),driver='XmpCtSTIS6cf7r8UMc2UxLFj6qH3',policy=h.load('lib/server/instant-push.ts');
+ h.db.rows.set('pushDevices/driver',{userId:driver,enabled:true,token:'test-driver-device-token-1234567890'});
+ h.db.rows.set('pushDevices/other',{userId:'other',enabled:true,token:'foreign-device'});
+ await h.post({action:'request',from:'Private exact pickup',to:'Private destination',travelFor:'guest',guestConsent:true,guest:{name:'Private guest',phone:'555-555-0123',notes:'Private instructions'}});
+ const row=h.db.rows.get('instantRequests/p'),alert='notifications/instant_'+row.version+'_'+driver;
+ assert.equal(h.pushMessages.length,1);assert.deepEqual(h.pushMessages[0].tokens,['test-driver-device-token-1234567890']);
+ const payload=JSON.stringify(h.pushMessages[0]);for(const privateValue of ['Private exact pickup','Private destination','Private guest','555-555','Private instructions'])assert.equal(payload.includes(privateValue),false);
+ assert.equal(h.pushMessages[0].webpush.fcmOptions.link,'https://www.getroadlink.com/conductor/ride-now');
+ assert.equal(h.db.rows.get(alert).pushStatus,'sent');
+ await policy.deliverInstantPush('p',row.version,[driver]);assert.equal(h.pushMessages.length,1);
+ await h.post({action:'cancel',version:row.version});h.db.rows.set(alert,{...h.db.rows.get(alert),pushStatus:'failed'});
+ await policy.deliverInstantPush('p',row.version,[driver]);assert.equal(h.pushMessages.length,1);
+ } finally {process.env=saved;}
+});
+test('invalid push tokens are disabled without losing the request or in-app notification',async()=>{
+ const saved={...process.env};process.env.NEXT_PUBLIC_ROADLINK_ENV='test';process.env.NEXT_PUBLIC_FIREBASE_TEST_VAPID_KEY='B'+'a'.repeat(86);
+ try {
+ const h=instantHarness(),driver='XmpCtSTIS6cf7r8UMc2UxLFj6qH3';h.setPushFailure('messaging/registration-token-not-registered');
+ h.db.rows.set('pushDevices/driver',{userId:driver,enabled:true,token:'test-driver-device-token-1234567890'});
+ assert.equal((await h.post({action:'request',from:'Origen',to:'Destino'})).status,200);
+ const row=h.db.rows.get('instantRequests/p');assert.equal(row.status,'open');assert.equal(h.db.rows.get('pushDevices/driver').enabled,false);
+ const alert=h.db.rows.get('notifications/instant_'+row.version+'_'+driver);assert.equal(alert.read,false);assert.equal(alert.pushStatus,'failed');assert.equal(alert.pushAccepted,0);
+ } finally {process.env=saved;}
 });
 const paidSession={id:'cs_test_1',metadata:{bookingId:'b',passengerId:'p',reservationVersion:'1',environment:'test'},payment_status:'paid',amount_total:1000,currency:'usd',payment_intent:'pi_1'};
 test('reservation/cancellation preserves seats and blocks duplicate and foreign changes',async()=>{const h=harness({'rides/r':ride});assert.equal((await h.call('reserve',{rideId:'r'})).status,200);assert.equal(h.db.rows.get('rides/r').seats,1);assert.equal((await h.call('reserve',{rideId:'r'})).status,409);assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);assert.equal(h.db.rows.get('rides/r').seats,2);const other=harness({'bookings/b':{...booking,passengerId:'other'}});assert.equal((await other.call('cancel',{bookingId:'b'})).status,403);});

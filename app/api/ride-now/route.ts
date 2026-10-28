@@ -1,15 +1,8 @@
 import { ApiError, apiFailure, requirePassenger } from "../../../lib/server/firebase-admin";
+import { instantDrivers } from "../../../lib/server/instant-drivers";
+import { deliverInstantPush } from "../../../lib/server/instant-push";
 import { guestPassenger } from "../../../lib/server/guest";
 
-const pilotDriver = "XmpCtSTIS6cf7r8UMc2UxLFj6qH3";
-// Additional drivers must be provisioned by a trusted administrator, never by a profile edit.
-async function drivers(db: ReturnType<typeof import("../../../lib/server/firebase-admin").serverFirebase>["db"]) {
-  const rows = await db.collection("instantDrivers").where("enabled", "==", true).limit(101).get();
-  if (rows.size > 100) throw new ApiError(503, "No se pudo cargar el directorio completo de conductores.");
-  const allowed = new Set([pilotDriver, "DefaRi3pT2c5ZKs5gwc66lywFWN2"]);
-  // Keep the private pilot boundary, including notification recipients.
-  return [...new Set([pilotDriver, ...rows.docs.map(row => row.id).filter(id => allowed.has(id))])];
-}
 function proposals(current: any): any[] {
   return Object.values(current.offers || (current.offer ? { [current.offer.driverId]: current.offer } : {}));
 }
@@ -25,7 +18,7 @@ export async function GET(request: Request) {
   try {
     enabled();
     const { user, db } = await requirePassenger(request);
-    const directory = await drivers(db);
+    const directory = await instantDrivers(db);
     const driver = directory.includes(user.uid);
     if (driver) {
       const rows = await db.collection("instantRequests").where("status", "==", "open").limit(51).get();
@@ -47,7 +40,7 @@ export async function POST(request: Request) {
     enabled();
     const { user, db } = await requirePassenger(request);
     const body = await request.json();
-    const directory = await drivers(db);
+    const directory = await instantDrivers(db);
     const driver = directory.includes(user.uid);
     const action = body.action;
     if (!["request", "offer", "decline", "accept", "cancel"].includes(action)) throw new ApiError(400, "Acción no válida.");
@@ -86,7 +79,7 @@ export async function POST(request: Request) {
             expiresAt: new Date(now + 15 * 60000).toISOString(), read: false, createdAt: stamp,
           });
         }
-        return { requested: true };
+        return { requested: true, requestVersion: input.version };
       }
       if (!current) throw new ApiError(404, "Solicitud no encontrada.");
       if (!["offer", "decline"].includes(action) && current.passengerId !== user.uid) throw new ApiError(403, "Esta solicitud no pertenece a tu cuenta.");
@@ -149,6 +142,7 @@ export async function POST(request: Request) {
         bookingId, rideId, read: false, createdAt: stamp });
       return { bookingId };
     });
+    if (result.requested && result.requestVersion) await deliverInstantPush(id, result.requestVersion, directory);
     return Response.json(result, { headers });
   } catch (error) { return apiFailure(error); }
 }

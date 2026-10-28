@@ -42,3 +42,19 @@ These checks mock Firebase/Stripe; they do not replace the next authenticated tw
 - Aceptar o cancelar cierra las alertas de solicitud. Las alertas caducadas se ocultan. Los datos de contacto del invitado siguen reservados para la cuenta propietaria y el conductor asignado.
 - Pruebas automatizadas con base en memoria: dos propuestas independientes, aceptación competitiva serializada, un solo viaje/reserva/bloqueo, rechazo individual, invalidación de propuestas rechazadas y cierre de alertas. Estas pruebas no sustituyen una prueba con varios dispositivos y Firestore real.
 - Pagos reales desactivados: no se modificó `lib/server/payments.ts` ni la configuración Stripe.
+
+## Preparación de alertas push (pendiente de activación y prueba en dispositivo)
+
+La integración usa el SDK Firebase 11.10.0 ya instalado, Firebase Admin y un service worker exclusivo de `/conductor/`. No añade caché de páginas ni cambia las identidades de las dos PWAs. Solicita permiso solo al pulsar el botón del dispositivo.
+
+Requisito pendiente: configurar en el proyecto Firebase **roadlink-pruebas** las credenciales Web Push, verificar FCM HTTP v1 y añadir en Vercel `NEXT_PUBLIC_FIREBASE_TEST_VAPID_KEY` con la **clave pública** VAPID del mismo proyecto. No copiar claves privadas ni credenciales del servidor al cliente. Después se necesita un nuevo despliegue y una prueba desde un teléfono con permiso concedido. La conexión oficial de Firebase aparece disponible pero sin conectar; la sesión de consola anterior ya no está autenticada.
+
+Mientras falte la clave pública, el botón queda deshabilitado y explica que la configuración está pendiente. Una clave con formato válido o un token guardado no demuestran recepción; la interfaz lo aclara. Cada teléfono/navegador debe registrarse con la cuenta del conductor.
+
+`/api/push/subscription` verifica sesión, correo, piloto y directorio de conductores en el servidor. Los identificadores de dispositivos son hashes SHA-256 del token; `pushDevices` sigue cubierto por la denegación por defecto de las reglas. Solo el servidor lo lee/escribe. Limita a diez dispositivos activos por cuenta. El token nunca aparece en URLs, registros ni mensajes de interfaz. Los cambios de cuenta y cierre de sesión invalidan la suscripción local; los tokens rechazados por FCM se desactivan en el servidor.
+
+Al crear una solicitud se intenta enviar una notificación genérica a los dispositivos registrados de sus conductores destinatarios. Se comprueban versión, caducidad, estado y rechazo antes del intento, y se usa una concesión temporal para evitar envíos concurrentes repetidos. No se envían nombres de invitados, teléfonos, instrucciones ni direcciones al aviso del sistema. El enlace siempre apunta a la sección de solicitudes de Conductor, donde se vuelve a verificar el estado. El aviso puede llegar tarde por restricciones del sistema operativo; su TTL no supera la vigencia de la solicitud.
+
+Las notificaciones de Firestore son la fuente duradera, incluso si FCM falla. `pushStatus: sent` significa que FCM aceptó el envío, no que el teléfono lo mostró. Se conservan los fallos para diagnóstico; **no hay un trabajo periódico de reintento configurado**. No se verificó todavía una entrega push real ni el flujo completo entre dispositivos. Pagos reales desactivados.
+
+Referencias: https://firebase.google.com/docs/cloud-messaging/web/get-started y https://firebase.google.com/docs/cloud-messaging/web/receive-messages (consultadas 2026-10-28; se mantiene la API de tokens compatible con la versión instalada, sin actualizar todo el SDK).

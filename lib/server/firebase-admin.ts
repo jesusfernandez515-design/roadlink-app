@@ -20,7 +20,7 @@ export function serverFirebase() {
     if (account.project_id !== projectId) throw new ApiError(503, "La configuración del servidor no corresponde a este entorno.");
     app = initializeApp({ credential: cert(account), projectId }, name);
   }
-  return { auth: getAuth(app), db: getFirestore(app, test ? "default" : "(default)") };
+  return { app, auth: getAuth(app), db: getFirestore(app, test ? "default" : "(default)") };
 }
 
 export async function requirePassenger(request: Request) {

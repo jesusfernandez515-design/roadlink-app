@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import AppExperienceProvider from "./components/AppExperience";
 import BottomNavigation from "./components/BottomNavigation";
+import DriverPushControl from "./components/DriverPushControl";
 import LastMinuteAlerts from "./components/LastMinuteAlerts";
 import BrandHeader from "./components/BrandHeader";
 import "./globals.css";
@@ -46,6 +47,7 @@ export default function RootLayout({
         <AppExperienceProvider>
         <BrandHeader />
         <LastMinuteAlerts />
+        <DriverPushControl />
         {children}
         <BottomNavigation />
         </AppExperienceProvider>
