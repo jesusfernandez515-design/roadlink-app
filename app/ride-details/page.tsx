@@ -1,5 +1,7 @@
 "use client";
 
+import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -66,7 +68,7 @@ export default function RideDetailsPage() {
 function LoadingScreen() {
   return (
     <main className="page">
-      <p className="message">Loading ride details...</p>
+      <p className="message">Cargando detalles del viaje…</p>
 
       <style>{`
         .page {
@@ -97,7 +99,7 @@ function RideDetailsContent() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [alreadyReserved, setAlreadyReserved] = useState(false);
-  const [message, setMessage] = useState("Loading ride details...");
+  const [message, setMessage] = useState("Cargando detalles del viaje…");
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
 
@@ -153,7 +155,7 @@ function RideDetailsContent() {
 
   async function loadRide(currentUserId?: string) {
     if (!rideId) {
-      setMessage("Ride not found.");
+      setMessage("Viaje no encontrado.");
       return;
     }
 
@@ -162,7 +164,7 @@ function RideDetailsContent() {
       const snapshot = await getDoc(rideRef);
 
       if (!snapshot.exists()) {
-        setMessage("Ride not found.");
+        setMessage("Viaje no encontrado.");
         return;
       }
 
@@ -195,7 +197,7 @@ function RideDetailsContent() {
         setAlreadyReserved(hasActiveBooking);
       }
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
     }
   }
 
@@ -205,23 +207,23 @@ function RideDetailsContent() {
     setMessage("");
 
     if (!userId) {
-      setMessage("Please sign in before reserving a seat.");
+      setMessage("Inicia sesión antes de reservar un asiento.");
       router.push("/login");
       return;
     }
 
     if (isOwnRide) {
-      setMessage("You cannot reserve your own ride.");
+      setMessage("No puedes reservar tu propio viaje.");
       return;
     }
 
     if (alreadyReserved) {
-      setMessage("You already reserved this ride.");
+      setMessage("Ya reservaste este viaje.");
       return;
     }
 
     if (noSeats) {
-      setMessage("No seats available for this ride.");
+      setMessage("Este viaje no tiene asientos disponibles.");
       return;
     }
 
@@ -263,8 +265,8 @@ function RideDetailsContent() {
         await addDoc(collection(db, "notifications"), {
           userId: ride.driverId,
           type: "booking",
-          title: "New Ride Booking",
-          message: `${userEmail} reserved a seat from ${ride.from} to ${ride.to}.`,
+          title: "Nueva reserva de viaje",
+          message: `${userEmail} reservó un asiento de ${ride.from} a ${ride.to}.`,
           rideId: ride.id,
           passengerId: userId,
           passengerEmail: userEmail,
@@ -289,9 +291,9 @@ function RideDetailsContent() {
         status: newSeats <= 0 ? "full" : "active",
       });
 
-      setMessage("Seat reserved successfully. The driver has been notified.");
+      setMessage("Asiento reservado. Se ha avisado al conductor.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -316,7 +318,7 @@ function RideDetailsContent() {
   async function updateRideStatus(status: "completed" | "cancelled") {
     if (!ride || !isOwnRide) return;
 
-    const confirmed = confirm(`Are you sure you want to mark this ride as ${status}?`);
+    const confirmed = confirm(`¿Quieres marcar este viaje como ${statusInSpanish(status).toLowerCase()}?`);
     if (!confirmed) return;
 
     try {
@@ -339,18 +341,18 @@ function RideDetailsContent() {
 
           await notifyPassenger(
             booking,
-            status === "completed" ? "Ride Completed" : "Ride Cancelled",
+            status === "completed" ? "Viaje completado" : "Viaje cancelado",
             status === "completed"
-              ? `Your ride from ${ride.from} to ${ride.to} was completed. Please rate your trip experience.`
-              : `Your ride from ${ride.from} to ${ride.to} was cancelled.`
+              ? `Tu viaje de ${ride.from} a ${ride.to} se completó. Califica tu experiencia.`
+              : `Tu viaje de ${ride.from} a ${ride.to} fue cancelado.`
           );
 
           if (status === "completed" && booking.passengerId) {
             await addDoc(collection(db, "notifications"), {
               userId: booking.passengerId,
               type: "review",
-              title: "Rate Your Driver",
-              message: `Please rate your trip from ${ride.from} to ${ride.to}.`,
+              title: "Califica al conductor",
+              message: `Califica tu viaje de ${ride.from} a ${ride.to}.`,
               rideId: ride.id,
               driverId: ride.driverId || "",
               passengerId: booking.passengerId,
@@ -363,9 +365,9 @@ function RideDetailsContent() {
       );
 
       setRide({ ...ride, status });
-      setMessage(`Ride marked as ${status}.`);
+      setMessage(`Viaje marcado como ${statusInSpanish(status).toLowerCase()}.`);
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
     } finally {
       setActionLoading("");
     }
@@ -376,7 +378,7 @@ function RideDetailsContent() {
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setMessage("Please sign in to view ride details.");
+        setMessage("Inicia sesión para ver los detalles del viaje.");
         router.push("/login");
         return;
       }
@@ -417,22 +419,22 @@ function RideDetailsContent() {
       <section className="hero">
         <div className="topActions">
           <button type="button" className="miniButton" onClick={() => router.back()}>
-            ← Back
+            ← Volver
           </button>
 
-          <Link href="/find-ride" className="miniButton">Find Rides</Link>
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
+          <Link href="/find-ride" className="miniButton">Buscar viajes</Link>
+          <Link href="/dashboard" className="miniButton">Mi panel</Link>
+          <Link href="/profile" className="miniButton">Perfil</Link>
         </div>
 
         <div className="logo">Road<span>Link</span></div>
 
-        <p className="eyebrow">Ride Details</p>
+        <p className="eyebrow">Detalles del viaje</p>
 
-        <h1>Trip <span>Overview</span></h1>
+        <h1>Resumen del <span>viaje</span></h1>
 
         <p className="subtitle">
-          Review the route, passengers, earnings, driver details and trip status.
+          Consulta la ruta, los pasajeros, las ganancias, los datos del conductor y el estado del viaje.
         </p>
       </section>
 
@@ -443,35 +445,35 @@ function RideDetailsContent() {
           <section className="detailsCard">
             <div className="routeHeader">
               <div>
-                <p className="label">ROUTE</p>
+                <p className="label">RUTA</p>
                 <h2>{ride.from} <span>→</span> {ride.to}</h2>
               </div>
 
               <div className="priceBox">
-                <span>PRICE</span>
+                <span>PRECIO</span>
                 <strong>{formatMoney(ride.price)}</strong>
               </div>
             </div>
 
             <div className="routeStats">
-              <Stat label="Distance" value={ride.distanceText || "Not available"} />
-              <Stat label="Duration" value={ride.durationText || "Not available"} />
-              <Stat label="Miles" value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"} />
-              <Stat label="Suggested" value={ride.suggestedPrice ? formatMoney(ride.suggestedPrice) : "N/A"} />
+              <Stat label="Distancia" value={estimateInSpanish(ride.distanceText)} />
+              <Stat label="Duración" value={estimateInSpanish(ride.durationText)} />
+              <Stat label="Millas" value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "N/A"} />
+              <Stat label="Precio sugerido" value={ride.suggestedPrice ? formatMoney(ride.suggestedPrice) : "N/A"} />
             </div>
 
             <div className="chips">
               <div className="chip">📅 {ride.date}</div>
               <div className="chip">🕒 {ride.time}</div>
-              <div className="chip">💺 {ride.seats} seats left</div>
-              <div className={statusClass(ride.status)}>● {ride.status || "active"}</div>
+              <div className="chip">💺 {ride.seats} asientos disponibles</div>
+              <div className={statusClass(ride.status)}>● {statusInSpanish(ride.status || "active")}</div>
             </div>
 
             <div className="infoGrid">
-              <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not specified"} />
+              <Info icon="🚘" label="Vehículo" value={ride.vehicle || "Sin especificar"} />
               <ProfileIdentity uid={ride.driverId} name={ride.driverEmail} role="Conductor" />
-              <Info icon="💵" label="Price per Seat" value={formatMoney(ride.price)} />
-              {ride.notes && <Info icon="📝" label="Trip Notes" value={ride.notes} />}
+              <Info icon="💵" label="Precio por asiento" value={formatMoney(ride.price)} />
+              {ride.notes && <Info icon="📝" label="Notas del viaje" value={ride.notes} />}
             </div>
 
             {routeMapUrl(ride) && (
@@ -481,12 +483,12 @@ function RideDetailsContent() {
                 rel="noopener noreferrer"
                 className="mapButton"
               >
-                Open Route in Google Maps
+                Ver ruta en Google Maps
               </a>
             )}
 
-            {isOwnRide && <p className="warning">This is your own ride.</p>}
-            {alreadyReserved && <p className="success">You already reserved this ride.</p>}
+            {isOwnRide && <p className="warning">Este es tu viaje.</p>}
+            {alreadyReserved && <p className="success">Ya reservaste este viaje.</p>}
 
             <div className="actions">
               {isOwnRide ? (
@@ -495,7 +497,7 @@ function RideDetailsContent() {
                     href={`/ride-passengers?rideId=${ride.id}`}
                     className="outlineButton"
                   >
-                    Passenger List
+                    Lista de pasajeros
                   </Link>
 
                   <button
@@ -503,7 +505,7 @@ function RideDetailsContent() {
                     onClick={() => updateRideStatus("completed")}
                     disabled={actionLoading === "completed" || ride.status === "completed"}
                   >
-                    {actionLoading === "completed" ? "Updating..." : "Complete Ride"}
+                    {actionLoading === "completed" ? "Actualizando…" : "Finalizar viaje"}
                   </button>
 
                   <button
@@ -511,7 +513,7 @@ function RideDetailsContent() {
                     onClick={() => updateRideStatus("cancelled")}
                     disabled={actionLoading === "cancelled" || ride.status === "cancelled"}
                   >
-                    {actionLoading === "cancelled" ? "Updating..." : "Cancel Ride"}
+                    {actionLoading === "cancelled" ? "Actualizando…" : "Cancelar viaje"}
                   </button>
                 </>
               ) : (
@@ -520,7 +522,7 @@ function RideDetailsContent() {
                     href={`/driver-profile?driverId=${ride.driverId || ""}`}
                     className="outlineButton"
                   >
-                    View Driver Profile
+                    Ver perfil del conductor
                   </Link>
 
                   <button
@@ -529,12 +531,12 @@ function RideDetailsContent() {
                     disabled={loading || alreadyReserved || isOwnRide || noSeats}
                   >
                     {loading
-                      ? "Reserving..."
+                      ? "Reservando…"
                       : alreadyReserved
-                      ? "Already Reserved"
+                      ? "Ya reservado"
                       : noSeats
-                      ? "No Seats Available"
-                      : "Reserve Seat"}
+                      ? "Sin asientos disponibles"
+                      : "Reservar asiento"}
                   </button>
                 </>
               )}
@@ -542,25 +544,25 @@ function RideDetailsContent() {
           </section>
 
           <section className="analyticsCard">
-            <p className="eyebrow">Driver Analytics</p>
+            <p className="eyebrow">Resumen del conductor</p>
 
             <div className="analyticsGrid">
-              <Metric label="Passengers" value={String(activeBookings.length)} />
-              <Metric label="Seats Sold" value={String(totalBookedSeats)} />
-              <Metric label="Earnings" value={formatMoney(earnings)} />
-              <Metric label="Occupancy" value={`${occupancyRate}%`} />
-              <Metric label="Completed" value={String(completedBookings.length)} />
-              <Metric label="Status" value={ride.status || "active"} />
+              <Metric label="Pasajeros" value={String(activeBookings.length)} />
+              <Metric label="Asientos reservados" value={String(totalBookedSeats)} />
+              <Metric label="Ganancias" value={formatMoney(earnings)} />
+              <Metric label="Ocupación" value={`${occupancyRate}%`} />
+              <Metric label="Completados" value={String(completedBookings.length)} />
+              <Metric label="Estado" value={statusInSpanish(ride.status || "active")} />
             </div>
           </section>
 
           <section className="timelineCard">
-            <p className="eyebrow">Trip Timeline</p>
+            <p className="eyebrow">Seguimiento del viaje</p>
 
-            <TimelineItem active label="Ride Created" detail={ride.createdAt || "Created in RoadLink"} />
-            <TimelineItem active={activeBookings.length > 0} label="Passenger Reserved" detail={`${activeBookings.length} active booking${activeBookings.length === 1 ? "" : "s"}`} />
-            <TimelineItem active={activeBookings.some((item) => item.status === "confirmed")} label="Booking Confirmed" detail="Driver confirmation step" />
-            <TimelineItem active={ride.status === "completed"} label="Ride Completed" detail="Ratings unlocked after completion" />
+            <TimelineItem active label="Viaje publicado" detail={ride.createdAt || "Publicado en RoadLink"} />
+            <TimelineItem active={activeBookings.length > 0} label="Reserva del pasajero" detail={`${activeBookings.length} ${activeBookings.length === 1 ? "reserva activa" : "reservas activas"}`} />
+            <TimelineItem active={activeBookings.some((item) => item.status === "confirmed")} label="Reserva confirmada" detail="Confirmación del conductor" />
+            <TimelineItem active={ride.status === "completed"} label="Viaje completado" detail="Podrás calificar después de finalizar el viaje" />
           </section>
         </>
       )}

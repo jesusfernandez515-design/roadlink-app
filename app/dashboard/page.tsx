@@ -1,5 +1,7 @@
 "use client";
 
+import { notificationInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import { completedPaymentNet } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useState } from "react";
@@ -58,7 +60,7 @@ export default function DashboardPage() {
   const [passengerBookings, setPassengerBookings] = useState<Booking[]>([]);
   const [walletRecords, setWalletRecords] = useState<Parameters<typeof completedPaymentNet>[0][] | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [message, setMessage] = useState("Loading dashboard...");
+  const [message, setMessage] = useState("Cargando tu panel…");
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
@@ -83,12 +85,12 @@ export default function DashboardPage() {
         setDriverBookings([]);
         setPassengerBookings([]);
         setNotifications([]);
-        setMessage("Please sign in to view your dashboard.");
+        setMessage("Inicia sesión para ver tu panel.");
         return;
       }
 
       const userEmail = user.email || "";
-      setProfile({ name: user.displayName || "RoadLink User", email: userEmail, photoURL: user.photoURL || "" });
+      setProfile({ name: user.displayName || "Usuario de RoadLink", email: userEmail, photoURL: user.photoURL || "" });
       setAvatar(userEmail ? userEmail.charAt(0).toUpperCase() : "R");
       setMessage("");
 
@@ -96,7 +98,7 @@ export default function DashboardPage() {
         const data = snapshot.data() as UserProfile | undefined;
 
         setProfile({
-          name: data?.name || user.displayName || "RoadLink User",
+          name: data?.name || user.displayName || "Usuario de RoadLink",
           email: data?.email || userEmail,
           photoURL: data?.photoURL || user.photoURL || "",
           city: data?.city || "",
@@ -187,8 +189,8 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const displayName = profile.name || "RoadLink User";
-  const displayEmail = profile.email || "No email found";
+  const displayName = profile.name || "Usuario de RoadLink";
+  const displayEmail = profile.email || "Correo no disponible";
   const displayPhoto = profile.photoURL || "";
 
   const driverVerified =
@@ -206,12 +208,12 @@ export default function DashboardPage() {
   );
 
   const trustLabel =
-    trustScore >= 85 ? "Premium Driver" : trustScore >= 65 ? "Trusted Driver" : "Basic Account";
+    trustScore >= 85 ? "Conductor prémium" : trustScore >= 65 ? "Conductor de confianza" : "Cuenta básica";
 
   const locationText =
     profile.city || profile.state
       ? `${profile.city || ""}${profile.city && profile.state ? ", " : ""}${profile.state || ""}`
-      : "Location not set";
+      : "Ubicación sin configurar";
 
   const activeRides = rides.filter(
     (ride) => ride.status === "active" || ride.status === "full"
@@ -255,8 +257,8 @@ export default function DashboardPage() {
             )}
 
             <div className="heroText">
-              <p className="eyebrow">RoadLink Dashboard</p>
-              <h1>Welcome back, {displayName}</h1>
+              <p className="eyebrow">Panel de RoadLink</p>
+              <h1>Bienvenido de nuevo, {displayName}</h1>
               <p className="email">{displayEmail}</p>
               <p className="trustLine">🟢 {trustLabel} • {trustScore}/100</p>
               <p className="location">📍 {locationText}</p>
@@ -264,9 +266,9 @@ export default function DashboardPage() {
           </div>
 
           <div className="heroActions">
-            <Link href="/wallet" className="heroPrimary">💰 Wallet</Link>
-            <Link href="/offer-ride" className="heroSecondary">➕ Offer Ride</Link>
-            <Link href="/find-ride" className="heroSecondary">🔎 Find Ride</Link>
+            <Link href="/wallet" className="heroPrimary">💰 Cartera</Link>
+            <Link href="/offer-ride" className="heroSecondary">➕ Publicar viaje</Link>
+            <Link href="/find-ride" className="heroSecondary">🔎 Buscar viaje</Link>
           </div>
         </section>
 
@@ -274,42 +276,42 @@ export default function DashboardPage() {
 
         <section className="stats">
           <Metric icon="💰" title="Ganancias netas" value={earnings === null ? "—" : `$${earnings.toFixed(2)}`} href="/wallet" />
-          <Metric icon="🚘" title="Active Rides" value={String(activeRides.length)} href="/my-rides" />
-          <Metric icon="🎟️" title="Reservations" value={String(activeDriverBookings.length)} href="/ride-passengers" />
-          <Metric icon="🔔" title="Notifications" value={String(unreadNotifications)} href="/notifications" alert={unreadNotifications > 0} />
-          <Metric icon="✅" title="Completed" value={String(completedBookings.length)} href="/my-rides" />
-          <Metric icon="📋" title="Bookings" value={String(activePassengerBookings.length)} href="/my-bookings" />
+          <Metric icon="🚘" title="Viajes activos" value={String(activeRides.length)} href="/my-rides" />
+          <Metric icon="🎟️" title="Reservas recibidas" value={String(activeDriverBookings.length)} href="/ride-passengers" />
+          <Metric icon="🔔" title="Notificaciones" value={String(unreadNotifications)} href="/notifications" alert={unreadNotifications > 0} />
+          <Metric icon="✅" title="Completados" value={String(completedBookings.length)} href="/my-rides" />
+          <Metric icon="📋" title="Mis reservas" value={String(activePassengerBookings.length)} href="/my-bookings" />
         </section>
 
         <section className="sectionCard">
           <div className="sectionHeader">
             <div>
-              <p className="eyebrow">Next Reservation</p>
-              <h2>Upcoming Trip</h2>
+              <p className="eyebrow">Próxima reserva</p>
+              <h2>Próximo viaje</h2>
             </div>
-            <span className="statusPill">Live</span>
+            <span className="statusPill">En directo</span>
           </div>
 
           <div className="tripBox">
-            <strong>No upcoming trips yet.</strong>
-            <p>Reserve your next ride and your trip summary will appear here.</p>
-            <Link href="/find-ride" className="mainButton">Find a Ride</Link>
+            <strong>Todavía no tienes próximos viajes.</strong>
+            <p>Reserva tu próximo viaje para consultar aquí sus detalles.</p>
+            <Link href="/find-ride" className="mainButton">Buscar un viaje</Link>
           </div>
         </section>
 
         <section className="sectionCard">
           <div className="sectionHeader">
             <div>
-              <p className="eyebrow">Recent Activity</p>
-              <h2>Live Feed</h2>
+              <p className="eyebrow">Actividad reciente</p>
+              <h2>Últimas novedades</h2>
             </div>
-            <Link href="/notifications" className="smallLink">View All</Link>
+            <Link href="/notifications" className="smallLink">Ver todo</Link>
           </div>
 
           {recentActivity.length === 0 ? (
             <div className="emptyBox">
-              <strong>No activity yet</strong>
-              <p>Your messages, bookings and ride alerts will show here.</p>
+              <strong>Todavía no hay actividad</strong>
+              <p>Aquí aparecerán tus mensajes, reservas y avisos de viajes.</p>
             </div>
           ) : (
             <div className="activityList">
@@ -317,8 +319,8 @@ export default function DashboardPage() {
                 <Link key={item.id} href="/notifications" className="activityItem">
                   <div className="activityIcon">🔔</div>
                   <div>
-                    <strong>{item.title || "RoadLink Update"}</strong>
-                    <p>{item.message || "New activity available."}</p>
+                    <strong>{notificationInSpanish(item.title || "Novedad de RoadLink")}</strong>
+                    <p>{notificationInSpanish(item.message || "Hay nueva actividad disponible.")}</p>
                   </div>
                 </Link>
               ))}
@@ -327,19 +329,19 @@ export default function DashboardPage() {
         </section>
 
         <section className="sectionCard">
-          <p className="eyebrow">Quick Actions</p>
-          <h2>Quick Actions</h2>
+          <p className="eyebrow">Accesos rápidos</p>
+          <h2>Accesos rápidos</h2>
 
           <div className="actions">
-            <ActionLink href="/wallet" icon="💰" label="Wallet" />
-            <ActionLink href="/notifications" icon="🔔" label="Notifications" alert={unreadNotifications > 0} />
-            <ActionLink href="/messages" icon="💬" label="Messages" />
-            <ActionLink href="/find-ride" icon="🔎" label="Find a Ride" />
-            <ActionLink href="/offer-ride" icon="➕" label="Offer a Ride" />
-            <ActionLink href="/my-bookings" icon="📋" label="My Bookings" />
-            <ActionLink href="/my-rides" icon="🚘" label="My Rides" />
-            <ActionLink href="/dashboard/driver" icon="📊" label="Driver Dashboard" />
-            <ActionLink href="/profile" icon="👤" label="Profile" />
+            <ActionLink href="/wallet" icon="💰" label="Cartera" />
+            <ActionLink href="/notifications" icon="🔔" label="Notificaciones" alert={unreadNotifications > 0} />
+            <ActionLink href="/messages" icon="💬" label="Mensajes" />
+            <ActionLink href="/find-ride" icon="🔎" label="Buscar un viaje" />
+            <ActionLink href="/offer-ride" icon="➕" label="Publicar un viaje" />
+            <ActionLink href="/my-bookings" icon="📋" label="Mis reservas" />
+            <ActionLink href="/my-rides" icon="🚘" label="Mis viajes" />
+            <ActionLink href="/dashboard/driver" icon="📊" label="Panel del conductor" />
+            <ActionLink href="/profile" icon="👤" label="Perfil" />
           </div>
         </section>
       </section>

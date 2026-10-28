@@ -1,5 +1,7 @@
 "use client";
 
+import { statusInSpanish } from "../../../lib/spanish";
+
 import Link from "../../components/AppLink";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../../lib/firebase";
@@ -60,7 +62,7 @@ export default function DriverDashboardPage() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [ratings, setRatings] = useState<Rating[]>([]);
-  const [message, setMessage] = useState("Loading driver dashboard...");
+  const [message, setMessage] = useState("Cargando el panel del conductor…");
   const [loadingRideId, setLoadingRideId] = useState("");
 
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function DriverDashboardPage() {
         setRides([]);
         setBookings([]);
         setRatings([]);
-        setMessage("Please sign in to view your driver dashboard.");
+        setMessage("Inicia sesión para ver tu panel del conductor.");
         return;
       }
 
@@ -199,7 +201,7 @@ export default function DriverDashboardPage() {
     );
   }, [ratings]);
 
-  const ratingDisplay = ratings.length ? averageRating.toFixed(1) : "New";
+  const ratingDisplay = ratings.length ? averageRating.toFixed(1) : "Nuevo";
 
   function getBookingsForRide(rideId: string) {
     return bookings.filter(
@@ -233,9 +235,9 @@ export default function DriverDashboardPage() {
         )
       );
 
-      setMessage("Ride cancelled successfully.");
+      setMessage("Viaje cancelado.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
     } finally {
       setLoadingRideId("");
     }
@@ -268,9 +270,9 @@ export default function DriverDashboardPage() {
         )
       );
 
-      setMessage("Ride marked as completed.");
+      setMessage("Viaje marcado como completado.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
     } finally {
       setLoadingRideId("");
     }
@@ -280,25 +282,25 @@ export default function DriverDashboardPage() {
     <main className="page">
       <section className="hero">
         <div className="topActions">
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/my-rides" className="miniButton">My Rides</Link>
-          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
+          <Link href="/dashboard" className="miniButton">Mi panel</Link>
+          <Link href="/my-rides" className="miniButton">Mis viajes</Link>
+          <Link href="/offer-ride" className="miniButton">Publicar viaje</Link>
+          <Link href="/profile" className="miniButton">Perfil</Link>
         </div>
 
         <div className="heroGrid">
           <div>
-            <p className="eyebrow">RoadLink Driver Center</p>
+            <p className="eyebrow">Centro del conductor de RoadLink</p>
             <h1>
-              Driver <span>Dashboard</span>
+              Panel del <span>conductor</span>
             </h1>
             <p className="subtitle">
-              Manage active rides, passengers, completed trips, ratings, and estimated earnings.
+              Gestiona tus viajes activos, pasajeros, viajes completados, calificaciones y ganancias estimadas.
             </p>
 
             <div className="badgeRow">
               <span className={driverVerified ? "verifiedBadge" : "warningBadge"}>
-                {driverVerified ? "✓ Verified Driver" : "Driver Verification Required"}
+                {driverVerified ? "✓ Conductor verificado" : "Verificación de conductor pendiente"}
               </span>
               <span className="ratingBadge">⭐ {ratingDisplay}</span>
             </div>
@@ -313,48 +315,48 @@ export default function DriverDashboardPage() {
       {!driverVerified && userId && (
         <section className="warningCard">
           <div>
-            <p className="eyebrow">Verification Needed</p>
-            <h2>Become a Verified Driver</h2>
+            <p className="eyebrow">Verificación pendiente</p>
+            <h2>Verifica tu cuenta de conductor</h2>
             <p>
-              Complete your driver verification to build passenger trust and prepare your account for paid rides.
+              Completa la verificación de conductor para dar confianza a los pasajeros y preparar tu cuenta.
             </p>
           </div>
 
           <Link href="/driver-verification" className="verifyButton">
-            Verify Driver
+            Verificar conductor
           </Link>
         </section>
       )}
 
       <section className="stats">
-        <Metric icon="🚘" label="Active Rides" value={String(activeRides.length)} />
-        <Metric icon="👥" label="Passengers" value={String(totalPassengers)} />
-        <Metric icon="💺" label="Open Seats" value={String(openSeats)} />
-        <Metric icon="⏳" label="Pending" value={String(pendingBookings.length)} />
-        <Metric icon="✅" label="Completed" value={String(completedRides.length)} />
-        <Metric icon="⭐" label="Rating" value={String(ratingDisplay)} />
-        <Metric icon="💵" label="Estimated" value={`$${estimatedEarnings}`} />
-        <Metric icon="🏁" label="Completed $" value={`$${completedEarnings}`} />
+        <Metric icon="🚘" label="Viajes activos" value={String(activeRides.length)} />
+        <Metric icon="👥" label="Pasajeros" value={String(totalPassengers)} />
+        <Metric icon="💺" label="Asientos disponibles" value={String(openSeats)} />
+        <Metric icon="⏳" label="Pendientes" value={String(pendingBookings.length)} />
+        <Metric icon="✅" label="Completados" value={String(completedRides.length)} />
+        <Metric icon="⭐" label="Calificación" value={String(ratingDisplay)} />
+        <Metric icon="💵" label="Estimado" value={`$${estimatedEarnings}`} />
+        <Metric icon="🏁" label="Ingresos de viajes completados" value={`$${completedEarnings}`} />
       </section>
 
       <section className="quickActions">
-        <Link href="/offer-ride">➕ Create New Ride</Link>
-        <Link href="/my-rides">🚘 Manage My Rides</Link>
-        <Link href="/messages">💬 Driver Messages</Link>
-        <Link href="/reviews">⭐ View Reviews</Link>
+        <Link href="/offer-ride">➕ Publicar un viaje</Link>
+        <Link href="/my-rides">🚘 Gestionar mis viajes</Link>
+        <Link href="/messages">💬 Mensajes del conductor</Link>
+        <Link href="/reviews">⭐ Ver reseñas</Link>
       </section>
 
       <section className="list">
         <div className="sectionTitle">
-          <p className="eyebrow">Active Routes</p>
-          <h2>Your Driver Operations</h2>
+          <p className="eyebrow">Rutas activas</p>
+          <h2>Gestiona tus viajes</h2>
         </div>
 
         {activeRides.length === 0 ? (
           <div className="emptyCard">
-            <h3>No active rides yet</h3>
-            <p>Create your next ride and start receiving passenger reservations.</p>
-            <Link href="/offer-ride">Offer a Ride</Link>
+            <h3>Todavía no hay viajes activos</h3>
+            <p>Publica tu próximo viaje para recibir reservas.</p>
+            <Link href="/offer-ride">Publicar un viaje</Link>
           </div>
         ) : (
           activeRides.map((ride) => {
@@ -373,50 +375,50 @@ export default function DriverDashboardPage() {
               <div key={ride.id} className="rideCard">
                 <div className="routeHeader">
                   <div>
-                    <p className="eyebrow">Driver Route</p>
+                    <p className="eyebrow">Ruta del conductor</p>
                     <h2>
-                      {ride.from || "From"} <span>→</span> {ride.to || "To"}
+                      {ride.from || "Origen"} <span>→</span> {ride.to || "Destino"}
                     </h2>
                   </div>
 
                   <div className="priceBox">
-                    <small>EARNINGS</small>
+                    <small>GANANCIAS</small>
                     <strong>${rideEarnings}</strong>
                   </div>
                 </div>
 
                 <div className="chips">
-                  <div className="chip">📅 {ride.date || "No date"}</div>
-                  <div className="chip">🕒 {ride.time || "No time"}</div>
-                  <div className="chip">💺 {Number(ride.seats || 0)} seats left</div>
-                  <div className="chip active">● {ride.status || "active"}</div>
+                  <div className="chip">📅 {ride.date || "Sin fecha"}</div>
+                  <div className="chip">🕒 {ride.time || "Sin hora"}</div>
+                  <div className="chip">💺 {Number(ride.seats || 0)} asientos disponibles</div>
+                  <div className="chip active">● {statusInSpanish(ride.status || "active")}</div>
                 </div>
 
                 <div className="infoGrid">
-                  <Info icon="🚘" label="Vehicle" value={ride.vehicle || "Not provided"} />
-                  <Info icon="💵" label="Price Per Seat" value={`$${Number(ride.price || 0)}`} />
-                  <Info icon="👥" label="Passengers" value={String(ridePassengers)} />
+                  <Info icon="🚘" label="Vehículo" value={ride.vehicle || "Sin especificar"} />
+                  <Info icon="💵" label="Precio por asiento" value={`$${Number(ride.price || 0)}`} />
+                  <Info icon="👥" label="Pasajeros" value={String(ridePassengers)} />
                 </div>
 
                 <div className="summary">
                   <div>
                     <span>{ridePassengers}</span>
-                    <small>Passengers</small>
+                    <small>Pasajeros</small>
                   </div>
 
                   <div>
                     <span>${rideEarnings}</span>
-                    <small>Estimated earnings</small>
+                    <small>Ganancias estimadas</small>
                   </div>
                 </div>
 
                 <div className="cardButtons">
                   <Link href={`/ride-details?rideId=${ride.id}`} className="outlineButton">
-                    View Details
+                    Ver detalles
                   </Link>
 
                   <Link href={`/ride-passengers?rideId=${ride.id}`} className="outlineButton">
-                    View Passengers
+                    Ver pasajeros
                   </Link>
                 </div>
 
@@ -426,7 +428,7 @@ export default function DriverDashboardPage() {
                     onClick={() => completeRide(ride.id)}
                     disabled={loadingRideId === ride.id}
                   >
-                    {loadingRideId === ride.id ? "Working..." : "Complete Ride"}
+                    {loadingRideId === ride.id ? "Procesando…" : "Finalizar viaje"}
                   </button>
 
                   <button
@@ -434,15 +436,15 @@ export default function DriverDashboardPage() {
                     onClick={() => cancelRide(ride.id)}
                     disabled={loadingRideId === ride.id}
                   >
-                    {loadingRideId === ride.id ? "Working..." : "Cancel Ride"}
+                    {loadingRideId === ride.id ? "Procesando…" : "Cancelar viaje"}
                   </button>
                 </div>
 
                 <section className="passengerSection">
-                  <h3>Passengers</h3>
+                  <h3>Pasajeros</h3>
 
                   {rideBookings.length === 0 ? (
-                    <p className="emptyText">No passengers yet.</p>
+                    <p className="emptyText">Todavía no hay pasajeros.</p>
                   ) : (
                     rideBookings.map((booking) => (
                       <div key={booking.id} className="passenger">
@@ -450,12 +452,12 @@ export default function DriverDashboardPage() {
                           <strong>
                             {booking.passengerName ||
                               booking.passengerEmail ||
-                              "Passenger"}
+                              "Pasajero"}
                           </strong>
-                          <p>{booking.passengerEmail || "No email available"}</p>
+                          <p>{booking.passengerEmail || "Correo no disponible"}</p>
                         </div>
 
-                        <span>{booking.status || "reserved"}</span>
+                        <span>{statusInSpanish(booking.status || "reserved")}</span>
                       </div>
                     ))
                   )}
@@ -468,15 +470,15 @@ export default function DriverDashboardPage() {
 
       <section className="historyGrid">
         <div className="historyCard">
-          <p className="eyebrow">Completed Trips</p>
+          <p className="eyebrow">Viajes completados</p>
           <h2>{completedRides.length}</h2>
-          <p>Trips marked as completed by you.</p>
+          <p>Viajes que marcaste como completados.</p>
         </div>
 
         <div className="historyCard">
-          <p className="eyebrow">Cancelled Trips</p>
+          <p className="eyebrow">Viajes cancelados</p>
           <h2>{cancelledRides.length}</h2>
-          <p>Trips cancelled from your driver dashboard.</p>
+          <p>Viajes cancelados desde tu panel de conductor.</p>
         </div>
       </section>
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import { useEffect, useMemo, useState } from "react";
 import { useAppRouter as useRouter } from "../components/useAppRouter";
@@ -87,14 +89,14 @@ export default function TripHistoryPage() {
   const [driverBookings, setDriverBookings] = useState<Booking[]>([]);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("Loading trip history...");
+  const [status, setStatus] = useState("Cargando historial de viajes…");
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setUserId("");
         setUserEmail("");
-        setStatus("Please sign in to view trip history.");
+        setStatus("Inicia sesión para ver tu historial de viajes.");
         router.push("/login");
         return;
       }
@@ -163,13 +165,13 @@ export default function TripHistoryPage() {
   }
 
   function formatDate(value?: string) {
-    if (!value) return "Recently";
+    if (!value) return "Recientemente";
 
     try {
       const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "Recently";
+      if (Number.isNaN(date.getTime())) return "Recientemente";
 
-      return date.toLocaleString([], {
+      return date.toLocaleString("es-PR", {
         month: "short",
         day: "numeric",
         year: "numeric",
@@ -177,7 +179,7 @@ export default function TripHistoryPage() {
         minute: "2-digit",
       });
     } catch {
-      return "Recently";
+      return "Recientemente";
     }
   }
 
@@ -261,7 +263,7 @@ export default function TripHistoryPage() {
 
       const text = `${trip.from || ""} ${trip.to || ""} ${trip.otherEmail || ""} ${
         trip.vehicle || ""
-      } ${trip.status || ""}`.toLowerCase();
+      } ${statusInSpanish(trip.status)}`.toLowerCase();
 
       const matchesSearch = !cleanSearch || text.includes(cleanSearch);
 
@@ -307,64 +309,64 @@ export default function TripHistoryPage() {
   }, [trips, driverBookings, passengerBookings]);
 
   const filters: { key: FilterKey; label: string; icon: string }[] = [
-    { key: "all", label: "All", icon: "🌐" },
-    { key: "driver", label: "Driver", icon: "🚗" },
-    { key: "passenger", label: "Passenger", icon: "🎟️" },
-    { key: "active", label: "Active", icon: "🟢" },
-    { key: "completed", label: "Completed", icon: "✅" },
-    { key: "cancelled", label: "Cancelled", icon: "❌" },
+    { key: "all", label: "Todos", icon: "🌐" },
+    { key: "driver", label: "Conductor", icon: "🚗" },
+    { key: "passenger", label: "Pasajero", icon: "🎟️" },
+    { key: "active", label: "Activos", icon: "🟢" },
+    { key: "completed", label: "Completados", icon: "✅" },
+    { key: "cancelled", label: "Cancelados", icon: "❌" },
   ];
 
   return (
     <main className="page">
       <section className="container">
         <div className="topBar">
-          <Link href="/dashboard" className="navButton">← Dashboard</Link>
-          <Link href="/my-rides" className="navButton">My Rides</Link>
-          <Link href="/my-bookings" className="navButton">My Bookings</Link>
-          <Link href="/wallet" className="navButton">Wallet</Link>
-          <Link href="/reviews" className="navButton">Reviews</Link>
+          <Link href="/dashboard" className="navButton">← Mi panel</Link>
+          <Link href="/my-rides" className="navButton">Mis viajes</Link>
+          <Link href="/my-bookings" className="navButton">Mis reservas</Link>
+          <Link href="/wallet" className="navButton">Cartera</Link>
+          <Link href="/reviews" className="navButton">Reseñas</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Travel Records</p>
-            <h1>Trip <span>History</span></h1>
+            <p className="eyebrow">Historial de RoadLink</p>
+            <h1>Historial de <span>viajes</span></h1>
             <p className="subtitle">
-              Complete premium timeline of your driver trips, passenger bookings, earnings,
-              spending, distance and completed activity.
+              Consulta tus viajes como conductor, reservas como pasajero, ingresos,
+              gastos y distancias recorridas.
             </p>
           </div>
 
           <div className="liveOrb">
             <strong>{stats.totalTrips}</strong>
-            <span>Total Trips</span>
+            <span>Total de viajes</span>
           </div>
         </section>
 
         {status && <p className="status">{status}</p>}
 
         <section className="stats">
-          <Metric icon="🌐" label="Total Trips" value={String(stats.totalTrips)} />
-          <Metric icon="🚗" label="Driver Trips" value={String(stats.driverTrips)} />
-          <Metric icon="🎟️" label="Passenger Trips" value={String(stats.passengerTrips)} />
-          <Metric icon="✅" label="Completed" value={String(stats.completedTrips)} />
-          <Metric icon="💰" label="Earned" value={money(stats.driverRevenue)} />
-          <Metric icon="💳" label="Spent" value={money(stats.passengerSpent)} />
-          <Metric icon="🛣️" label="Miles" value={`${stats.totalMiles.toFixed(1)} mi`} />
-          <Metric icon="❌" label="Cancelled" value={String(stats.cancelledTrips)} />
+          <Metric icon="🌐" label="Total de viajes" value={String(stats.totalTrips)} />
+          <Metric icon="🚗" label="Como conductor" value={String(stats.driverTrips)} />
+          <Metric icon="🎟️" label="Como pasajero" value={String(stats.passengerTrips)} />
+          <Metric icon="✅" label="Completados" value={String(stats.completedTrips)} />
+          <Metric icon="💰" label="Ingresos" value={money(stats.driverRevenue)} />
+          <Metric icon="💳" label="Gastos" value={money(stats.passengerSpent)} />
+          <Metric icon="🛣️" label="Millas" value={`${stats.totalMiles.toFixed(1)} mi`} />
+          <Metric icon="❌" label="Cancelados" value={String(stats.cancelledTrips)} />
         </section>
 
         <section className="controls">
           <div>
-            <p className="eyebrow">Filters</p>
-            <h2>Search Trip History</h2>
+            <p className="eyebrow">Filtros</p>
+            <h2>Buscar en el historial</h2>
           </div>
 
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by route, email, vehicle or status..."
+            placeholder="Buscar por ruta, correo, vehículo o estado…"
           />
 
           <div className="filterGrid">
@@ -384,16 +386,16 @@ export default function TripHistoryPage() {
         <section className="timelinePanel">
           <div className="sectionHeader">
             <div>
-              <p className="eyebrow">Timeline</p>
-              <h2>{filteredTrips.length} Trips Showing</h2>
+              <p className="eyebrow">Cronología</p>
+              <h2>{filteredTrips.length} viajes encontrados</h2>
             </div>
           </div>
 
           {filteredTrips.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">🛣️</div>
-              <h3>No trips found</h3>
-              <p>Your rides and bookings will appear here once RoadLink activity begins.</p>
+              <h3>No se encontraron viajes</h3>
+              <p>Aquí aparecerán tus viajes y reservas.</p>
             </div>
           ) : (
             <div className="timeline">
@@ -407,53 +409,53 @@ export default function TripHistoryPage() {
                     <div className="tripTop">
                       <div>
                         <p className="tripType">
-                          {trip.type === "driver" ? "Driver Trip" : "Passenger Booking"}
+                          {trip.type === "driver" ? "Viaje como conductor" : "Reserva como pasajero"}
                         </p>
-                        <h3>{trip.from || "Origin"} → {trip.to || "Destination"}</h3>
+                        <h3>{trip.from || "Origen"} → {trip.to || "Destino"}</h3>
                       </div>
 
                       <span className={getStatusClass(trip.status)}>
-                        {trip.status || "active"}
+                        {statusInSpanish(trip.status || "active")}
                       </span>
                     </div>
 
                     <div className="tripMeta">
-                      <span>📅 {trip.date || "Date pending"}</span>
-                      <span>🕒 {trip.time || "Time pending"}</span>
+                      <span>📅 {trip.date || "Fecha pendiente"}</span>
+                      <span>🕒 {trip.time || "Hora pendiente"}</span>
                       <span>💵 {money(trip.price)}</span>
-                      <span>💺 {trip.seats || 1} seat{Number(trip.seats || 1) === 1 ? "" : "s"}</span>
-                      {trip.distanceText && <span>🛣️ {trip.distanceText}</span>}
-                      {trip.durationText && <span>⏱️ {trip.durationText}</span>}
+                      <span>💺 {trip.seats || 1} asiento{Number(trip.seats || 1) === 1 ? "" : "s"}</span>
+                      {trip.distanceText && <span>🛣️ {estimateInSpanish(trip.distanceText)}</span>}
+                      {trip.durationText && <span>⏱️ {estimateInSpanish(trip.durationText)}</span>}
                     </div>
 
                     <div className="infoGrid">
-                      <Info label={trip.type === "driver" ? "Driver" : "Driver Email"} value={trip.otherEmail || userEmail || "RoadLink User"} />
-                      <Info label="Vehicle" value={trip.vehicle || "Not specified"} />
-                      <Info label="Created" value={formatDate(trip.createdAt)} />
+                      <Info label={trip.type === "driver" ? "Conductor" : "Correo del conductor"} value={trip.otherEmail || userEmail || "Usuario de RoadLink"} />
+                      <Info label="Vehículo" value={trip.vehicle || "Sin especificar"} />
+                      <Info label="Fecha de creación" value={formatDate(trip.createdAt)} />
                     </div>
 
                     <div className="actions">
                       {trip.mapUrl && (
                         <a href={trip.mapUrl} target="_blank" rel="noopener noreferrer" className="actionButton">
-                          Open Map
+                          Ver mapa
                         </a>
                       )}
 
                       {trip.rideId && (
                         <Link href={`/ride-details?rideId=${trip.rideId}`} className="actionButton">
-                          Ride Details
+                          Detalles del viaje
                         </Link>
                       )}
 
                       {trip.rideId && (
                         <Link href={`/live-trip?rideId=${trip.rideId}&bookingId=${trip.bookingId || ""}`} className="actionButton greenButton">
-                          Live Trip
+                          Viaje en curso
                         </Link>
                       )}
 
                       {normalizeStatus(trip.status) === "completed" && trip.type === "passenger" && (
                         <Link href={`/rate-driver?rideId=${trip.rideId || ""}&bookingId=${trip.bookingId || ""}`} className="actionButton greenButton">
-                          Rate Driver
+                          Calificar conductor
                         </Link>
                       )}
                     </div>

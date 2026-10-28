@@ -12,18 +12,18 @@ export async function POST(request: Request) {
       const rideSnap = await tx.get(rideRef);
       const prior = await tx.get(bookingRef);
       const legacy = await tx.get(db.collection("bookings").where("rideId", "==", rideId).where("passengerId", "==", user.uid));
-      if (!rideSnap.exists) throw new ApiError(404, "Ride not found.");
+      if (!rideSnap.exists) throw new ApiError(404, "Viaje no encontrado.");
       if ((prior.exists && !["cancelled", "rejected"].includes(prior.data()!.status)) ||
           legacy.docs.some((item) => !["cancelled", "rejected"].includes(item.data().status))) {
-        throw new ApiError(409, "You already reserved this ride.");
+        throw new ApiError(409, "Ya reservaste este viaje.");
       }
       const ride = rideSnap.data()!;
-      if (ride.driverId === user.uid) throw new ApiError(403, "You cannot reserve your own ride.");
+      if (ride.driverId === user.uid) throw new ApiError(403, "No puedes reservar tu propio viaje.");
       const departure = new Date(`${ride.date}T${ride.time}-04:00`).getTime();
       if (!Number.isFinite(departure) || departure <= Date.now() || ride.status !== "active" || !Number.isInteger(ride.seats) || ride.seats < 1) {
-        throw new ApiError(409, "This ride is no longer available.");
+        throw new ApiError(409, "Este viaje ya no está disponible.");
       }
-      if (!Number.isFinite(ride.price) || ride.price <= 0) throw new ApiError(409, "Invalid ride price.");
+      if (!Number.isFinite(ride.price) || ride.price <= 0) throw new ApiError(409, "El precio del viaje no es válido.");
       const now = new Date().toISOString();
       const amount = Math.round(ride.price * 100) / 100;
       const fee = Math.round(amount * 12) / 100;
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         reservationVersion: Number(prior.data()?.reservationVersion || 0) + 1,
       });
       tx.update(rideRef, { seats: ride.seats - 1, status: ride.seats === 1 ? "full" : "active", updatedAt: now });
-      tx.set(db.collection("notifications").doc(), { userId: ride.driverId, email: ride.driverEmail || "", type: "booking", title: "New Ride Booking", message: "A passenger reserved a seat.", bookingId: bookingRef.id, rideId, read: false, createdAt: now });
+      tx.set(db.collection("notifications").doc(), { userId: ride.driverId, email: ride.driverEmail || "", type: "booking", title: "Nueva reserva de viaje", message: "Un pasajero reservó un asiento.", bookingId: bookingRef.id, rideId, read: false, createdAt: now });
     });
     return Response.json({ bookingId: bookingRef.id });
   } catch (error) { return apiFailure(error); }

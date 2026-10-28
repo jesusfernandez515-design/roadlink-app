@@ -1,5 +1,7 @@
 "use client";
 
+import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -54,7 +56,7 @@ type Booking = {
 
 export default function RidePassengersPage() {
   return (
-    <Suspense fallback={<main className="page">Loading passengers...</main>}>
+    <Suspense fallback={<main className="page">Cargando pasajeros…</main>}>
       <RidePassengersContent />
     </Suspense>
   );
@@ -72,7 +74,7 @@ function RidePassengersContent() {
   const [ownRides, setOwnRides] = useState<Ride[]>([]);
   const [ride, setRide] = useState<Ride | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [message, setMessage] = useState("Loading passengers...");
+  const [message, setMessage] = useState("Cargando pasajeros…");
   const [loadingId, setLoadingId] = useState("");
 
   useEffect(() => {
@@ -116,7 +118,7 @@ function RidePassengersContent() {
 
         if (disposed || version !== authVersion) return;
         if (!rideSnap.exists()) {
-          setMessage("Ride not found.");
+          setMessage("Viaje no encontrado.");
           return;
         }
 
@@ -126,7 +128,7 @@ function RidePassengersContent() {
         } as Ride;
 
         if (rideData.driverId !== user.uid) {
-          setMessage("You can only manage passengers for your own rides.");
+          setMessage("Solo puedes gestionar los pasajeros de tus propios viajes.");
           return;
         }
 
@@ -162,12 +164,12 @@ function RidePassengersContent() {
             );
 
             setBookings(data);
-            setMessage(data.length ? "" : "No passengers yet.");
+            setMessage(data.length ? "" : "Todavía no hay pasajeros.");
           },
           (error) => setMessage(error.message)
         );
       } catch (error: unknown) {
-        setMessage(error instanceof Error ? error.message : "Something went wrong.");
+        setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
       }
     });
 
@@ -242,11 +244,11 @@ function RidePassengersContent() {
   }
 
   function statusLabel(booking: Booking) {
-    if (["completed", "cancelled", "rejected", "confirmed"].includes(booking.status || "")) return booking.status;
+    if (["completed", "cancelled", "rejected", "confirmed"].includes(booking.status || "")) return statusInSpanish(booking.status);
     if (booking.paymentStatus === "refunded") return "Reembolsado";
-    if (booking.paymentStatus === "paid") return "paid";
-    if (booking.paymentStatus === "pending") return "payment pending";
-    return booking.status || "reserved";
+    if (booking.paymentStatus === "paid") return "Pagado";
+    if (booking.paymentStatus === "pending") return "Pago pendiente";
+    return statusInSpanish(booking.status || "reserved");
   }
 
   async function updateBookingStatus(booking: Booking, status: "confirmed" | "completed") {
@@ -303,7 +305,7 @@ function RidePassengersContent() {
       const chatId = result.chatId;
       router.push(`/chat?chatId=${chatId}`);
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not open chat.");
+      setMessage(error instanceof Error ? error.message : "No se pudo abrir la conversación.");
     } finally {
       setLoadingId("");
     }
@@ -314,22 +316,22 @@ function RidePassengersContent() {
       <section className="container">
         <section className="hero">
           <div className="topActions">
-            <button className="miniButton" onClick={() => router.back()}>← Back</button>
-            <Link href="/my-rides" className="miniButton">My Rides</Link>
-            <Link href="/messages" className="miniButton">Messages</Link>
-            <Link href="/wallet" className="miniButton">Wallet</Link>
-            <Link href="/dashboard" className="miniButton">Dashboard</Link>
+            <button className="miniButton" onClick={() => router.back()}>← Volver</button>
+            <Link href="/my-rides" className="miniButton">Mis viajes</Link>
+            <Link href="/messages" className="miniButton">Mensajes</Link>
+            <Link href="/wallet" className="miniButton">Cartera</Link>
+            <Link href="/dashboard" className="miniButton">Mi panel</Link>
           </div>
 
           <div className="logo">Road<span>Link</span></div>
 
-          <p className="eyebrow">Ride Passengers Center</p>
+          <p className="eyebrow">Centro de pasajeros</p>
 
-          <h1>Passenger <span>Control</span></h1>
+          <h1>Gestión de <span>pasajeros</span></h1>
 
           {ride && (
             <p className="subtitle">
-              {ride.from || "Origin"} → {ride.to || "Destination"}
+              {ride.from || "Origen"} → {ride.to || "Destino"}
             </p>
           )}
         </section>
@@ -351,26 +353,26 @@ function RidePassengersContent() {
         )}
 
         {ride && <section className="stats">
-          <Metric label="Passengers" value={String(metrics.active.length)} icon="👥" />
-          <Metric label="Seats Booked" value={String(metrics.seats)} icon="💺" />
-          <Metric label="Paid" value={String(metrics.paid.length)} icon="💳" />
-          <Metric label="Pending Pay" value={String(metrics.pendingPayment.length)} icon="⏳" />
+          <Metric label="Pasajeros" value={String(metrics.active.length)} icon="👥" />
+          <Metric label="Asientos reservados" value={String(metrics.seats)} icon="💺" />
+          <Metric label="Pagadas" value={String(metrics.paid.length)} icon="💳" />
+          <Metric label="Pago pendiente" value={String(metrics.pendingPayment.length)} icon="⏳" />
           <Metric label="Pagos retenidos" value={paymentsLoaded ? formatMoney(metrics.gross) : "—"} icon="💰" />
           <Metric label="Neto del conductor" value={paymentsLoaded ? formatMoney(metrics.driverNet) : "—"} icon="🏦" />
           <Metric label="Comisión retenida" value={paymentsLoaded ? formatMoney(metrics.platformFees) : "—"} icon="📊" />
-          <Metric label="Cancelled" value={String(metrics.cancelled.length)} icon="❌" />
+          <Metric label="Cancelados" value={String(metrics.cancelled.length)} icon="❌" />
         </section>}
 
         {ride && (
           <section className="rideSummary">
-            <Mini label="Date" value={ride.date || "N/A"} />
-            <Mini label="Time" value={ride.time || "N/A"} />
-            <Mini label="Distance" value={ride.distanceText || "N/A"} />
-            <Mini label="Duration" value={ride.durationText || "N/A"} />
-            <Mini label="Seats Left" value={String(ride.seats || 0)} />
-            <Mini label="Original Seats" value={String(ride.originalSeats || "N/A")} />
-            <Mini label="Price" value={formatMoney(ride.price)} />
-            <Mini label="Status" value={ride.status || "active"} />
+            <Mini label="Fecha" value={ride.date || "N/A"} />
+            <Mini label="Hora" value={ride.time || "N/A"} />
+            <Mini label="Distancia" value={estimateInSpanish(ride.distanceText)} />
+            <Mini label="Duración" value={estimateInSpanish(ride.durationText)} />
+            <Mini label="Asientos disponibles" value={String(ride.seats || 0)} />
+            <Mini label="Capacidad inicial" value={String(ride.originalSeats || "N/A")} />
+            <Mini label="Precio" value={formatMoney(ride.price)} />
+            <Mini label="Estado" value={statusInSpanish(ride.status || "active")} />
           </section>
         )}
 
@@ -378,7 +380,7 @@ function RidePassengersContent() {
           <section className="rideActions">
             {ride.mapUrl && (
               <a href={ride.mapUrl} target="_blank" rel="noopener noreferrer" className="mapButton">
-                Open Route
+                Ver ruta
               </a>
             )}
 
@@ -398,8 +400,8 @@ function RidePassengersContent() {
           {!ride ? null : metrics.active.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">👥</div>
-              <h2>No passengers yet</h2>
-              <p>When someone reserves this ride, they will appear here.</p>
+              <h2>Todavía no hay pasajeros</h2>
+              <p>Cuando alguien reserve este viaje, aparecerá aquí.</p>
             </div>
           ) : (
             metrics.active.map((booking) => (
@@ -408,13 +410,13 @@ function RidePassengersContent() {
                   <Link href={`/passenger-profile?passengerId=${booking.passengerId || ""}`} aria-label="Ver perfil del pasajero"><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" showName={false} /></Link>
 
                   <div>
-                    <p className="eyebrow">Passenger</p>
-                    <h2>{booking.passengerEmail || "RoadLink Passenger"}</h2>
+                    <p className="eyebrow">Pasajero</p>
+                    <h2>{booking.passengerEmail || "Pasajero de RoadLink"}</h2>
                   </div>
                 </div>
 
                 <div className="passengerInfo">
-                  <span>💺 {booking.seatsBooked || 1} seat</span>
+                  <span>💺 {booking.seatsBooked || 1} {Number(booking.seatsBooked || 1) === 1 ? "asiento" : "asientos"}</span>
                   <span>💵 {formatMoney(bookingTotal(booking))}</span>
                   <span>🏦 Neto retenido {paymentsLoaded ? formatMoney(payments.filter(item => item.bookingId === booking.id).reduce((sum, item) => sum + retainedPayment(item).net, 0)) : "—"}</span>
                   <span className={getStatusClass(booking.status, booking.paymentStatus)}>
@@ -423,10 +425,10 @@ function RidePassengersContent() {
                 </div>
 
                 <div className="bookingMeta">
-                  <Mini label="Booking ID" value={booking.id} />
-                  <Mini label="Passenger ID" value={booking.passengerId || "N/A"} />
-                  <Mini label="Payment ID" value={booking.paymentId || "Not paid"} />
-                  <Mini label="Created" value={booking.createdAt || "N/A"} />
+                  <Mini label="Referencia de reserva" value={booking.id} />
+                  <Mini label="Referencia del pasajero" value={booking.passengerId || "N/A"} />
+                  <Mini label="Referencia del pago" value={booking.paymentId || "Sin pagar"} />
+                  <Mini label="Fecha de creación" value={booking.createdAt || "N/A"} />
                 </div>
 
                 <div className="buttons">
@@ -435,7 +437,7 @@ function RidePassengersContent() {
                     onClick={() => openChat(booking)}
                     disabled={loadingId === `chat-${booking.id}` || !booking.passengerId}
                   >
-                    {loadingId === `chat-${booking.id}` ? "Opening..." : "Chat"}
+                    {loadingId === `chat-${booking.id}` ? "Abriendo…" : "Chat"}
                   </button>
 
                   {booking.status === "paid" && booking.paymentStatus === "paid" && ["active", "full"].includes(ride?.status || "") && (
@@ -444,7 +446,7 @@ function RidePassengersContent() {
                       onClick={() => updateBookingStatus(booking, "confirmed")}
                       disabled={!!loadingId}
                     >
-                      {loadingId === `${booking.id}-confirmed` ? "Updating..." : "Confirmar reserva"}
+                      {loadingId === `${booking.id}-confirmed` ? "Actualizando…" : "Confirmar reserva"}
                     </button>
                   )}
 
@@ -454,16 +456,16 @@ function RidePassengersContent() {
                       onClick={() => updateBookingStatus(booking, "completed")}
                       disabled={!!loadingId}
                     >
-                      {loadingId === `${booking.id}-completed` ? "Updating..." : "Finalizar viaje del pasajero"}
+                      {loadingId === `${booking.id}-completed` ? "Actualizando…" : "Finalizar viaje del pasajero"}
                     </button>
                   )}
 
                   <Link href={`/ride-details?rideId=${rideId}`} className="outlineButton">
-                    Ride Details
+                    Detalles del viaje
                   </Link>
 
                   <Link href={`/driver-profile?driverId=${ride?.driverId || ""}`} className="outlineButton">
-                    Driver Profile
+                    Perfil del conductor
                   </Link>
                 </div>
               </article>

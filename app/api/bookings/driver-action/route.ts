@@ -4,17 +4,17 @@ export async function POST(request: Request) {
   try {
     const { user, db } = await requirePassenger(request);
     const { bookingId, action } = await request.json();
-    if (action !== "confirm" && action !== "complete") throw new ApiError(400, "Invalid action.");
+    if (action !== "confirm" && action !== "complete") throw new ApiError(400, "Acción no válida.");
     const ref = db.collection("bookings").doc(documentId(bookingId));
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
-      if (!snap.exists) throw new ApiError(404, "Booking not found.");
+      if (!snap.exists) throw new ApiError(404, "Reserva no encontrada.");
       const booking = snap.data()!;
-      if (booking.driverId !== user.uid) throw new ApiError(403, "Only the assigned driver can update this booking.");
+      if (booking.driverId !== user.uid) throw new ApiError(403, "Solo el conductor asignado puede actualizar esta reserva.");
       const rideRef = db.collection("rides").doc(documentId(booking.rideId));
       const rideSnap = await tx.get(rideRef);
       const ride = rideSnap.data();
-      if (!ride || ride.driverId !== user.uid) throw new ApiError(403, "Ride ownership mismatch.");
+      if (!ride || ride.driverId !== user.uid) throw new ApiError(403, "Este viaje no pertenece a tu cuenta.");
       if (booking.paymentStatus !== "paid") throw new ApiError(409, "La reserva debe estar pagada y sin reembolsos.");
       if (action === "confirm" && ["confirmed", "completed"].includes(booking.status)) return;
       if (action === "complete" && booking.status === "completed") return;

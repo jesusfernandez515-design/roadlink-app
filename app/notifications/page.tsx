@@ -1,5 +1,7 @@
 "use client";
 
+import { notificationInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import { useEffect, useMemo, useState } from "react";
 import { useAppRouter as useRouter } from "../components/useAppRouter";
@@ -58,37 +60,37 @@ const categories: {
   },
   {
     key: "payout",
-    title: "Payout Update",
+    title: "Actualización de retiros",
     icon: "🏦",
-    description: "Wallet, pagos y retiros.",
+    description: "Cartera, pagos y retiros.",
   },
   {
     key: "support",
-    title: "Support Ticket Created",
+    title: "Solicitud de soporte creada",
     icon: "🎧",
-    description: "Tickets y soporte.",
+    description: "Solicitudes y soporte.",
   },
   {
     key: "emergency",
-    title: "Emergency Alert Sent",
+    title: "Alerta de emergencia enviada",
     icon: "🚨",
     description: "Alertas SOS y emergencias.",
   },
   {
     key: "booking",
-    title: "New Ride Booking",
+    title: "Nueva reserva de viaje",
     icon: "🎟️",
     description: "Reservas nuevas.",
   },
   {
     key: "cancelled",
-    title: "Booking cancelled",
+    title: "Reserva cancelada",
     icon: "❌",
     description: "Reservas o viajes cancelados.",
   },
   {
     key: "completed",
-    title: "Ride Completed",
+    title: "Viaje completado",
     icon: "✅",
     description: "Viajes completados.",
   },
@@ -105,7 +107,7 @@ export default function NotificationsPage() {
 
   const [userId, setUserId] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [status, setStatus] = useState("Loading notifications...");
+  const [status, setStatus] = useState("Cargando notificaciones…");
   const [saving, setSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("message");
 
@@ -114,7 +116,7 @@ export default function NotificationsPage() {
       if (!user) {
         setUserId("");
         setNotifications([]);
-        setStatus("Please sign in to view your notifications.");
+        setStatus("Inicia sesión para ver tus notificaciones.");
         router.push("/login");
         return;
       }
@@ -166,7 +168,7 @@ export default function NotificationsPage() {
   function formatTime(value?: any) {
     const date = getDate(value);
 
-    return date.toLocaleString([], {
+    return date.toLocaleString("es-PR", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
@@ -180,13 +182,13 @@ export default function NotificationsPage() {
     const type = String(notification.type || "").toLowerCase();
     const combined = `${title} ${message} ${type}`;
 
-    if (combined.includes("message") || combined.includes("chat")) return "message";
-    if (combined.includes("payout") || combined.includes("payment") || combined.includes("wallet")) return "payout";
-    if (combined.includes("support") || combined.includes("ticket")) return "support";
-    if (combined.includes("emergency") || combined.includes("sos")) return "emergency";
+    if (combined.includes("message") || combined.includes("mensaje") || combined.includes("chat")) return "message";
+    if (combined.includes("payout") || combined.includes("payment") || combined.includes("wallet") || combined.includes("pago") || combined.includes("retiro")) return "payout";
+    if (combined.includes("support") || combined.includes("soporte") || combined.includes("ticket")) return "support";
+    if (combined.includes("emergency") || combined.includes("emergencia") || combined.includes("sos")) return "emergency";
     if (combined.includes("cancel")) return "cancelled";
-    if (combined.includes("completed") || combined.includes("ride completed")) return "completed";
-    if (combined.includes("booking") || type === "booking") return "booking";
+    if (combined.includes("completed") || combined.includes("completado") || combined.includes("terminado") || combined.includes("ride completed")) return "completed";
+    if (combined.includes("booking") || combined.includes("reserva") || type === "booking") return "booking";
 
     return "booking";
   }
@@ -255,7 +257,7 @@ export default function NotificationsPage() {
 
       router.push(getNotificationUrl(notification));
     } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : "Could not open notification.");
+      setStatus(error instanceof Error ? error.message : "No se pudo abrir la notificación.");
     }
   }
 
@@ -276,9 +278,9 @@ export default function NotificationsPage() {
       });
 
       await batch.commit();
-      setStatus("All notifications marked as read.");
+      setStatus("Todas las notificaciones se marcaron como leídas.");
     } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : "Could not update notifications.");
+      setStatus(error instanceof Error ? error.message : "No se pudieron actualizar las notificaciones.");
     } finally {
       setSaving(false);
     }
@@ -301,9 +303,9 @@ export default function NotificationsPage() {
       });
 
       await batch.commit();
-      setStatus("Category marked as read.");
+      setStatus("Las notificaciones de esta categoría se marcaron como leídas.");
     } catch (error: unknown) {
-      setStatus(error instanceof Error ? error.message : "Could not update category.");
+      setStatus(error instanceof Error ? error.message : "No se pudo actualizar esta categoría.");
     } finally {
       setSaving(false);
     }
@@ -316,19 +318,19 @@ export default function NotificationsPage() {
     <main className="page">
       <section className="container">
         <div className="topBar">
-          <Link href="/dashboard" className="navButton">← Dashboard</Link>
-          <Link href="/messages" className="navButton">Messages</Link>
-          <Link href="/my-rides" className="navButton">My Rides</Link>
-          <Link href="/wallet" className="navButton">Wallet</Link>
-          <Link href="/profile" className="navButton">Profile</Link>
+          <Link href="/dashboard" className="navButton">← Mi panel</Link>
+          <Link href="/messages" className="navButton">Mensajes</Link>
+          <Link href="/my-rides" className="navButton">Mis viajes</Link>
+          <Link href="/wallet" className="navButton">Cartera</Link>
+          <Link href="/profile" className="navButton">Perfil</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Activity</p>
-            <h1>Notification <span>Center</span></h1>
+            <p className="eyebrow">Actividad de RoadLink</p>
+            <h1>Centro de <span>notificaciones</span></h1>
             <p className="subtitle">
-              Activity grouped by buttons. Tap a category to desplegar todo el contenido.
+              Selecciona una categoría para consultar sus notificaciones.
             </p>
           </div>
 
@@ -342,15 +344,15 @@ export default function NotificationsPage() {
 
         <section className="stats">
           <Metric label="Total" value={String(notifications.length)} />
-          <Metric label="Unread" value={String(totalUnread)} />
-          <Metric label="Active Group" value={activeCategoryData.title} />
-          <Metric label="Group Unread" value={String(activeUnread)} />
+          <Metric label="Sin leer" value={String(totalUnread)} />
+          <Metric label="Categoría seleccionada" value={activeCategoryData.title} />
+          <Metric label="Sin leer en esta categoría" value={String(activeUnread)} />
         </section>
 
         <section className="categoryPanel">
           <div className="header">
             <div>
-              <p className="eyebrow">Notification Buttons</p>
+              <p className="eyebrow">Categorías de notificaciones</p>
               <h2>Selecciona una categoría</h2>
             </div>
 
@@ -359,7 +361,7 @@ export default function NotificationsPage() {
               onClick={markAllAsRead}
               disabled={saving || totalUnread === 0}
             >
-              {saving ? "Updating..." : "Mark all read"}
+              {saving ? "Actualizando…" : "Marcar todas como leídas"}
             </button>
           </div>
 
@@ -385,7 +387,7 @@ export default function NotificationsPage() {
 
                   <div className="categoryCount">
                     <b>{items.length}</b>
-                    {unread > 0 && <small>{unread} new</small>}
+                    {unread > 0 && <small>{unread} nuevas</small>}
                   </div>
                 </button>
               );
@@ -396,10 +398,10 @@ export default function NotificationsPage() {
         <section className="contentPanel">
           <div className="header">
             <div>
-              <p className="eyebrow">Expanded Content</p>
+              <p className="eyebrow">Notificaciones de la categoría</p>
               <h2>{activeCategoryData.icon} {activeCategoryData.title}</h2>
               <p className="summary">
-                {activeItems.length} total · {activeUnread} unread
+                {activeItems.length} total · {activeUnread} sin leer
               </p>
             </div>
 
@@ -408,15 +410,15 @@ export default function NotificationsPage() {
               onClick={markCategoryAsRead}
               disabled={saving || activeUnread === 0}
             >
-              {saving ? "Updating..." : "Mark group read"}
+              {saving ? "Actualizando…" : "Marcar categoría como leída"}
             </button>
           </div>
 
           {activeItems.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">{activeCategoryData.icon}</div>
-              <h3>No activity yet</h3>
-              <p>When this type of RoadLink activity happens, it will appear here.</p>
+              <h3>Todavía no hay actividad</h3>
+              <p>Aquí aparecerán las novedades de esta categoría.</p>
             </div>
           ) : (
             <div className="list">
@@ -431,27 +433,27 @@ export default function NotificationsPage() {
 
                   <div className="content">
                     <div className="titleRow">
-                      <h3>{notification.title || "RoadLink Update"}</h3>
+                      <h3>{notificationInSpanish(notification.title || "Novedad de RoadLink")}</h3>
                       {!notification.read ? (
-                        <span className="unreadBadge">New</span>
+                        <span className="unreadBadge">Nuevo</span>
                       ) : (
-                        <span className="readBadge">Read</span>
+                        <span className="readBadge">Leído</span>
                       )}
                     </div>
 
-                    <p>{notification.message || "You have a new RoadLink notification."}</p>
+                    <p>{notificationInSpanish(notification.message || "Tienes una nueva notificación de RoadLink.")}</p>
 
                     <div className="detailsGrid">
-                      {notification.rideId && <Detail label="Ride ID" value={notification.rideId} />}
-                      {notification.bookingId && <Detail label="Booking ID" value={notification.bookingId} />}
-                      {notification.chatId && <Detail label="Chat ID" value={notification.chatId} />}
-                      {notification.driverId && <Detail label="Driver ID" value={notification.driverId} />}
-                      {notification.passengerId && <Detail label="Passenger ID" value={notification.passengerId} />}
+                      {notification.rideId && <Detail label="Referencia del viaje" value={notification.rideId} />}
+                      {notification.bookingId && <Detail label="Referencia de reserva" value={notification.bookingId} />}
+                      {notification.chatId && <Detail label="Referencia de conversación" value={notification.chatId} />}
+                      {notification.driverId && <Detail label="Referencia del conductor" value={notification.driverId} />}
+                      {notification.passengerId && <Detail label="Referencia del pasajero" value={notification.passengerId} />}
                     </div>
 
                     <div className="metaRow">
                       <span>{formatTime(notification.createdAt)}</span>
-                      <strong>Open</strong>
+                      <strong>Abrir</strong>
                     </div>
                   </div>
                 </button>

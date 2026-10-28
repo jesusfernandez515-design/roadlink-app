@@ -1,5 +1,7 @@
 "use client";
 
+import { estimateInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import RequireSession from "../components/RequireSession";
 import ProfileIdentity from "../components/ProfileIdentity";
@@ -208,8 +210,8 @@ function MyRidesPageContent() {
         <div className="compactInfo">
           <span>📅 {ride.date || "Sin datos"}</span>
           <span>🕒 {ride.time || "Sin datos"}</span>
-          <span>🛣️ {ride.distanceText || "Sin datos"}</span>
-          <span>⏱️ {ride.durationText || "Sin datos"}</span>
+          <span>🛣️ {estimateInSpanish(ride.distanceText)}</span>
+          <span>⏱️ {estimateInSpanish(ride.durationText)}</span>
           <span>💺 {ride.seats || 0} asientos</span>
           <span>👥 {passengers.length} pasajeros</span>
         </div>

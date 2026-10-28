@@ -1,5 +1,7 @@
 "use client";
 
+import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
+
 import Link from "../components/AppLink";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useState } from "react";
@@ -42,14 +44,14 @@ export default function FindRidePage() {
   const [userEmail, setUserEmail] = useState("");
   const [rides, setRides] = useState<Ride[]>([]);
   const [reservedRideIds, setReservedRideIds] = useState<string[]>([]);
-  const [message, setMessage] = useState("Checking account...");
+  const [message, setMessage] = useState("Comprobando tu cuenta…");
   const [loadingRideId, setLoadingRideId] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function loadRides() {
     try {
       setLoading(true);
-      setMessage("Loading rides...");
+      setMessage("Cargando viajes…");
 
       const ridesQuery = query(collection(db, "rides"), where("status", "==", "active"));
       const snapshot = await getDocs(ridesQuery);
@@ -69,9 +71,9 @@ export default function FindRidePage() {
       });
 
       setRides(sorted);
-      setMessage(sorted.length ? "" : "No rides available yet.");
+      setMessage(sorted.length ? "" : "No hay viajes disponibles por ahora.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not load rides.");
+      setMessage(error instanceof Error ? error.message : "No se pudieron cargar los viajes.");
     } finally {
       setLoading(false);
     }
@@ -128,7 +130,7 @@ export default function FindRidePage() {
 
       setReservedRideIds(Array.from(ids));
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not load your bookings.");
+      setMessage(error instanceof Error ? error.message : "No se pudieron cargar tus reservas.");
     }
   }
 
@@ -151,23 +153,23 @@ export default function FindRidePage() {
     setMessage("");
 
     if (!userId) {
-      setMessage("Please sign in before reserving a seat.");
+      setMessage("Inicia sesión antes de reservar un asiento.");
       router.push("/login");
       return;
     }
 
     if (!ride.id) {
-      setMessage("Ride ID is missing. Please refresh and try again.");
+      setMessage("No se pudo identificar el viaje. Actualiza la página e inténtalo de nuevo.");
       return;
     }
 
     if (ride.driverId === userId) {
-      setMessage("You cannot reserve your own ride.");
+      setMessage("No puedes reservar tu propio viaje.");
       return;
     }
 
     if (Number(ride.seats || 0) <= 0) {
-      setMessage("No seats available for this ride.");
+      setMessage("Este viaje no tiene asientos disponibles.");
       return;
     }
 
@@ -175,25 +177,25 @@ export default function FindRidePage() {
       setLoadingRideId(ride.id);
 
       const token = await auth.currentUser?.getIdToken();
-      if (!token) throw new Error("Please sign in first.");
+      if (!token) throw new Error("Inicia sesión primero.");
       const response = await fetch("/api/bookings/reserve", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ rideId: ride.id }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not reserve this ride.");
+      if (!response.ok) throw new Error(result.error || "No se pudo reservar este viaje.");
 
       setReservedRideIds((previous) =>
         previous.includes(ride.id) ? previous : [...previous, ride.id]
       );
 
-      setMessage("Seat reserved. Continue to My Bookings to pay.");
+      setMessage("Asiento reservado. Continúa en Mis reservas para pagar.");
       await refreshPageData(userId, userEmail);
 
       router.push("/my-bookings");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not reserve this ride.");
+      setMessage(error instanceof Error ? error.message : "No se pudo reservar este viaje.");
     } finally {
       setLoadingRideId("");
     }
@@ -202,7 +204,7 @@ export default function FindRidePage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        setMessage("Please sign in to view available rides.");
+        setMessage("Inicia sesión para ver los viajes disponibles.");
         router.push("/login");
         return;
       }
@@ -223,28 +225,28 @@ export default function FindRidePage() {
       <section className="hero">
         <div className="topActions">
           <button type="button" className="miniButton" onClick={() => router.back()}>
-            ← Back
+            ← Volver
           </button>
 
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/messages" className="miniButton">Messages</Link>
-          <Link href="/notifications" className="miniButton">Notifications</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
+          <Link href="/dashboard" className="miniButton">Mi panel</Link>
+          <Link href="/messages" className="miniButton">Mensajes</Link>
+          <Link href="/notifications" className="miniButton">Notificaciones</Link>
+          <Link href="/profile" className="miniButton">Perfil</Link>
         </div>
 
         <div className="logo">Road<span>Link</span></div>
 
-        <p className="eyebrow">Verified Ride Marketplace</p>
+        <p className="eyebrow">Encuentra tu próximo viaje</p>
 
-        <h1>Find a <span>Ride</span></h1>
+        <h1>Buscar un <span>viaje</span></h1>
 
         <p className="subtitle">
-          Discover available rides, preview routes, reserve your seat and continue to secure payment.
+          Consulta las rutas disponibles, reserva tu asiento y continúa al pago seguro.
         </p>
 
         <div className="mainActions">
           <Link href="/offer-ride" className="primaryButton">
-            Offer a Ride
+            Publicar un viaje
           </Link>
 
           <button
@@ -253,7 +255,7 @@ export default function FindRidePage() {
             onClick={() => refreshPageData(userId, userEmail)}
             disabled={loading || !userId}
           >
-            {loading ? "Refreshing..." : "Refresh Rides"}
+            {loading ? "Actualizando…" : "Actualizar viajes"}
           </button>
         </div>
       </section>
@@ -271,14 +273,14 @@ export default function FindRidePage() {
             <div key={ride.id} className="rideCard">
               <div className="routeHeader">
                 <div>
-                  <p className="label">ROUTE</p>
+                  <p className="label">RUTA</p>
                   <h2>
                     {ride.from} <span>→</span> {ride.to}
                   </h2>
                 </div>
 
                 <div className="priceBox">
-                  <span>PRICE</span>
+                  <span>PRECIO</span>
                   <strong>${ride.price}</strong>
                 </div>
               </div>
@@ -286,44 +288,44 @@ export default function FindRidePage() {
               <div className="chips">
                 <div className="chip">📅 {ride.date}</div>
                 <div className="chip">🕒 {ride.time}</div>
-                <div className="chip">💺 {ride.seats} seats</div>
-                <div className="chip active">● {ride.status}</div>
+                <div className="chip">💺 {ride.seats} {Number(ride.seats) === 1 ? "asiento" : "asientos"}</div>
+                <div className="chip active">● {statusInSpanish(ride.status)}</div>
               </div>
 
               <div className="routeStats">
-                <Stat label="Distance" value={ride.distanceText || "Not available"} />
-                <Stat label="Duration" value={ride.durationText || "Not available"} />
+                <Stat label="Distancia" value={estimateInSpanish(ride.distanceText)} />
+                <Stat label="Duración" value={estimateInSpanish(ride.durationText)} />
                 <Stat
-                  label="Miles"
-                  value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "Not available"}
+                  label="Millas"
+                  value={ride.distanceMiles ? `${ride.distanceMiles} mi` : "No disponible"}
                 />
                 <Stat
-                  label="Suggested"
-                  value={ride.suggestedPrice ? `$${ride.suggestedPrice}` : "Not available"}
+                  label="Precio sugerido"
+                  value={ride.suggestedPrice ? `$${ride.suggestedPrice}` : "No disponible"}
                 />
               </div>
 
               <div className="infoGrid">
-                <Info label="Vehicle" value={ride.vehicle || "Not specified"} icon="🚘" />
+                <Info label="Vehículo" value={ride.vehicle || "Sin especificar"} icon="🚘" />
                 <ProfileIdentity uid={ride.driverId} name={ride.driverEmail} role="Conductor" />
-                {ride.notes && <Info label="Notes" value={ride.notes} icon="📝" />}
+                {ride.notes && <Info label="Notas" value={ride.notes} icon="📝" />}
               </div>
 
               {mapLink && (
                 <a href={mapLink} target="_blank" rel="noreferrer" className="mapButton">
-                  🗺️ Open Route in Google Maps
+                  🗺️ Ver ruta en Google Maps
                 </a>
               )}
 
-              {isOwnRide && <p className="warning">This is your own ride.</p>}
+              {isOwnRide && <p className="warning">Este es tu viaje.</p>}
 
               <div className="cardButtons">
                 <Link href={`/driver-profile?driverId=${ride.driverId || ""}`} className="outlineButton">
-                  View Driver Profile
+                  Ver perfil del conductor
                 </Link>
 
                 <Link href={`/ride-details?rideId=${ride.id}`} className="outlineButton">
-                  View Details
+                  Ver detalles
                 </Link>
               </div>
 
@@ -333,14 +335,14 @@ export default function FindRidePage() {
                 disabled={loadingRideId === ride.id || alreadyReserved || isOwnRide || noSeats}
               >
                 {loadingRideId === ride.id
-                  ? "Reserving..."
+                  ? "Reservando…"
                   : alreadyReserved
-                  ? "Already Reserved"
+                  ? "Ya reservado"
                   : isOwnRide
-                  ? "Your Own Ride"
+                  ? "Tu propio viaje"
                   : noSeats
-                  ? "No Seats Available"
-                  : "Reserve Seat & Continue to Pay"}
+                  ? "Sin asientos disponibles"
+                  : "Reservar asiento y continuar al pago"}
               </button>
             </div>
           );

@@ -248,7 +248,9 @@ function MyBookingsContent() {
     if (status === "cancelled") return "Cancelado";
     if (status === "rejected") return "Rechazado";
     if (status === "paid") return "Pagado";
-    return status || "Reservado";
+    if (status === "reserved") return "Reservado";
+    if (status === "pending") return "Pendiente";
+    return "Sin datos";
   }
 
   function statusClass(status?: string, paymentStatus?: string) {
