@@ -29,17 +29,25 @@ export default function LoginPage() {
     console.error(error);
 
     if (error.code === "auth/user-not-found") {
-      setMessage("No RoadLink account was found with this Gmail.");
+      setMessage("No encontramos una cuenta RoadLink con ese Gmail.");
     } else if (error.code === "auth/wrong-password") {
-      setMessage("Incorrect password. Please try again or reset your password.");
+      setMessage("Contraseña incorrecta. Inténtalo de nuevo o restablece tu contraseña.");
     } else if (error.code === "auth/invalid-email") {
-      setMessage("Please enter a valid Gmail address.");
+      setMessage("Introduce una dirección de Gmail válida.");
     } else if (error.code === "auth/invalid-credential") {
-      setMessage("Invalid Gmail or password. Please check your information.");
+      setMessage("Gmail o contraseña incorrectos. Revisa tus datos.");
     } else if (error.code === "auth/too-many-requests") {
-      setMessage("Too many attempts. Please wait a moment and try again.");
+      setMessage("Demasiados intentos. Espera un momento y vuelve a intentarlo.");
     } else {
-      setMessage(error.message || "Something went wrong.");
+      if (error.code === "auth/popup-closed-by-user") {
+        setMessage("Se cerró la ventana de Google antes de completar el acceso.");
+      } else if (error.code === "auth/popup-blocked") {
+        setMessage("El navegador bloqueó la ventana de Google. Permite las ventanas emergentes e inténtalo de nuevo.");
+      } else if (error.code === "auth/network-request-failed") {
+        setMessage("No se pudo conectar. Comprueba tu conexión e inténtalo de nuevo.");
+      } else {
+        setMessage("No se pudo completar la solicitud. Inténtalo de nuevo.");
+      }
     }
   }
 
@@ -48,12 +56,12 @@ export default function LoginPage() {
     const cleanPassword = password.trim();
 
     if (!cleanEmail || !cleanPassword) {
-      setMessage("Please enter your Gmail and password.");
+      setMessage("Introduce tu Gmail y tu contraseña.");
       return;
     }
 
     if (!isValidGmail(cleanEmail)) {
-      setMessage("Please use a valid Gmail address ending in @gmail.com.");
+      setMessage("Usa una dirección de Gmail válida que termine en @gmail.com.");
       return;
     }
 
@@ -72,13 +80,13 @@ export default function LoginPage() {
         await signOut(auth);
 
         setMessage(
-          "Please verify your Gmail before signing in. We sent you a new verification email."
+          "Verifica tu Gmail antes de iniciar sesión. Te enviamos un nuevo correo de verificación."
         );
 
         return;
       }
 
-      setMessage("Signed in successfully. Redirecting...");
+      setMessage("Sesión iniciada. Abriendo tu cuenta…");
       router.push("/dashboard");
     } catch (error: any) {
       showError(error);
@@ -100,11 +108,11 @@ export default function LoginPage() {
 
       if (!isValidGmail(cleanEmail)) {
         await signOut(auth);
-        setMessage("Please use a valid Gmail account.");
+        setMessage("Usa una cuenta de Gmail válida.");
         return;
       }
 
-      setMessage("Signed in with Google. Redirecting...");
+      setMessage("Sesión iniciada con Google. Abriendo tu cuenta…");
       router.push("/dashboard");
     } catch (error: any) {
       showError(error);
@@ -117,12 +125,12 @@ export default function LoginPage() {
     const cleanEmail = email.trim().toLowerCase();
 
     if (!cleanEmail) {
-      setMessage("Please enter your Gmail address first.");
+      setMessage("Introduce primero tu dirección de Gmail.");
       return;
     }
 
     if (!isValidGmail(cleanEmail)) {
-      setMessage("Please enter a valid Gmail address ending in @gmail.com.");
+      setMessage("Introduce una dirección de Gmail válida que termine en @gmail.com.");
       return;
     }
 
@@ -134,7 +142,7 @@ export default function LoginPage() {
       // deployments and may not be authorized as email continuation domains.
       await sendPasswordResetEmail(auth, cleanEmail);
 
-      setMessage("Password reset email sent. Please check your Gmail.");
+      setMessage("Te enviamos un correo para restablecer tu contraseña. Revisa tu Gmail.");
     } catch (error: any) {
       showError(error);
     } finally {
@@ -149,53 +157,53 @@ export default function LoginPage() {
           Road<span>Link</span>
         </div>
 
-        <p className="eyebrow">Verified Access</p>
+        <p className="eyebrow">Acceso seguro</p>
 
-        <h1>Welcome Back</h1>
+        <h1>Bienvenido de nuevo</h1>
 
         <p className="subtitle">
-          Sign in with your verified Gmail to continue your RoadLink journey.
+          Inicia sesión con tu Gmail verificado para continuar en RoadLink.
         </p>
 
         <button className="social" onClick={continueWithGoogle} disabled={loading}>
-          {loading ? "Please wait..." : "Continue with Google"}
+          {loading ? "Espera un momento…" : "Continuar con Google"}
         </button>
 
-        <div className="divider">or</div>
+        <div className="divider">o</div>
 
         <input
           type="email"
-          placeholder="Gmail Address"
+          placeholder="Correo de Gmail" aria-label="Correo de Gmail" autoComplete="username"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
 
         <input
           type="password"
-          placeholder="Password"
+          placeholder="Contraseña" aria-label="Contraseña" autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
 
         <button className="forgotButton" onClick={resetPassword} disabled={loading}>
-          Forgot password?
+          ¿Olvidaste tu contraseña?
         </button>
 
         <button className="primary" onClick={signIn} disabled={loading}>
-          {loading ? "Signing In..." : "Sign In"}
+          {loading ? "Iniciando sesión…" : "Iniciar sesión"}
         </button>
 
-        {message && <p className="message">{message}</p>}
+        {message && <p className="message" role="status" aria-live="polite">{message}</p>}
 
         <div className="securityBox">
-          <p>✅ Verified Gmail required</p>
-          <p>✅ Password recovery supported</p>
-          <p>✅ Google sign-in supported</p>
-          <p>✅ RoadLink secure access</p>
+          <p>✅ Gmail verificado requerido</p>
+          <p>✅ Recuperación de contraseña disponible</p>
+          <p>✅ Inicio de sesión con Google disponible</p>
+          <p>✅ Acceso seguro a RoadLink</p>
         </div>
 
         <p className="footer">
-          Don&apos;t have an account? <Link href="/register">Create one</Link>
+          ¿No tienes una cuenta? <Link href="/register">Crear cuenta</Link>
         </p>
       </section>
 
