@@ -30,12 +30,22 @@ export default function ProfilePage() {
   const isPassenger = useAppExperience() === "passenger";
   const [profile, setProfile] = useState<UserProfile>({});
   const [message, setMessage] = useState("Cargando perfil…");
+  const [authState, setAuthState] = useState<"loading" | "signedOut" | "signedIn">("loading");
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
+    let revision = 0;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      const currentRevision = ++revision;
+      unsubscribeProfile?.();
+      unsubscribeProfile = undefined;
+      setProfile({});
+      setProfileLoaded(false);
+      setMessage("Cargando perfil…");
+      setAuthState(user ? "signedIn" : "signedOut");
       if (!user) {
         setMessage("Inicia sesión para consultar tu perfil.");
         return;
@@ -49,6 +59,7 @@ export default function ProfilePage() {
 
       try {
         const existingUser = await getDoc(userRef);
+        if (currentRevision !== revision) return;
 
         if (!existingUser.exists()) {
           await setDoc(
@@ -91,9 +102,11 @@ export default function ProfilePage() {
         setMessage(error instanceof Error ? error.message : "Something went wrong.");
       }
 
+      if (currentRevision !== revision) return;
       unsubscribeProfile = onSnapshot(
         userRef,
         (snapshot) => {
+          if (currentRevision !== revision) return;
           const data = snapshot.data() as UserProfile | undefined;
           const savedPhoto = data?.photoURL || fallbackPhoto || "";
 
@@ -115,13 +128,17 @@ export default function ProfilePage() {
             state: data?.state || "",
           });
 
+          setProfileLoaded(true);
           setMessage("");
         },
-        (error) => setMessage(error.message)
+        (error) => {
+          if (currentRevision === revision) setMessage(error.message);
+        }
       );
     });
 
     return () => {
+      revision++;
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
     };
@@ -166,6 +183,28 @@ export default function ProfilePage() {
   async function handleSignOut() {
     await signOut(auth);
     appRouter.replace("/login");
+  }
+
+
+  if (authState !== "signedIn" || !profileLoaded) {
+    const signedOut = authState === "signedOut";
+    return (
+      <main style={{ minHeight: "70vh", padding: "32px 16px 140px", color: "#f1e0bd" }}>
+        <section style={{ maxWidth: 600, margin: "0 auto", padding: 28, borderRadius: 24, background: "#10191e", border: "1px solid #3c3b32" }}>
+          <p style={{ letterSpacing: "0.12em", fontSize: 12 }}>TU CUENTA ROADLINK</p>
+          <h1 style={{ fontSize: 32 }}>{signedOut ? "Bienvenido a RoadLink" : "Cargando tu perfil"}</h1>
+          <p role="status" aria-live="polite" style={{ color: "#d4d4d8", lineHeight: 1.6 }}>
+            {signedOut ? "Inicia sesión para ver tu perfil, tus viajes y tus reservas." : message || "Estamos recuperando tu información."}
+          </p>
+          {signedOut && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 24 }}>
+              <Link href="/login" style={{ padding: "14px 20px", borderRadius: 12, background: "#d9c39d", color: "#070d11", fontWeight: 700, textDecoration: "none" }}>Iniciar sesión</Link>
+              <Link href="/register" style={{ padding: "14px 20px", borderRadius: 12, border: "1px solid #d9c39d", color: "#f1e0bd", fontWeight: 700, textDecoration: "none" }}>Crear cuenta</Link>
+            </div>
+          )}
+        </section>
+      </main>
+    );
   }
 
   return (
