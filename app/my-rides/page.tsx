@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "../components/AppLink";
+import RequireSession from "../components/RequireSession";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -40,11 +41,15 @@ type Booking = {
 };
 
 export default function MyRidesPage() {
+  return <RequireSession purpose="Entra en tu cuenta para gestionar tus viajes."><MyRidesPageContent /></RequireSession>;
+}
+
+function MyRidesPageContent() {
   const router = useRouter();
 
   const [rides, setRides] = useState<Ride[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [message, setMessage] = useState("Loading your rides...");
+  const [message, setMessage] = useState("Cargando tus viajes…");
 
   const [busy, setBusy] = useState(false);
   async function driverAction(bookingId: string, action: "confirm" | "complete" | "test-arrival") {
@@ -88,7 +93,7 @@ export default function MyRidesPage() {
       const current = ++generation;
       setRides([]); setBookings([]);
       if (!user) {
-        setMessage("Please sign in to view your rides.");
+        setMessage("Inicia sesión para ver tus viajes.");
         router.push("/login");
         return;
       }
@@ -112,7 +117,7 @@ export default function MyRidesPage() {
           );
 
           setRides(ridesData);
-          setMessage(ridesData.length ? "" : "You have not published any rides yet.");
+          setMessage(ridesData.length ? "" : "Todavía no has publicado viajes.");
         },
         (error) => setMessage(error.message)
       );
@@ -172,7 +177,7 @@ export default function MyRidesPage() {
   }
 
   function shortText(value: string, max = 24) {
-    if (!value) return "N/A";
+    if (!value) return "Sin datos";
     return value.length > max ? `${value.slice(0, max)}...` : value;
   }
 
@@ -191,7 +196,7 @@ export default function MyRidesPage() {
       <article className="rideCard">
         <div className="rideTop">
           <div>
-            <p className="eyebrow">Route</p>
+            <p className="eyebrow">Ruta</p>
             <h2>
               {shortText(ride.from)} <span>→</span> {shortText(ride.to)}
             </h2>
@@ -201,21 +206,21 @@ export default function MyRidesPage() {
         </div>
 
         <div className="compactInfo">
-          <span>📅 {ride.date || "N/A"}</span>
-          <span>🕒 {ride.time || "N/A"}</span>
-          <span>🛣️ {ride.distanceText || "N/A"}</span>
-          <span>⏱️ {ride.durationText || "N/A"}</span>
-          <span>💺 {ride.seats || 0} seats</span>
-          <span>👥 {passengers.length} passengers</span>
+          <span>📅 {ride.date || "Sin datos"}</span>
+          <span>🕒 {ride.time || "Sin datos"}</span>
+          <span>🛣️ {ride.distanceText || "Sin datos"}</span>
+          <span>⏱️ {ride.durationText || "Sin datos"}</span>
+          <span>💺 {ride.seats || 0} asientos</span>
+          <span>👥 {passengers.length} pasajeros</span>
         </div>
 
         <div className="rideBottom">
-          <div className={getStatusClass(ride.status)}>● {ride.status}</div>
+          <div className={getStatusClass(ride.status)}>● {estado(ride.status)}</div>
 
           <div className="actions">
             {["active", "full"].includes(ride.status) && <button className="miniButton" disabled={busy} onClick={() => cancelRide(ride.id)}>{busy ? "Procesando…" : "Cancelar mi viaje"}</button>}
             <Link href={`/ride-passengers?rideId=${ride.id}`} className="manageButton">
-              Passengers
+              Pasajeros
             </Link>
 
             {ride.mapUrl && (
@@ -225,14 +230,14 @@ export default function MyRidesPage() {
                 rel="noopener noreferrer"
                 className="mapButton"
               >
-                Map
+                Mapa
               </a>
             )}
           </div>
         </div>
         {passengers.map((booking) => (
           <div key={booking.id} className="compactInfo">
-            <div><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" /><p>{booking.status} · {booking.paymentStatus || "unpaid"}</p></div>
+            <div><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" /><p>{estado(booking.status)} · {estado(booking.paymentStatus || "unpaid")}</p></div>
             {booking.paymentStatus === "paid" && booking.status === "paid" && (
               <button className="miniButton" disabled={busy} onClick={() => driverAction(booking.id, "confirm")}>Confirmar reserva</button>
             )}
@@ -252,15 +257,15 @@ export default function MyRidesPage() {
       <section className="hero">
         <div className="topActions">
           <button className="miniButton" onClick={() => router.back()}>
-            ← Back
+            ← Volver
           </button>
 
           <Link href="/dashboard" className="miniButton">
-            Dashboard
+            Mi panel
           </Link>
 
           <Link href="/offer-ride" className="miniButton">
-            Offer
+            Publicar
           </Link>
         </div>
 
@@ -268,28 +273,28 @@ export default function MyRidesPage() {
           Road<span>Link</span>
         </div>
 
-        <p className="eyebrow">Driver Center</p>
+        <p className="eyebrow">Centro del conductor</p>
 
         <h1>
-          My <span>Rides</span>
+          Mis <span>viajes</span>
         </h1>
 
         <p className="subtitle">
-          Compact view of your routes, passengers, earnings, and trip status.
+          Consulta tus rutas, pasajeros, ganancias y el estado de cada viaje.
         </p>
 
         <Link href="/offer-ride" className="primaryButton">
-          Offer New Ride
+          Publicar un viaje
         </Link>
       </section>
 
       <section className="stats">
         <Metric label="Total" value={String(rides.length)} />
-        <Metric label="Active" value={String(groupedRides.active.length)} />
-        <Metric label="Done" value={String(groupedRides.completed.length)} />
-        <Metric label="Cancel" value={String(groupedRides.cancelled.length)} />
-        <Metric label="Seats" value={String(reservedSeats)} />
-        <Metric label="Earned" value={formatMoney(estimatedEarnings)} />
+        <Metric label="Activos" value={String(groupedRides.active.length)} />
+        <Metric label="Completados" value={String(groupedRides.completed.length)} />
+        <Metric label="Cancelados" value={String(groupedRides.cancelled.length)} />
+        <Metric label="Asientos" value={String(reservedSeats)} />
+        <Metric label="Ganancias" value={formatMoney(estimatedEarnings)} />
       </section>
 
       <section className="results">
@@ -297,16 +302,16 @@ export default function MyRidesPage() {
 
         {rides.length === 0 ? (
           <div className="empty">
-            <h2>No rides yet</h2>
-            <p>Publish your first ride and start receiving passengers.</p>
+            <h2>Aún no tienes viajes</h2>
+            <p>Publica tu primer viaje para recibir reservas.</p>
             <Link href="/offer-ride" className="primaryButton">
-              Offer Your First Ride
+              Publicar mi primer viaje
             </Link>
           </div>
         ) : (
           <>
             {groupedRides.active.length > 0 && (
-              <RideGroup title="Active" count={groupedRides.active.length}>
+              <RideGroup title="Activos" count={groupedRides.active.length}>
                 {groupedRides.active.map((ride) => (
                   <RideCard key={ride.id} ride={ride} />
                 ))}
@@ -314,7 +319,7 @@ export default function MyRidesPage() {
             )}
 
             {groupedRides.completed.length > 0 && (
-              <RideGroup title="Completed" count={groupedRides.completed.length}>
+              <RideGroup title="Completados" count={groupedRides.completed.length}>
                 {groupedRides.completed.map((ride) => (
                   <RideCard key={ride.id} ride={ride} />
                 ))}
@@ -322,7 +327,7 @@ export default function MyRidesPage() {
             )}
 
             {groupedRides.cancelled.length > 0 && (
-              <RideGroup title="Cancelled" count={groupedRides.cancelled.length}>
+              <RideGroup title="Cancelados" count={groupedRides.cancelled.length}>
                 {groupedRides.cancelled.map((ride) => (
                   <RideCard key={ride.id} ride={ride} />
                 ))}
@@ -340,8 +345,8 @@ export default function MyRidesPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.14), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.1), transparent 35%),
+            radial-gradient(circle at top right, rgba(217,195,157,0.14), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(184,155,105,0.1), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 16px;
@@ -403,7 +408,7 @@ export default function MyRidesPage() {
         .eyebrow,
         .metricValue,
         .price {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .eyebrow {
@@ -442,7 +447,7 @@ export default function MyRidesPage() {
           text-decoration: none;
           font-size: 15px;
           font-weight: 900;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
           color: white;
           border: none;
         }
@@ -474,7 +479,7 @@ export default function MyRidesPage() {
 
         .message {
           text-align: center;
-          color: #22c55e;
+          color: #d9c39d;
           font-weight: 900;
           margin: 18px 0;
         }
@@ -497,9 +502,9 @@ export default function MyRidesPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          color: #22c55e;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.28);
+          color: #d9c39d;
+          background: rgba(217,195,157,0.12);
+          border: 1px solid rgba(217,195,157,0.28);
           font-weight: 900;
         }
 
@@ -522,8 +527,8 @@ export default function MyRidesPage() {
           text-align: center;
           padding: 10px 12px;
           border-radius: 16px;
-          background: rgba(34,197,94,0.1);
-          border: 1px solid rgba(34,197,94,0.25);
+          background: rgba(217,195,157,0.1);
+          border: 1px solid rgba(217,195,157,0.25);
           font-size: 20px;
         }
 
@@ -564,8 +569,8 @@ export default function MyRidesPage() {
         }
 
         .activeStatus {
-          color: #22c55e;
-          border-color: rgba(34,197,94,0.35);
+          color: #d9c39d;
+          border-color: rgba(217,195,157,0.35);
         }
 
         .fullStatus {
@@ -603,9 +608,9 @@ export default function MyRidesPage() {
         }
 
         .mapButton {
-          color: #22c55e;
-          background: rgba(34,197,94,0.08);
-          border-color: rgba(34,197,94,0.28);
+          color: #d9c39d;
+          background: rgba(217,195,157,0.08);
+          border-color: rgba(217,195,157,0.28);
         }
 
         .empty {
@@ -699,4 +704,15 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="metricValue" translate="no"><span key={value}>{value}</span></div>
     </div>
   );
+}
+
+function estado(value?: string) {
+  const labels: Record<string, string> = {
+    active: "Activo", full: "Completo", completed: "Completado", cancelled: "Cancelado",
+    reserved: "Reservado", payment_pending: "Pago pendiente", pending: "Pendiente", unpaid: "Sin pagar",
+    paid: "Pagado", confirmed: "Confirmado", rejected: "Rechazado", approved: "Aprobado",
+    available: "Disponible", transferring: "Enviando", transferred: "Enviado", reversed: "Recuperado",
+    refunded: "Reembolsado", partially_refunded: "Reembolso parcial", pending_payout: "Pendiente de transferencia", transfer_review: "En revisión"
+  };
+  return labels[value || ""] || "En revisión";
 }

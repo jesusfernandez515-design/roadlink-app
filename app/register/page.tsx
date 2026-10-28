@@ -74,17 +74,17 @@ export default function RegisterPage() {
     console.error(error);
 
     if (error.code === "auth/email-already-in-use") {
-      setMessage("This Gmail is already registered. Please sign in instead.");
+      setMessage("Este Gmail ya está registrado. Inicia sesión con tu cuenta.");
     } else if (error.code === "auth/invalid-email") {
-      setMessage("Please enter a valid Gmail address.");
+      setMessage("Introduce un Gmail válido.");
     } else if (error.code === "auth/weak-password") {
-      setMessage("Password must be stronger.");
+      setMessage("Usa una contraseña más segura.");
     } else if (error.code === "auth/operation-not-allowed") {
-      setMessage("Email/password registration is not enabled in Firebase.");
+      setMessage("El registro con correo no está disponible en este momento.");
     } else if (error.code === "permission-denied") {
-      setMessage("Firestore permission denied. Please check Firebase rules.");
+      setMessage("No se pudo guardar tu cuenta. Contacta con soporte.");
     } else {
-      setMessage(error.message || "Something went wrong.");
+      setMessage("No se pudo completar el registro. Inténtalo de nuevo.");
     }
   }
 
@@ -93,27 +93,27 @@ export default function RegisterPage() {
     const cleanEmail = email.trim().toLowerCase();
 
     if (!cleanName || !cleanEmail || !password || !confirmPassword) {
-      setMessage("Please complete all fields.");
+      setMessage("Completa todos los campos.");
       return false;
     }
 
     if (!isValidGmail(cleanEmail)) {
-      setMessage("Please use a valid Gmail address ending in @gmail.com.");
+      setMessage("Usa un Gmail válido que termine en @gmail.com.");
       return false;
     }
 
     if (passwordScore < 4) {
-      setMessage("Password must include 8+ characters, uppercase, lowercase, and a number.");
+      setMessage("La contraseña debe incluir al menos 8 caracteres, mayúsculas, minúsculas y un número.");
       return false;
     }
 
     if (password !== confirmPassword) {
-      setMessage("Passwords do not match. Please try again.");
+      setMessage("Las contraseñas no coinciden. Revisa los campos.");
       return false;
     }
 
     if (!acceptedTerms) {
-      setMessage("Please accept the Terms of Service and Privacy Policy.");
+      setMessage("Acepta los Términos del servicio y la Política de privacidad.");
       return false;
     }
 
@@ -171,7 +171,7 @@ export default function RegisterPage() {
       await signOut(auth);
 
       setMessage(
-        "Account created. Please check your Gmail and verify your account. Redirecting to login..."
+        "Cuenta creada. Revisa tu Gmail para verificarla. Te llevaremos al inicio de sesión…"
       );
 
       setTimeout(() => {
@@ -186,7 +186,7 @@ export default function RegisterPage() {
 
   async function continueWithGoogle() {
     if (!acceptedTerms) {
-      setMessage("Please accept the Terms of Service and Privacy Policy.");
+      setMessage("Acepta los Términos del servicio y la Política de privacidad.");
       return;
     }
 
@@ -204,7 +204,7 @@ export default function RegisterPage() {
 
       if (!isValidGmail(cleanEmail)) {
         await signOut(auth);
-        setMessage("Please use a valid Gmail account.");
+        setMessage("Usa una cuenta de Gmail válida.");
         return;
       }
 
@@ -230,7 +230,7 @@ export default function RegisterPage() {
 
       localStorage.setItem("roadlink_registered_device", "true");
 
-      setMessage("Google account connected successfully. Redirecting to dashboard...");
+      setMessage("Cuenta de Google conectada. Abriendo tu panel…");
 
       setTimeout(() => {
         router.push("/dashboard");
@@ -249,35 +249,35 @@ export default function RegisterPage() {
           Road<span>Link</span>
         </div>
 
-        <p className="eyebrow">Secure Registration</p>
+        <p className="eyebrow">Registro seguro</p>
 
-        <h1>Create your account</h1>
+        <h1>Crea tu cuenta</h1>
 
         <p className="subtitle">
-          Join RoadLink with a verified Gmail and a secure password.
+          Únete a RoadLink con tu Gmail verificado y una contraseña segura.
         </p>
 
         <button className="social" onClick={continueWithGoogle} disabled={loading}>
-          {loading ? "Please wait..." : "Continue with Google"}
+          {loading ? "Espera un momento…" : "Continuar con Google"}
         </button>
 
-        <div className="divider">or</div>
+        <div className="divider">o</div>
 
         <input
-          placeholder="Full name"
+          placeholder="Nombre completo" aria-label="Nombre completo" autoComplete="name"
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
 
         <input
-          placeholder="Gmail address"
+          placeholder="Correo de Gmail" aria-label="Correo de Gmail" type="email" autoComplete="username"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
 
         <div className="passwordWrap">
           <input
-            placeholder="Password"
+            placeholder="Contraseña" aria-label="Contraseña" autoComplete="new-password"
             type={showPassword ? "text" : "password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -286,6 +286,7 @@ export default function RegisterPage() {
           <button
             type="button"
             className="eyeButton"
+            aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
             onClick={() => setShowPassword((previous) => !previous)}
           >
             {showPassword ? "🙈" : "👁️"}
@@ -295,9 +296,9 @@ export default function RegisterPage() {
         {password && (
           <div className="strengthBox">
             <div className="strengthTop">
-              <span>Password strength</span>
+              <span>Seguridad de la contraseña</span>
               <strong className={passwordStrength.toLowerCase()}>
-                {passwordStrength}
+                {{ Weak: "Baja", Medium: "Media", Strong: "Alta" }[passwordStrength]}
               </strong>
             </div>
 
@@ -306,17 +307,17 @@ export default function RegisterPage() {
             </div>
 
             <div className="rules">
-              <Rule active={passwordRules.length} text="At least 8 characters" />
-              <Rule active={passwordRules.uppercase} text="One uppercase letter" />
-              <Rule active={passwordRules.lowercase} text="One lowercase letter" />
-              <Rule active={passwordRules.number} text="One number" />
+              <Rule active={passwordRules.length} text="Al menos 8 caracteres" />
+              <Rule active={passwordRules.uppercase} text="Una letra mayúscula" />
+              <Rule active={passwordRules.lowercase} text="Una letra minúscula" />
+              <Rule active={passwordRules.number} text="Un número" />
             </div>
           </div>
         )}
 
         <div className="passwordWrap">
           <input
-            placeholder="Confirm password"
+            placeholder="Confirmar contraseña" aria-label="Confirmar contraseña" autoComplete="new-password"
             type={showConfirmPassword ? "text" : "password"}
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
@@ -325,6 +326,7 @@ export default function RegisterPage() {
           <button
             type="button"
             className="eyeButton"
+            aria-label={showConfirmPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
             onClick={() => setShowConfirmPassword((previous) => !previous)}
           >
             {showConfirmPassword ? "🙈" : "👁️"}
@@ -333,13 +335,13 @@ export default function RegisterPage() {
 
         {confirmPassword && (
           <p className={passwordsMatch ? "match good" : "match bad"}>
-            {passwordsMatch ? "✓ Passwords match" : "✗ Passwords do not match"}
+            {passwordsMatch ? "✓ Las contraseñas coinciden" : "✗ Las contraseñas no coinciden"}
           </p>
         )}
 
-        <select value={role} onChange={(event) => setRole(event.target.value)}>
-          <option value="passenger">Passenger</option>
-          <option value="driver">Driver</option>
+        <select aria-label="Tipo de cuenta" value={role} onChange={(event) => setRole(event.target.value)}>
+          <option value="passenger">Pasajero</option>
+          <option value="driver">Conductor</option>
         </select>
 
         <label className="terms">
@@ -349,26 +351,26 @@ export default function RegisterPage() {
             onChange={(event) => setAcceptedTerms(event.target.checked)}
           />
           <span>
-            I agree to the <Link href="/terms">Terms of Service</Link> and{" "}
-            <Link href="/privacy">Privacy Policy</Link>.
+            Acepto los <Link href="/terms">Términos del servicio</Link> y{" "}
+            <Link href="/privacy">Política de privacidad</Link>.
           </span>
         </label>
 
         <button className="primary" onClick={createAccount} disabled={loading}>
-          {loading ? "Creating Account..." : "Create Account"}
+          {loading ? "Creando cuenta…" : "Crear cuenta"}
         </button>
 
         {message && <p className="message">{message}</p>}
 
         <div className="securityBox">
-          <p>✅ Gmail verification required</p>
-          <p>✅ Strong password protection</p>
-          <p>✅ Password confirmation required</p>
-          <p>✅ Terms acceptance required</p>
+          <p>✅ Verificación de Gmail requerida</p>
+          <p>✅ Protección con contraseña segura</p>
+          <p>✅ Confirmación de contraseña requerida</p>
+          <p>✅ Aceptación de términos requerida</p>
         </div>
 
         <p className="footer">
-          Already have an account? <Link href="/login">Sign in</Link>
+          ¿Ya tienes una cuenta? <Link href="/login">Iniciar sesión</Link>
         </p>
       </section>
 
@@ -378,8 +380,8 @@ export default function RegisterPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 32%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.13), transparent 35%),
+            radial-gradient(circle at top right, rgba(217,195,157,0.22), transparent 32%),
+            radial-gradient(circle at bottom left, rgba(184,155,105,0.13), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           display: flex;
@@ -409,7 +411,7 @@ export default function RegisterPage() {
         .brand span,
         .eyebrow,
         .message {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .eyebrow {
@@ -449,8 +451,8 @@ export default function RegisterPage() {
 
         input:focus,
         select:focus {
-          border-color: rgba(34,197,94,0.65);
-          box-shadow: 0 0 0 4px rgba(34,197,94,0.1);
+          border-color: rgba(217,195,157,0.65);
+          box-shadow: 0 0 0 4px rgba(217,195,157,0.1);
         }
 
         input::placeholder {
@@ -492,9 +494,9 @@ export default function RegisterPage() {
           height: 36px;
           padding: 0;
           border-radius: 999px;
-          border: 1px solid rgba(34,197,94,0.35);
-          background: rgba(34,197,94,0.12);
-          color: #22c55e;
+          border: 1px solid rgba(217,195,157,0.35);
+          background: rgba(217,195,157,0.12);
+          color: #d9c39d;
           font-size: 15px;
         }
 
@@ -506,16 +508,16 @@ export default function RegisterPage() {
         }
 
         .social:hover {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
+          border-color: rgba(217,195,157,0.45);
+          background: rgba(217,195,157,0.12);
         }
 
         .primary {
           margin-top: 22px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
           border: none;
           color: white;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
+          box-shadow: 0 18px 50px rgba(217,195,157,0.25);
         }
 
         .divider {
@@ -554,7 +556,7 @@ export default function RegisterPage() {
 
         .weak { color: #f87171; }
         .medium { color: #fbbf24; }
-        .strong { color: #22c55e; }
+        .strong { color: #d9c39d; }
 
         .strengthTrack {
           height: 10px;
@@ -575,7 +577,7 @@ export default function RegisterPage() {
         .score1 { width: 25%; background: #ef4444; }
         .score2 { width: 50%; background: #f59e0b; }
         .score3 { width: 75%; background: #fbbf24; }
-        .score4 { width: 100%; background: #22c55e; }
+        .score4 { width: 100%; background: #d9c39d; }
 
         .rules {
           display: grid;
@@ -589,7 +591,7 @@ export default function RegisterPage() {
         }
 
         .rule.active {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .match {
@@ -598,7 +600,7 @@ export default function RegisterPage() {
           font-size: 14px;
         }
 
-        .match.good { color: #22c55e; }
+        .match.good { color: #d9c39d; }
         .match.bad { color: #f87171; }
 
         .terms {
@@ -616,11 +618,11 @@ export default function RegisterPage() {
           width: 18px;
           height: 18px;
           margin: 3px 0 0;
-          accent-color: #22c55e;
+          accent-color: #d9c39d;
         }
 
         .terms a {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .message {
@@ -634,8 +636,8 @@ export default function RegisterPage() {
           margin-top: 22px;
           padding: 16px;
           border-radius: 20px;
-          background: rgba(34,197,94,0.09);
-          border: 1px solid rgba(34,197,94,0.22);
+          background: rgba(217,195,157,0.09);
+          border: 1px solid rgba(217,195,157,0.22);
         }
 
         .securityBox p {

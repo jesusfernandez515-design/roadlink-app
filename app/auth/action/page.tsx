@@ -4,9 +4,12 @@ import Link from "../../components/AppLink";
 import { useEffect, useState } from "react";
 import { applyActionCode } from "firebase/auth";
 import { auth } from "../../../lib/firebase";
+import { useAppRouter } from "../../components/useAppRouter";
 
 export default function AuthActionPage() {
-  const [status, setStatus] = useState("Verifying your RoadLink account...");
+  const router = useAppRouter();
+  const [status, setStatus] = useState("Verificando tu correo…");
+  const [failed, setFailed] = useState(false);
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
@@ -23,13 +26,14 @@ export default function AuthActionPage() {
           currentUrl.searchParams.get("amp;oobCode");
 
         if (!oobCode) {
-          setStatus("Your email may already be verified. Please continue to login.");
-          setSuccess(true);
+          setStatus("Abre el enlace de verificación que recibiste por correo. Si ya verificaste tu cuenta, inicia sesión.");
+          setFailed(true);
           return;
         }
 
         if (mode && mode !== "verifyEmail") {
-          setStatus("This RoadLink verification link is not valid.");
+          setStatus("Este enlace no corresponde a una verificación de correo.");
+          setFailed(true);
           setSuccess(false);
           return;
         }
@@ -37,21 +41,22 @@ export default function AuthActionPage() {
         await applyActionCode(auth, oobCode);
 
         setSuccess(true);
-        setStatus("Your RoadLink account has been verified successfully.");
+        setStatus("Tu correo se ha verificado correctamente.");
 
         setTimeout(() => {
-          window.location.href = "/login";
+          router.replace("/login");
         }, 3000);
       } catch (error: any) {
         console.error(error);
 
-        setSuccess(true);
-        setStatus("Your email may already be verified. Please continue to login.");
+        setSuccess(false);
+        setFailed(true);
+        setStatus("No se pudo verificar el correo. El enlace puede haber caducado o haberse utilizado. Inicia sesión si ya verificaste tu cuenta, o solicita un enlace nuevo.");
       }
     }
 
     verifyEmail();
-  }, []);
+  }, [router]);
 
   return (
     <main className="page">
@@ -60,16 +65,16 @@ export default function AuthActionPage() {
           Road<span>Link</span>
         </div>
 
-        <div className="icon">{success ? "✅" : "⏳"}</div>
+        <div className="icon">{success ? "✅" : failed ? "⚠️" : "⏳"}</div>
 
-        <p className="eyebrow">{success ? "Verified Access" : "Verification Status"}</p>
+        <p className="eyebrow">{success ? "Acceso verificado" : "Verificación del correo"}</p>
 
-        <h1>{success ? "Email Verified" : "Verifying Email"}</h1>
+        <h1>{success ? "Correo verificado" : failed ? "Revisa tu enlace" : "Verificando correo"}</h1>
 
         <p className="subtitle">{status}</p>
 
         <Link href="/login" className="button">
-          Continue to Login
+          Ir a iniciar sesión
         </Link>
       </section>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "../components/AppLink";
+import RequireSession from "../components/RequireSession";
 import { isPendingBooking, retainedPayment } from "../../lib/wallet-totals";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "../../lib/firebase";
@@ -63,13 +64,17 @@ type UserProfile = {
 };
 
 export default function WalletPage() {
+  return <RequireSession purpose="Entra en tu cuenta para consultar tu cartera."><WalletPageContent /></RequireSession>;
+}
+
+function WalletPageContent() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [banking, setBanking] = useState<BankingInfo>({});
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [walletTransactions, setWalletTransactions] = useState<WalletTransaction[]>([]);
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
-  const [message, setMessage] = useState("Loading wallet...");
+  const [message, setMessage] = useState("Cargando cartera…");
   const [connect, setConnect] = useState<{ connected: boolean; ready: boolean } | null>(null);
   const testConnect = process.env.NEXT_PUBLIC_ROADLINK_ENV === "test";
   const [reads, setReads] = useState<Record<string, boolean>>({});
@@ -117,7 +122,7 @@ export default function WalletPage() {
           setWalletTransactions(data.walletTransactions.sort((a: WalletTransaction, b: WalletTransaction) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
           setPayouts(data.payouts.sort((a: PayoutRequest, b: PayoutRequest) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
           setReads({ profile: true, bookings: true, wallet: true, payouts: true });
-          setMessage(previous => !silent || ["Loading wallet...", "Consultando la cartera…"].includes(previous) ? "" : previous);
+          setMessage(previous => !silent || ["Cargando cartera…", "Consultando la cartera…"].includes(previous) ? "" : previous);
           // Stripe readiness is independent: it must never block wallet balances.
           void fetch("/api/connect/status", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) })
             .then(async (result) => { const state = await result.json(); if (latest()) { if (result.ok) setConnect(state); else setMessage(state.error || "Stripe no está disponible."); } })
@@ -243,9 +248,9 @@ export default function WalletPage() {
   const walletActivity = useMemo(() => {
     const transactionActivity = walletTransactions.map((item) => ({
       id: `wallet-${item.id}`,
-      title: item.type === "ride_payment" ? "Ride Payment" : "Wallet Transaction",
-      subtitle: item.description || "RoadLink wallet activity",
-      detail: String(item.status || "pending").toUpperCase(),
+      title: item.type === "ride_payment" ? "Pago de viaje" : "Movimiento de cartera",
+      subtitle: item.description || "Actividad de tu cartera RoadLink",
+      detail: estado(item.status),
       amount: Number(item.amount || 0),
       sign: "+",
       date: item.createdAt || "",
@@ -254,9 +259,9 @@ export default function WalletPage() {
 
     const rideActivity = completedBookings.map((booking) => ({
       id: `booking-${booking.id}`,
-      title: "Ride Earning",
-      subtitle: `${booking.from || "Origin"} → ${booking.to || "Destination"}`,
-      detail: booking.passengerEmail || "Passenger",
+      title: "Ganancia de viaje",
+      subtitle: `${booking.from || "Origen"} → ${booking.to || "Destino"}`,
+      detail: booking.passengerEmail || "Pasajero",
       amount: bookingNet(booking),
       sign: "+",
       date: booking.completedAt || booking.paidAt || booking.createdAt || "",
@@ -265,9 +270,9 @@ export default function WalletPage() {
 
     const payoutActivity = payouts.map((payout) => ({
       id: `payout-${payout.id}`,
-      title: payout.status === "reversed" ? "Recuperado por reembolso (pruebas)" : payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión",
-      subtitle: "Driver payout activity",
-      detail: String(payout.status || "pending").toUpperCase(),
+      title: payout.status === "reversed" ? "Recuperado por reembolso (pruebas)" : payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Transferencia enviada" : "Transferencia pendiente o en revisión",
+      subtitle: "Actividad de transferencias del conductor",
+      detail: estado(payout.status),
       amount: Number(payout.amount || 0),
       sign: ["paid", "transferred"].includes(payout.status || "") ? "-" : "hold",
       date: payout.paidAt || payout.updatedAt || payout.createdAt || "",
@@ -335,12 +340,12 @@ export default function WalletPage() {
   }
 
   function formatDate(value?: string) {
-    if (!value) return "Recently";
+    if (!value) return "Recientemente";
 
     try {
       return new Date(value).toLocaleString();
     } catch {
-      return "Recently";
+      return "Recientemente";
     }
   }
 
@@ -348,25 +353,25 @@ export default function WalletPage() {
     <main className="page walletPage">
       <section className="hero">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/dashboard/driver" className="miniButton">Driver Dashboard</Link>
-          <Link href="/my-rides" className="miniButton">My Rides</Link>
-          <Link href="/wallet/settings" className="miniButton">Banking</Link>
+          <Link href="/dashboard" className="miniButton">Mi panel</Link>
+          <Link href="/dashboard/driver" className="miniButton">Panel del conductor</Link>
+          <Link href="/my-rides" className="miniButton">Mis viajes</Link>
+          <Link href="/wallet/settings" className="miniButton">Datos bancarios</Link>
         </div>
 
-        <p className="eyebrow">RoadLink Wallet Center</p>
-        <h1>Driver <span>Wallet</span></h1>
+        <p className="eyebrow">Cartera RoadLink</p>
+        <h1>Cartera del <span>conductor</span></h1>
         <p className="subtitle">
-          Track driver earnings, RoadLink fees, pending payouts, paid payouts, wallet transactions and available balance.
+          Consulta tus ganancias, comisiones, transferencias y saldo disponible.
         </p>
 
         <div className="balanceBox">
-          <span>Available Balance</span>
+          <span>Saldo disponible</span>
           <strong>{money(availableBalance)}</strong>
           <small>
             {latestPayout
-              ? `Latest payout: ${String(latestPayout.status || "pending").toUpperCase()}`
-              : "No payout requests yet"}
+              ? `Última transferencia: ${estado(latestPayout.status)}`
+              : "Aún no hay solicitudes de transferencia"}
           </small>
         </div>
         <div className="walletToolbar"><button className="manageButton" disabled={requesting} onClick={() => { void refreshWallet.current(false); }}>Actualizar cartera</button></div>
@@ -390,22 +395,22 @@ export default function WalletPage() {
       </section>
 
       <section className="stats">
-        <Metric icon="💰" label="Gross Earnings" value={money(lifetimeGross)} />
-        <Metric icon="🧾" label="RoadLink Fee" value={money(lifetimeFees)} />
-        <Metric icon="🏦" label="Driver Net" value={money(lifetimeNetFromBookings)} />
-        <Metric icon="✅" label="Available" value={money(availableBalance)} />
-        <Metric icon="⏳" label="Pending Trips" value={money(pendingBalance)} />
-        <Metric icon="📤" label="Requested" value={money(activePayoutRequests)} />
+        <Metric icon="💰" label="Ingresos brutos" value={money(lifetimeGross)} />
+        <Metric icon="🧾" label="Comisión RoadLink" value={money(lifetimeFees)} />
+        <Metric icon="🏦" label="Neto del conductor" value={money(lifetimeNetFromBookings)} />
+        <Metric icon="✅" label="Disponible" value={money(availableBalance)} />
+        <Metric icon="⏳" label="Viajes pendientes" value={money(pendingBalance)} />
+        <Metric icon="📤" label="Solicitado" value={money(activePayoutRequests)} />
         <Metric icon="💸" label="Enviado a Stripe (pruebas)" value={money(walletTransactions.filter((item) => item.status === "transferred").reduce((sum, item) => sum + Number(item.amount || 0), 0))} />
-        <Metric icon="🚗" label="Completed Trips" value={walletReady ? String(bookings.filter((item) => item.status === "completed").length) : "—"} />
+        <Metric icon="🚗" label="Viajes completados" value={walletReady ? String(bookings.filter((item) => item.status === "completed").length) : "—"} />
       </section>
 
       <section className="payoutCard">
         <div>
-          <p className="eyebrow">Payout Center</p>
+          <p className="eyebrow">Centro de transferencias</p>
           <h2>Transferir a Stripe de pruebas</h2>
-          <p>Available to request: <strong>{money(availableBalance)}</strong></p>
-          <p>Pending or approved payout requests are reserved and not counted as available money.</p>
+          <p>Disponible para solicitar: <strong>{money(availableBalance)}</strong></p>
+          <p>Las solicitudes pendientes o aprobadas se reservan y no se cuentan como saldo disponible.</p>
         </div>
 
         <button onClick={requestPayout} disabled={!testConnect || !connect?.ready || !walletReady || requesting || !walletTransactions.some((item) => ["available", "transferring"].includes(item.status || ""))}>
@@ -414,13 +419,13 @@ export default function WalletPage() {
       </section>
 
       <section className="history">
-        <p className="eyebrow">Payout Requests</p>
-        <h2>Request History</h2>
+        <p className="eyebrow">Solicitudes de transferencia</p>
+        <h2>Historial de solicitudes</h2>
 
         {payouts.length === 0 ? (
           <div className="emptyCard">
-            <h3>No payout requests yet</h3>
-            <p>Your payout requests will appear here.</p>
+            <h3>Aún no hay solicitudes de transferencia</h3>
+            <p>Tus solicitudes de transferencia aparecerán aquí.</p>
           </div>
         ) : (
           payouts.map((payout) => (
@@ -428,9 +433,9 @@ export default function WalletPage() {
               <div className="transactionIcon">🏦</div>
 
               <div>
-                <strong>{payout.status === "reversed" ? "Recuperado por reembolso (pruebas)" : payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Payout Sent" : "Transferencia pendiente o en revisión"}</strong>
+                <strong>{payout.status === "reversed" ? "Recuperado por reembolso (pruebas)" : payout.status === "transferred" ? "Enviado a Stripe (pruebas)" : payout.status === "paid" ? "Transferencia enviada" : "Transferencia pendiente o en revisión"}</strong>
                 <p>{formatDate(payout.createdAt)}</p>
-                <small>Status: {String(payout.status || "pending").toUpperCase()}</small>
+                <small>Estado: {estado(payout.status)}</small>
               </div>
 
               <div className={`amount ${payout.status || "pending"}`}>
@@ -442,8 +447,8 @@ export default function WalletPage() {
       </section>
 
       <section className="history">
-        <p className="eyebrow">Wallet Transactions</p>
-        <h2>Activity History</h2>
+        <p className="eyebrow">Movimientos de cartera</p>
+        <h2>Historial de actividad</h2>
 
         {!walletReady ? (
           <div className="emptyCard" role="status">
@@ -452,8 +457,8 @@ export default function WalletPage() {
           </div>
         ) : walletActivity.length === 0 ? (
           <div className="emptyCard">
-            <h3>No wallet activity yet</h3>
-            <p>Completed ride earnings, wallet transactions and payouts will appear here.</p>
+            <h3>Aún no hay movimientos</h3>
+            <p>Aquí aparecerán las ganancias de viajes completados, los movimientos y las transferencias.</p>
           </div>
         ) : (
           walletActivity.map((activity) => (
@@ -492,8 +497,8 @@ export default function WalletPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.12), transparent 35%),
+            radial-gradient(circle at top right, rgba(217,195,157,0.22), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(184,155,105,0.12), transparent 35%),
             linear-gradient(135deg, #020617, #030712, #0f172a);
           color: white;
           padding: 20px;
@@ -549,7 +554,7 @@ export default function WalletPage() {
 
         .eyebrow {
           margin: 0 0 10px;
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 13px;
           font-weight: 900;
           letter-spacing: 0.08em;
@@ -566,7 +571,7 @@ export default function WalletPage() {
         h2,
         .balanceBox strong,
         .metricValue {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .subtitle {
@@ -579,8 +584,8 @@ export default function WalletPage() {
           margin-top: 24px;
           padding: 24px;
           border-radius: 26px;
-          background: rgba(34,197,94,0.1);
-          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(217,195,157,0.1);
+          border: 1px solid rgba(217,195,157,0.35);
         }
 
         .balanceBox span,
@@ -599,7 +604,7 @@ export default function WalletPage() {
         .message {
           max-width: 980px;
           margin: 0 auto 18px;
-          color: #22c55e;
+          color: #d9c39d;
           font-weight: 900;
         }
 
@@ -642,7 +647,7 @@ export default function WalletPage() {
         .manageButton {
           padding: 16px 22px;
           border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
           color: white;
           text-decoration: none;
           font-weight: 900;
@@ -705,7 +710,7 @@ export default function WalletPage() {
           width: 44px;
           height: 44px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
+          background: rgba(217,195,157,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -754,14 +759,14 @@ export default function WalletPage() {
         }
 
         .payoutCard strong {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .payoutCard button {
           padding: 16px 22px;
           border-radius: 999px;
           border: none;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
           color: white;
           font-weight: 900;
           cursor: pointer;
@@ -786,7 +791,7 @@ export default function WalletPage() {
           width: 50px;
           height: 50px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
+          background: rgba(217,195,157,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -813,7 +818,7 @@ export default function WalletPage() {
 
         .amount.good,
         .amount.approved {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         .amount.pending {
@@ -904,4 +909,15 @@ function BankInfo({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function estado(value?: string) {
+  const labels: Record<string, string> = {
+    active: "Activo", full: "Completo", completed: "Completado", cancelled: "Cancelado",
+    reserved: "Reservado", payment_pending: "Pago pendiente", pending: "Pendiente", unpaid: "Sin pagar",
+    paid: "Pagado", confirmed: "Confirmado", rejected: "Rechazado", approved: "Aprobado",
+    available: "Disponible", transferring: "Enviando", transferred: "Enviado", reversed: "Recuperado",
+    refunded: "Reembolsado", partially_refunded: "Reembolso parcial", pending_payout: "Pendiente de transferencia", transfer_review: "En revisión"
+  };
+  return labels[value || ""] || "En revisión";
 }
