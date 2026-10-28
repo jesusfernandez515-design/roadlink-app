@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "../components/AppLink";
+import RequireSession from "../components/RequireSession";
 import { useState, type ReactNode } from "react";
 import { useAppRouter as useRouter } from "../components/useAppRouter";
 import { addDoc, collection } from "firebase/firestore";
@@ -19,6 +20,10 @@ type RouteInfo = {
 };
 
 export default function OfferRidePage() {
+  return <RequireSession purpose="Entra en tu cuenta para publicar un viaje."><OfferRidePageContent /></RequireSession>;
+}
+
+function OfferRidePageContent() {
   const router = useRouter();
 
   const [from, setFrom] = useState("");
@@ -40,7 +45,7 @@ export default function OfferRidePage() {
     durationMinutes: 0,
   });
 
-  const [message, setMessage] = useState("Manual route mode ready.");
+  const [message, setMessage] = useState("Selecciona el origen y el destino para preparar tu viaje.");
   const [geoLoading, setGeoLoading] = useState<"from" | "to" | "">("");
   const [loading, setLoading] = useState(false);
 
@@ -62,13 +67,13 @@ export default function OfferRidePage() {
     const value = target === "from" ? from.trim() : to.trim();
 
     if (!value) {
-      setMessage("Type an address first.");
+      setMessage("Escribe una dirección primero.");
       return;
     }
 
     try {
       setGeoLoading(target);
-      setMessage("Finding address...");
+      setMessage("Buscando dirección…");
 
       const searchText = value.toLowerCase().includes("puerto rico")
         ? value
@@ -83,7 +88,7 @@ export default function OfferRidePage() {
       const results = await response.json();
 
       if (!Array.isArray(results) || results.length === 0) {
-        setMessage("Address not found. Try Guayama Puerto Rico or Patillas Puerto Rico.");
+        setMessage("No encontramos esa dirección. Prueba con el municipio y Puerto Rico.");
         return;
       }
 
@@ -101,16 +106,16 @@ export default function OfferRidePage() {
       if (target === "from") {
         setFrom(label);
         setFromCoords(coords);
-        setMessage("Pickup address selected.");
+        setMessage("Origen seleccionado.");
         if (toCoords) calculateRoute(coords, toCoords);
       } else {
         setTo(label);
         setToCoords(coords);
-        setMessage("Destination address selected.");
+        setMessage("Destino seleccionado.");
         if (fromCoords) calculateRoute(fromCoords, coords);
       }
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not find address.");
+      setMessage(error instanceof Error ? error.message : "No se pudo encontrar la dirección.");
     } finally {
       setGeoLoading("");
     }
@@ -119,7 +124,7 @@ export default function OfferRidePage() {
   function getCurrentPosition() {
     return new Promise<LatLng>((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(new Error("GPS is not available."));
+        reject(new Error("El GPS no está disponible."));
         return;
       }
 
@@ -130,7 +135,7 @@ export default function OfferRidePage() {
             lng: position.coords.longitude,
           });
         },
-        () => reject(new Error("Location permission was denied.")),
+        () => reject(new Error("No se concedió el permiso de ubicación.")),
         {
           enableHighAccuracy: true,
           timeout: 15000,
@@ -160,7 +165,7 @@ export default function OfferRidePage() {
   async function useCurrentLocation(target: "from" | "to") {
     try {
       setGeoLoading(target);
-      setMessage("Getting GPS location...");
+      setMessage("Obteniendo tu ubicación…");
 
       const coords = await getCurrentPosition();
       const address = await reverseGeocode(coords);
@@ -170,16 +175,16 @@ export default function OfferRidePage() {
       if (target === "from") {
         setFrom(address);
         setFromCoords(coords);
-        setMessage("Current location set as pickup.");
+        setMessage("Tu ubicación se seleccionó como origen.");
         if (toCoords) calculateRoute(coords, toCoords);
       } else {
         setTo(address);
         setToCoords(coords);
-        setMessage("Current location set as destination.");
+        setMessage("Tu ubicación se seleccionó como destino.");
         if (fromCoords) calculateRoute(fromCoords, coords);
       }
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not get GPS location.");
+      setMessage(error instanceof Error ? error.message : "No se pudo obtener tu ubicación.");
     } finally {
       setGeoLoading("");
     }
@@ -190,8 +195,8 @@ export default function OfferRidePage() {
     const estimatedMinutes = Math.max(5, Math.round(miles * 2.1));
 
     setRouteInfo({
-      distanceText: `${miles} mi estimated`,
-      durationText: `${estimatedMinutes} min estimated`,
+      distanceText: `${miles} mi estimadas`,
+      durationText: `${estimatedMinutes} min estimados`,
       distanceMiles: miles,
       durationMinutes: estimatedMinutes,
     });
@@ -232,39 +237,39 @@ export default function OfferRidePage() {
     const user = auth.currentUser;
 
     if (!user) {
-      setMessage("Please sign in before publishing a ride.");
+      setMessage("Inicia sesión antes de publicar un viaje.");
       router.push("/login");
       return;
     }
 
     if (!from || !to || !date || !time || !seats || !price || !vehicle) {
-      setMessage("Please complete all required fields.");
+      setMessage("Completa todos los campos obligatorios.");
       return;
     }
 
     if (!fromCoords) {
-      setMessage("Press Use Typed Address or GPS for pickup.");
+      setMessage("Confirma la dirección de origen o usa el GPS.");
       return;
     }
 
     if (!toCoords) {
-      setMessage("Press Use Typed Address or GPS for destination.");
+      setMessage("Confirma la dirección de destino o usa el GPS.");
       return;
     }
 
     if (routeInfo.distanceMiles <= 0) {
       calculateRoute(fromCoords, toCoords);
-      setMessage("Route calculated. Press Publish again.");
+      setMessage("Estimación calculada. Pulsa Publicar de nuevo.");
       return;
     }
 
     if (Number(price) <= 0) {
-      setMessage("Price must be greater than 0.");
+      setMessage("El precio debe ser mayor que cero.");
       return;
     }
 
     if (Number(seats) <= 0) {
-      setMessage("Seats must be greater than 0.");
+      setMessage("Debe haber al menos un asiento disponible.");
       return;
     }
 
@@ -299,7 +304,7 @@ export default function OfferRidePage() {
 
       router.push("/find-ride");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(error instanceof Error ? error.message : "No se pudo publicar el viaje. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -309,23 +314,23 @@ export default function OfferRidePage() {
     <main className="page">
       <section className="card heroCard">
         <div className="nav">
-          <button type="button" onClick={() => router.back()}>← Back</button>
-          <Link href="/">Home</Link>
-          <Link href="/dashboard">Dashboard</Link>
-          <Link href="/profile">Profile</Link>
+          <button type="button" onClick={() => router.back()}>← Volver</button>
+          <Link href="/">Inicio</Link>
+          <Link href="/dashboard">Mi panel</Link>
+          <Link href="/profile">Perfil</Link>
         </div>
 
         <h1>Road<span>Link</span></h1>
-        <h2>Offer a <span>Ride</span></h2>
-        <p>Publish your ride using manual address search or GPS. No Google popup required.</p>
+        <h2>Publicar un <span>viaje</span></h2>
+        <p>Indica el origen, el destino y los detalles del viaje. La distancia y duración son estimaciones en línea recta.</p>
 
         <div className="mapsStatus ready">
-          Manual Maps Ready
+          Preparar mi ruta
         </div>
       </section>
 
       <section className="card">
-        <Field label="From *">
+        <Field label="Origen *">
           <div className="locationInputRow">
             <input
               value={from}
@@ -334,10 +339,10 @@ export default function OfferRidePage() {
                 setFromCoords(null);
                 resetRouteInfo();
               }}
-              placeholder="Example: Guayama Puerto Rico"
+              placeholder="Ejemplo: Guayama, Puerto Rico"
             />
             <button type="button" onClick={() => geocodeTypedAddress("from")} disabled={geoLoading !== ""}>
-              {geoLoading === "from" ? "Finding..." : "Use Typed Address"}
+              {geoLoading === "from" ? "Buscando…" : "Confirmar dirección"}
             </button>
             <button type="button" onClick={() => useCurrentLocation("from")} disabled={geoLoading !== ""}>
               GPS
@@ -345,7 +350,7 @@ export default function OfferRidePage() {
           </div>
         </Field>
 
-        <Field label="To *">
+        <Field label="Destino *">
           <div className="locationInputRow">
             <input
               value={to}
@@ -354,47 +359,47 @@ export default function OfferRidePage() {
                 setToCoords(null);
                 resetRouteInfo();
               }}
-              placeholder="Example: Patillas Puerto Rico"
+              placeholder="Ejemplo: Patillas, Puerto Rico"
             />
             <button type="button" onClick={() => geocodeTypedAddress("to")} disabled={geoLoading !== ""}>
-              {geoLoading === "to" ? "Finding..." : "Use Typed Address"}
+              {geoLoading === "to" ? "Buscando…" : "Confirmar dirección"}
             </button>
             <button type="button" onClick={() => useCurrentLocation("to")} disabled={geoLoading !== ""}>
               GPS
             </button>
           </div>
 
-          {!toCoords && <p className="fieldWarning">Type destination and press Use Typed Address.</p>}
-          {toCoords && <p className="fieldSuccess">Destination selected.</p>}
+          {!toCoords && <p className="fieldWarning">Escribe el destino y pulsa Confirmar dirección.</p>}
+          {toCoords && <p className="fieldSuccess">Destino seleccionado.</p>}
         </Field>
 
         <div className="routeStats">
-          <StatBox label="Distance" value={routeInfo.distanceText || "Select route"} />
-          <StatBox label="Duration" value={routeInfo.durationText || "Select route"} />
-          <StatBox label="Miles" value={routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"} />
-          <StatBox label="Suggested" value={suggestedPrice ? `$${suggestedPrice}` : "$0"} />
+          <StatBox label="Distancia estimada" value={routeInfo.distanceText || "Selecciona una ruta"} />
+          <StatBox label="Duración estimada" value={routeInfo.durationText || "Selecciona una ruta"} />
+          <StatBox label="Millas" value={routeInfo.distanceMiles ? `${routeInfo.distanceMiles} mi` : "0 mi"} />
+          <StatBox label="Precio sugerido" value={suggestedPrice ? `$${suggestedPrice}` : "$0"} />
         </div>
 
-        <Field label="Date *">
+        <Field label="Fecha *">
           <input value={date} onChange={(e) => setDate(e.target.value)} type="date" />
         </Field>
 
-        <Field label="Departure Time *">
+        <Field label="Hora de salida *">
           <input value={time} onChange={(e) => setTime(e.target.value)} type="time" />
         </Field>
 
-        <Field label="Available Seats *">
+        <Field label="Asientos disponibles *">
           <select value={seats} onChange={(e) => setSeats(e.target.value)}>
-            <option value="1">1 seat</option>
-            <option value="2">2 seats</option>
-            <option value="3">3 seats</option>
-            <option value="4">4 seats</option>
-            <option value="5">5 seats</option>
-            <option value="6">6 seats</option>
+            <option value="1">1 asiento</option>
+            <option value="2">2 asientos</option>
+            <option value="3">3 asientos</option>
+            <option value="4">4 asientos</option>
+            <option value="5">5 asientos</option>
+            <option value="6">6 asientos</option>
           </select>
         </Field>
 
-        <Field label="Price per Seat *">
+        <Field label="Precio por asiento *">
           <div className="priceRow">
             <input
               value={price}
@@ -403,11 +408,11 @@ export default function OfferRidePage() {
               min="1"
               placeholder="45"
             />
-            <button type="button" onClick={useSuggestedPrice}>Use ${suggestedPrice || 0}</button>
+            <button type="button" onClick={useSuggestedPrice}>Usar ${suggestedPrice || 0}</button>
           </div>
         </Field>
 
-        <Field label="Vehicle *">
+        <Field label="Vehículo *">
           <input
             value={vehicle}
             onChange={(e) => setVehicle(e.target.value)}
@@ -415,30 +420,30 @@ export default function OfferRidePage() {
           />
         </Field>
 
-        <Field label="Trip Notes">
+        <Field label="Notas del viaje">
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Pickup details, luggage, rules..."
+            placeholder="Punto de encuentro, equipaje, reglas…"
           />
         </Field>
 
         <div className="preview">
-          <p className="eyebrow">Live Preview</p>
-          <strong>{from || "Starting point"} → {to || "Destination"}</strong>
-          <p>{date || "Date"} · {time || "Time"} · {seats} seats · ${price || "0"}</p>
-          <p>🛣️ {routeInfo.distanceText || "Distance pending"} · ⏱️ {routeInfo.durationText || "Duration pending"}</p>
+          <p className="eyebrow">Vista previa</p>
+          <strong>{from || "Origen"} → {to || "Destino"}</strong>
+          <p>{date || "Fecha"} · {time || "Hora"} · {seats} asientos · ${price || "0"}</p>
+          <p>🛣️ {routeInfo.distanceText || "Distancia pendiente"} · ⏱️ {routeInfo.durationText || "Duración pendiente"}</p>
 
-          {fromCoords && <p className="coords">Start GPS: {fromCoords.lat.toFixed(5)}, {fromCoords.lng.toFixed(5)}</p>}
-          {toCoords && <p className="coords">Destination GPS: {toCoords.lat.toFixed(5)}, {toCoords.lng.toFixed(5)}</p>}
+          {fromCoords && <p className="coords">GPS de origen: {fromCoords.lat.toFixed(5)}, {fromCoords.lng.toFixed(5)}</p>}
+          {toCoords && <p className="coords">GPS de destino: {toCoords.lat.toFixed(5)}, {toCoords.lng.toFixed(5)}</p>}
 
           {fromCoords && toCoords && (
-            <a href={buildMapUrl()} target="_blank" rel="noopener noreferrer">Open route in Google Maps</a>
+            <a href={buildMapUrl()} target="_blank" rel="noopener noreferrer">Ver ruta en Google Maps</a>
           )}
         </div>
 
         <button className="publish" onClick={publishRide} disabled={loading || !fromCoords || !toCoords}>
-          {loading ? "Publishing..." : fromCoords && toCoords ? "Publish Ride" : "Select Pickup & Destination"}
+          {loading ? "Publicando…" : fromCoords && toCoords ? "Publicar viaje" : "Selecciona origen y destino"}
         </button>
 
         {message && <p className="message">{message}</p>}
@@ -447,7 +452,7 @@ export default function OfferRidePage() {
       <style>{`
         .page {
           min-height: 100vh;
-          background: radial-gradient(circle at top right, rgba(34,197,94,0.16), transparent 34%), linear-gradient(135deg, #020617, #030712, #0f172a);
+          background: radial-gradient(circle at top right, rgba(217,195,157,0.16), transparent 34%), linear-gradient(135deg, #070d11, #0b1217, #10191e);
           color: white;
           padding: 24px;
           padding-bottom: 180px;
@@ -485,12 +490,12 @@ export default function OfferRidePage() {
 
         h1 { font-size: 36px; margin: 0 0 24px; }
         h2 { font-size: 46px; margin: 0 0 14px; line-height: 1; }
-        span, h2 span { color: #22c55e; }
+        span, h2 span { color: #d9c39d; }
 
         p { color: #a1a1aa; line-height: 1.5; }
 
         .eyebrow {
-          color: #22c55e;
+          color: #d9c39d;
           margin: 0 0 8px;
           font-size: 12px;
           font-weight: 900;
@@ -511,9 +516,9 @@ export default function OfferRidePage() {
         }
 
         .mapsStatus.ready {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.35);
-          color: #22c55e;
+          background: rgba(217, 195, 157, 0.12);
+          border-color: rgba(217, 195, 157, 0.35);
+          color: #d9c39d;
         }
 
         .field { margin-bottom: 18px; }
@@ -538,7 +543,7 @@ export default function OfferRidePage() {
         }
 
         textarea { min-height: 110px; resize: vertical; }
-        option { background: #020617; }
+        option { background: #070d11; }
 
         .locationInputRow,
         .priceRow {
@@ -552,9 +557,9 @@ export default function OfferRidePage() {
         .locationInputRow button,
         .priceRow button {
           border-radius: 16px;
-          border: 1px solid rgba(34,197,94,0.35);
-          background: rgba(34,197,94,0.12);
-          color: #22c55e;
+          border: 1px solid rgba(217,195,157,0.35);
+          background: rgba(217,195,157,0.12);
+          color: #d9c39d;
           padding: 0 16px;
           font-weight: 900;
           cursor: pointer;
@@ -574,7 +579,7 @@ export default function OfferRidePage() {
         }
 
         .fieldWarning { color: #fbbf24; }
-        .fieldSuccess { color: #22c55e; }
+        .fieldSuccess { color: #d9c39d; }
 
         .routeStats {
           display: grid;
@@ -585,8 +590,8 @@ export default function OfferRidePage() {
 
         .statBox {
           border-radius: 16px;
-          background: rgba(34,197,94,0.08);
-          border: 1px solid rgba(34,197,94,0.18);
+          background: rgba(217,195,157,0.08);
+          border: 1px solid rgba(217,195,157,0.18);
           padding: 12px;
           min-height: 72px;
         }
@@ -602,7 +607,7 @@ export default function OfferRidePage() {
 
         .statBox strong {
           display: block;
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 15px;
           overflow-wrap: anywhere;
         }
@@ -631,7 +636,7 @@ export default function OfferRidePage() {
         .preview a {
           display: inline-block;
           margin-top: 12px;
-          color: #22c55e;
+          color: #d9c39d;
           font-weight: 900;
         }
 
@@ -640,12 +645,12 @@ export default function OfferRidePage() {
           border: 0;
           border-radius: 999px;
           padding: 18px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
+          color: #070d11;
           font-size: 18px;
           font-weight: 900;
           cursor: pointer;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
+          box-shadow: 0 18px 50px rgba(217,195,157,0.25);
         }
 
         .publish:disabled {
@@ -656,7 +661,7 @@ export default function OfferRidePage() {
 
         .message {
           text-align: center;
-          color: #22c55e;
+          color: #d9c39d;
           font-weight: 900;
         }
 

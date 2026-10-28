@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "../components/AppLink";
+import RequireSession from "../components/RequireSession";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -29,11 +30,15 @@ type Chat = {
 type InboxFilter = "all" | "unread" | "driver" | "passenger";
 
 export default function MessagesPage() {
+  return <RequireSession purpose="Entra en tu cuenta para consultar tus conversaciones."><MessagesPageContent /></RequireSession>;
+}
+
+function MessagesPageContent() {
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [driverChats, setDriverChats] = useState<Chat[]>([]);
   const [passengerChats, setPassengerChats] = useState<Chat[]>([]);
-  const [status, setStatus] = useState("Loading Messages Center...");
+  const [status, setStatus] = useState("Cargando mensajes…");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
 
@@ -42,7 +47,7 @@ export default function MessagesPage() {
       if (!user) {
         setUserId("");
         setUserEmail("");
-        setStatus("Please sign in to view your messages.");
+        setStatus("Inicia sesión para ver tus mensajes.");
         return;
       }
 
@@ -212,10 +217,10 @@ export default function MessagesPage() {
     const isDriver = chat.driverId === userId;
 
     if (isDriver) {
-      return chat.passengerEmail || chat.lastSenderEmail || "Passenger";
+      return chat.passengerEmail || chat.lastSenderEmail || "Pasajero";
     }
 
-    return chat.driverEmail || chat.lastSenderEmail || "Driver";
+    return chat.driverEmail || chat.lastSenderEmail || "Conductor";
   }
 
   function getInitial(name: string) {
@@ -223,7 +228,7 @@ export default function MessagesPage() {
   }
 
   function getRole(chat: Chat) {
-    return chat.driverId === userId ? "Driver Inbox" : "Passenger Inbox";
+    return chat.driverId === userId ? "Como conductor" : "Como pasajero";
   }
 
   function getOpenChatUrl(chat: Chat) {
@@ -239,13 +244,13 @@ export default function MessagesPage() {
   }
 
   function formatTime(value?: string) {
-    if (!value) return "Now";
+    if (!value) return "Ahora";
 
     try {
       const date = new Date(value);
 
       if (Number.isNaN(date.getTime())) {
-        return value.slice(11, 16) || "Now";
+        return value.slice(11, 16) || "Ahora";
       }
 
       const today = new Date();
@@ -260,7 +265,7 @@ export default function MessagesPage() {
       }
 
       if (date.toDateString() === yesterday.toDateString()) {
-        return "Yesterday";
+        return "Ayer";
       }
 
       return date.toLocaleDateString([], {
@@ -268,7 +273,7 @@ export default function MessagesPage() {
         day: "numeric",
       });
     } catch {
-      return value.slice(11, 16) || "Now";
+      return value.slice(11, 16) || "Ahora";
     }
   }
 
@@ -276,18 +281,18 @@ export default function MessagesPage() {
     <main className="page">
       <section className="inbox">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">← Dashboard</Link>
-          <Link href="/find-ride" className="miniButton">Find Ride</Link>
-          <Link href="/offer-ride" className="miniButton">Offer Ride</Link>
-          <Link href="/notifications" className="miniButton">Notifications</Link>
+          <Link href="/dashboard" className="miniButton">← Mi panel</Link>
+          <Link href="/find-ride" className="miniButton">Buscar viaje</Link>
+          <Link href="/offer-ride" className="miniButton">Publicar viaje</Link>
+          <Link href="/notifications" className="miniButton">Notificaciones</Link>
         </div>
 
         <section className="heroCard">
           <div>
-            <p className="eyebrow">RoadLink Messages</p>
-            <h1>Messages <span>Center</span></h1>
+            <p className="eyebrow">Mensajes RoadLink</p>
+            <h1>Centro de <span>mensajes</span></h1>
             <p className="subtitle">
-              Premium conversation inbox with unread counters, ride context, search, filters and direct chat access.
+              Consulta tus conversaciones y mensajes pendientes, busca y accede al chat de cada viaje.
             </p>
           </div>
 
@@ -300,50 +305,50 @@ export default function MessagesPage() {
         {status && <p className="status">{status}</p>}
 
         <section className="summaryGrid">
-          <Summary label="Conversations" value={String(conversations.length)} />
-          <Summary label="Unread" value={String(totalUnread)} />
-          <Summary label="Driver Inbox" value={String(driverInboxCount)} />
-          <Summary label="Passenger Inbox" value={String(passengerInboxCount)} />
+          <Summary label="Conversaciones" value={String(conversations.length)} />
+          <Summary label="Sin leer" value={String(totalUnread)} />
+          <Summary label="Como conductor" value={String(driverInboxCount)} />
+          <Summary label="Como pasajero" value={String(passengerInboxCount)} />
         </section>
 
         <section className="controlPanel">
           <div>
-            <p className="eyebrow">Inbox Controls</p>
-            <h2>Search & Filters</h2>
+            <p className="eyebrow">Tus conversaciones</p>
+            <h2>Búsqueda y filtros</h2>
           </div>
 
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by user, message or ride ID..."
+            placeholder="Buscar por persona, mensaje o número de viaje…"
           />
 
           <div className="filterGrid">
-            <FilterButton label="All" value="all" current={filter} setFilter={setFilter} count={conversations.length} />
-            <FilterButton label="Unread" value="unread" current={filter} setFilter={setFilter} count={totalUnread} />
-            <FilterButton label="Driver" value="driver" current={filter} setFilter={setFilter} count={driverInboxCount} />
-            <FilterButton label="Passenger" value="passenger" current={filter} setFilter={setFilter} count={passengerInboxCount} />
+            <FilterButton label="Todas" value="all" current={filter} setFilter={setFilter} count={conversations.length} />
+            <FilterButton label="Sin leer" value="unread" current={filter} setFilter={setFilter} count={totalUnread} />
+            <FilterButton label="Conductor" value="driver" current={filter} setFilter={setFilter} count={driverInboxCount} />
+            <FilterButton label="Pasajero" value="passenger" current={filter} setFilter={setFilter} count={passengerInboxCount} />
           </div>
         </section>
 
         <section className="messagesCard">
           <div className="sectionHeader">
             <div>
-              <p className="eyebrow">Conversations</p>
-              <h2>Inbox</h2>
+              <p className="eyebrow">Conversaciones</p>
+              <h2>Bandeja de entrada</h2>
             </div>
 
             <div className={totalUnread > 0 ? "statusPill unreadLive" : "statusPill"}>
-              {totalUnread > 0 ? `${totalUnread} New` : "Live"}
+              {totalUnread > 0 ? `${totalUnread} nuevos` : "En línea"}
             </div>
           </div>
 
           {filteredConversations.length === 0 ? (
             <div className="empty">
               <div className="emptyIcon">💬</div>
-              <h3>No conversations found</h3>
-              <p>When someone messages you about a ride, the conversation will appear here.</p>
-              <Link href="/find-ride" className="mainButton">Find a Ride</Link>
+              <h3>No hay conversaciones</h3>
+              <p>Cuando tengas una conversación sobre un viaje, aparecerá aquí.</p>
+              <Link href="/find-ride" className="mainButton">Buscar un viaje</Link>
             </div>
           ) : (
             <div className="conversationList">
@@ -370,17 +375,17 @@ export default function MessagesPage() {
                       </div>
 
                       <p className={unread > 0 ? "messagePreview strong" : "messagePreview"}>
-                        {isLastMessageMine ? "You: " : ""}
-                        {conversation.lastMessage || "New conversation"}
+                        {isLastMessageMine ? "Tú: " : ""}
+                        {conversation.lastMessage || "Nueva conversación"}
                       </p>
 
                       <div className="conversationMeta">
                         <span>{getRole(conversation)}</span>
-                        {conversation.rideId && <span>Ride #{conversation.rideId.slice(0, 6)}</span>}
+                        {conversation.rideId && <span>Viaje #{conversation.rideId.slice(0, 6)}</span>}
                         {unread > 0 ? (
-                          <span className="unreadBadge">{unread} new</span>
+                          <span className="unreadBadge">{unread} nuevos</span>
                         ) : (
-                          <span>Opened</span>
+                          <span>Leído</span>
                         )}
                       </div>
                     </div>
@@ -400,9 +405,9 @@ export default function MessagesPage() {
         .page {
           min-height: 100vh;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.24), transparent 32%),
-            radial-gradient(circle at bottom left, rgba(16,185,129,0.14), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
+            radial-gradient(circle at top right, rgba(217,195,157,0.24), transparent 32%),
+            radial-gradient(circle at bottom left, rgba(184,155,105,0.14), transparent 35%),
+            linear-gradient(135deg, #070d11, #0b1217, #10191e);
           color: white;
           padding: 24px;
           padding-bottom: 130px;
@@ -434,8 +439,8 @@ export default function MessagesPage() {
         }
 
         .miniButton:hover {
-          border-color: rgba(34,197,94,0.48);
-          background: rgba(34,197,94,0.12);
+          border-color: rgba(217,195,157,0.48);
+          background: rgba(217,195,157,0.12);
         }
 
         .heroCard,
@@ -460,7 +465,7 @@ export default function MessagesPage() {
 
         .eyebrow {
           margin: 0 0 10px;
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 13px;
           font-weight: 900;
           letter-spacing: 0.08em;
@@ -476,7 +481,7 @@ export default function MessagesPage() {
 
         h1 span,
         h2 {
-          color: #22c55e;
+          color: #d9c39d;
         }
 
         h2 {
@@ -497,12 +502,12 @@ export default function MessagesPage() {
           min-width: 96px;
           height: 96px;
           border-radius: 50%;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 40px;
-          box-shadow: 0 18px 55px rgba(34,197,94,0.35);
+          box-shadow: 0 18px 55px rgba(217,195,157,0.35);
         }
 
         .heroBubble span {
@@ -519,7 +524,7 @@ export default function MessagesPage() {
           justify-content: center;
           font-size: 13px;
           font-weight: 900;
-          border: 2px solid #020617;
+          border: 2px solid #070d11;
         }
 
         .hotBubble {
@@ -534,7 +539,7 @@ export default function MessagesPage() {
 
         .status {
           text-align: center;
-          color: #22c55e;
+          color: #d9c39d;
           font-weight: 900;
           margin: 18px 0;
         }
@@ -558,7 +563,7 @@ export default function MessagesPage() {
         }
 
         .summaryCard h2 {
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 34px;
           margin: 0;
         }
@@ -583,8 +588,8 @@ export default function MessagesPage() {
         }
 
         input:focus {
-          border-color: rgba(34,197,94,0.55);
-          box-shadow: 0 0 0 4px rgba(34,197,94,0.08);
+          border-color: rgba(217,195,157,0.55);
+          box-shadow: 0 0 0 4px rgba(217,195,157,0.08);
         }
 
         .filterGrid {
@@ -605,8 +610,8 @@ export default function MessagesPage() {
         }
 
         .filterButton.activeFilter {
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.12);
+          border-color: rgba(217,195,157,0.45);
+          background: rgba(217,195,157,0.12);
         }
 
         .filterButton span {
@@ -617,7 +622,7 @@ export default function MessagesPage() {
         }
 
         .filterButton strong {
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 22px;
         }
 
@@ -640,9 +645,9 @@ export default function MessagesPage() {
         }
 
         .statusPill {
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
-          color: #22c55e;
+          background: rgba(217,195,157,0.12);
+          border: 1px solid rgba(217,195,157,0.35);
+          color: #d9c39d;
           border-radius: 999px;
           padding: 10px 16px;
           font-weight: 900;
@@ -668,8 +673,8 @@ export default function MessagesPage() {
           width: 82px;
           height: 82px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(217,195,157,0.12);
+          border: 1px solid rgba(217,195,157,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -694,11 +699,11 @@ export default function MessagesPage() {
           margin-top: 22px;
           padding: 16px 28px;
           border-radius: 999px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
-          color: white;
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
+          color: #070d11;
           font-weight: 900;
           text-decoration: none;
-          box-shadow: 0 18px 50px rgba(34,197,94,0.25);
+          box-shadow: 0 18px 50px rgba(217,195,157,0.25);
         }
 
         .conversationList {
@@ -728,22 +733,22 @@ export default function MessagesPage() {
 
         .conversation:hover {
           transform: translateY(-3px);
-          border-color: rgba(34,197,94,0.45);
-          background: rgba(34,197,94,0.1);
+          border-color: rgba(217,195,157,0.45);
+          background: rgba(217,195,157,0.1);
         }
 
         .conversationAvatar {
           width: 54px;
           height: 54px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.14);
-          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(217,195,157,0.14);
+          border: 1px solid rgba(217,195,157,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 22px;
           font-weight: 900;
-          color: #22c55e;
+          color: #d9c39d;
           flex-shrink: 0;
         }
 
@@ -762,7 +767,7 @@ export default function MessagesPage() {
         }
 
         .conversationTop span {
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 13px;
           font-weight: 900;
           white-space: nowrap;
@@ -807,7 +812,7 @@ export default function MessagesPage() {
         }
 
         .openIcon {
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 38px;
           font-weight: 300;
         }
