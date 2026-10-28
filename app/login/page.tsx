@@ -1,5 +1,6 @@
 "use client";
 
+import TwoStepChallenge from "../components/TwoStepChallenge";
 import Link from "../components/AppLink";
 import { useAppRouter as useRouter } from "../components/useAppRouter";
 import { useState } from "react";
@@ -10,12 +11,13 @@ import {
   GoogleAuthProvider,
   sendEmailVerification,
   sendPasswordResetEmail,
-  signOut,
+  signOut, getMultiFactorResolver, type MultiFactorError, type MultiFactorResolver, type User,
 } from "firebase/auth";
 
 export default function LoginPage() {
   const router = useRouter();
 
+  const [resolver, setResolver] = useState<MultiFactorResolver | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -26,7 +28,12 @@ export default function LoginPage() {
   }
 
   function showError(error: any) {
-    console.error(error);
+    if (error.code === "auth/multi-factor-auth-required") {
+      setPassword("");
+      setResolver(getMultiFactorResolver(auth, error as MultiFactorError));
+      setMessage("");
+      return;
+    }
 
     if (error.code === "auth/user-not-found") {
       setMessage("No encontramos una cuenta RoadLink con ese Gmail.");
@@ -49,6 +56,19 @@ export default function LoginPage() {
         setMessage("No se pudo completar la solicitud. Inténtalo de nuevo.");
       }
     }
+  }
+
+  async function finishLogin(user: User) {
+    await user.reload();
+    if (!user.emailVerified || !isValidGmail((user.email || "").toLowerCase())) {
+      await signOut(auth);
+      setResolver(null);
+      setMessage("Usa tu Gmail verificado para continuar.");
+      return;
+    }
+    setResolver(null); setPassword("");
+    setMessage("Sesión verificada. Abriendo tu cuenta…");
+    router.push("/dashboard");
   }
 
   async function signIn() {
@@ -165,6 +185,7 @@ export default function LoginPage() {
           Inicia sesión con tu Gmail verificado para continuar en RoadLink.
         </p>
 
+        {resolver ? <TwoStepChallenge resolver={resolver} onSuccess={finishLogin} onCancel={() => { setResolver(null); setPassword(""); setMessage(""); }} /> : <>
         <button className="social" onClick={continueWithGoogle} disabled={loading}>
           {loading ? "Espera un momento…" : "Continuar con Google"}
         </button>
@@ -193,6 +214,7 @@ export default function LoginPage() {
           {loading ? "Iniciando sesión…" : "Iniciar sesión"}
         </button>
 
+        </>}
         {message && <p className="message" role="status" aria-live="polite">{message}</p>}
 
         <div className="securityBox">

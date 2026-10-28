@@ -266,6 +266,9 @@ export default function ProfilePage() {
         <h2>Tu centro de control</h2>
 
         <div className="buttonGrid">
+          <ProfileLink href="/security" icon="🔐" title="Seguridad y verificación en dos pasos" />
+          <ProfileLink href="/guests" icon="👥" title="Viajes para invitados" />
+          <ProfileLink href="/ride-now" icon="🚕" title="Viajar ahora" />
           <ProfileLink href="/profile/edit" icon="📝" title="Editar perfil" />
           {!isPassenger && <>
             <ProfileLink href="/driver-verification" icon="🛡️" title="Verificación" />

@@ -12,7 +12,7 @@ function harness(seed={},identity={uid:'p',email:'p@example.com',email_verified:
  const stripe={webhooks:sdk.webhooks,checkout:{sessions:{create:async(data,opts)=>{if(!sessions.has(opts.idempotencyKey))sessions.set(opts.idempotencyKey,{...data,id:`cs_test_${++seq}`,url:'https://checkout.stripe.com/test',status:'open'});return sessions.get(opts.idempotencyKey);},retrieve:async id=>[...sessions.values()].find(s=>s.id===id)}}};
  let configError=false;
  const helper={ApiError,documentId:v=>{if(typeof v!=='string'||!/^[\w-]{1,128}$/.test(v))throw new ApiError(400,'Invalid id');return v;},requirePassenger:async req=>{if(req.headers.get('authorization')!=='Bearer valid')throw new ApiError(401,'Invalid token');return {user:identity,db};},serverFirebase:()=>({db}),apiFailure:e=>Response.json({error:e.message},{status:e.status||500})};
- const cache={};function load(relative){const file=path.resolve(relative);if(cache[file])return cache[file];const out={exports:{}};cache[file]=out.exports;const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const req=id=>{if(id.endsWith('/connect-v2'))return {...load('lib/server/connect-v2.ts'),v2Request:async(method,p,body,key)=>{if(p==='/v2/core/accounts')return stripe.accounts.create(body,{idempotencyKey:key});if(p==='/v2/core/account_links')return stripe.accountLinks.create(body);return stripe.accounts.retrieve(p.split('/')[4].split('?')[0]);}};if(id.endsWith('/connect'))return load('lib/server/connect.ts');if(id.endsWith('firebase-admin'))return helper;if(id.endsWith('/payments'))return {...load('lib/server/payments.ts'),paymentConfig:()=>{if(configError)throw new ApiError(503,'Not configured');return {stripe,test:true,webhook:'whsec_test'};}};if(id==='./firebase-admin')return helper;return require(id);};new Function('require','module','exports',js)(req,out,out.exports);cache[file]=out.exports;return out.exports;}
+ const cache={};function load(relative){const file=path.resolve(relative);if(cache[file])return cache[file];const out={exports:{}};cache[file]=out.exports;const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;const req=id=>{if(id.endsWith('/connect-v2'))return {...load('lib/server/connect-v2.ts'),v2Request:async(method,p,body,key)=>{if(p==='/v2/core/accounts')return stripe.accounts.create(body,{idempotencyKey:key});if(p==='/v2/core/account_links')return stripe.accountLinks.create(body);return stripe.accounts.retrieve(p.split('/')[4].split('?')[0]);}};if(id.endsWith('/connect'))return load('lib/server/connect.ts');if(id.endsWith('firebase-admin'))return helper;if(id.endsWith('/guest'))return load('lib/server/guest.ts');if(id.endsWith('/payments'))return {...load('lib/server/payments.ts'),paymentConfig:()=>{if(configError)throw new ApiError(503,'Not configured');return {stripe,test:true,webhook:'whsec_test'};}};if(id==='./firebase-admin')return helper;return require(id);};new Function('require','module','exports',js)(req,out,out.exports);cache[file]=out.exports;return out.exports;}
  const routes={reserve:load('app/api/bookings/reserve/route.ts'),cancel:load('app/api/bookings/cancel/route.ts'),checkout:load('app/api/stripe/create-checkout-session/route.ts'),webhook:load('app/api/stripe/webhook/route.ts')};
  const call=(name,body,token='valid')=>routes[name].POST(new Request('https://preview.example/api',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}));
  const event=async(type,object,id='evt_'+type)=>{const body=JSON.stringify({id,type,livemode:false,data:{object}});const signature=sdk.webhooks.generateTestHeaderString({payload:body,secret:'whsec_test'});return routes.webhook.POST(new Request('https://preview.example/api',{method:'POST',body,headers:{'stripe-signature':signature}}));};
@@ -20,6 +20,93 @@ function harness(seed={},identity={uid:'p',email:'p@example.com',email_verified:
 }
 const ride={driverId:'d',driverEmail:'d@example.com',from:'Guayama',to:'Patillas',date:'2099-11-02',time:'11:00',seats:2,originalSeats:2,status:'active',price:10};
 const booking={rideId:'r',passengerId:'p',driverId:'d',driverEmail:'d@example.com',from:'Guayama',to:'Patillas',date:'2099-11-02',time:'11:00',seatsBooked:1,price:10,status:'reserved',paymentStatus:'unpaid',reservationVersion:1};
+test('guest reservation keeps account ownership, ignores forged payer and rejects missing consent',async()=>{
+ const h=harness({'rides/r':ride});
+ const guest={name:'Invitada de prueba',phone:'+15555550123',notes:'Entrada principal'};
+ assert.equal((await h.call('reserve',{rideId:'r',travelFor:'guest',guest})).status,400);
+ assert.equal(h.db.rows.get('rides/r').seats,2);
+ assert.equal((await h.call('reserve',{rideId:'r',travelFor:'guest',guest,guestConsent:true,passengerId:'victim',price:0.01})).status,200);
+ const b=h.db.rows.get('bookings/r_p');
+ assert.equal(b.passengerId,'p');assert.equal(b.price,10);assert.equal(b.travelFor,'guest');assert.deepEqual(b.guest,guest);
+ assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);
+ assert.equal((await h.call('reserve',{rideId:'r',travelFor:'self'})).status,200);
+ assert.equal(h.db.rows.get('bookings/r_p').guest,null);
+});
+test('guest validation rejects malformed contact and strips extra fields',()=>{
+ const policy=harness().load('lib/server/guest.ts');
+ assert.throws(()=>policy.guestPassenger({travelFor:'guest',guestConsent:true,guest:{name:'A',phone:'123'}}),e=>e.status===400);
+ assert.deepEqual(policy.guestPassenger({travelFor:'guest',guestConsent:true,guest:{name:'Invitada',phone:'555-555-0123',notes:'',uid:'victim',paymentStatus:'paid'}}),{name:'Invitada',phone:'555-555-0123',notes:''});
+});
+function instantHarness(){
+ const identity={uid:'p',email:'p@example.com',email_verified:true},h=harness({},identity);
+ const route=h.load('app/api/ride-now/route.ts');
+ return {...h,identity,post:body=>route.POST(new Request('https://preview.example/api/ride-now',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify(body)})),
+ get:()=>route.GET(new Request('https://preview.example/api/ride-now',{headers:{authorization:'Bearer valid'}})),
+ driver:()=>Object.assign(identity,{uid:'XmpCtSTIS6cf7r8UMc2UxLFj6qH3',email:'d@example.com'}),
+ passenger:()=>Object.assign(identity,{uid:'p',email:'p@example.com'})};
+}
+test('completing an immediate ride releases only its own driver assignment',async()=>{
+ const seed={'rides/r':{...ride,status:'full',date:'2020-01-01',durationMinutes:5,rideType:'now'},
+ 'bookings/b':{...booking,status:'confirmed',paymentStatus:'paid',paymentId:'pay'},
+ 'walletTransactions/wallet-pay':{bookingId:'b',driverId:'d',status:'pending_payout',amount:8.8},
+ 'instantDriverLocks/d':{rideId:'r',until:'2099-01-01'}};
+ const h=harness(seed,{uid:'d'});
+ const call=x=>x.load('app/api/bookings/driver-action/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({bookingId:'b',action:'complete'})}));
+ assert.equal((await call(h)).status,200);assert.equal(h.db.rows.get('instantDriverLocks/d').rideId,'');
+ const other=harness({...seed,'instantDriverLocks/d':{rideId:'another'}},{uid:'d'});
+ assert.equal((await call(other)).status,200);assert.equal(other.db.rows.get('instantDriverLocks/d').rideId,'another');
+});
+test('driver cancellation releases its immediate assignment and cancels its unpaid booking',async()=>{
+ const h=harness({'rides/r':{...ride,status:'full',rideType:'now'},'bookings/b':booking,'instantDriverLocks/d':{rideId:'r'}},{uid:'d'});
+ const response=await h.load('app/api/rides/cancel/route.ts').POST(new Request('https://preview.example',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify({rideId:'r'})}));
+ assert.equal(response.status,200);assert.equal(h.db.rows.get('instantDriverLocks/d').rideId,'');assert.equal(h.db.rows.get('bookings/b').status,'cancelled');
+});
+test('instant ride flow validates quote, protects guest contact, reserves once and releases driver on cancellation',async()=>{
+ const saved=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try{
+ const h=instantHarness();
+ assert.equal((await h.post({action:'request',from:'Guayama entrada',to:'Patillas plaza',travelFor:'guest',guestConsent:true,guest:{name:'Invitada',phone:'555-555-0123',notes:'Entrada'}})).status,200);
+ assert.equal((await h.post({action:'request',from:'Origen',to:'Destino'})).status,409);
+ const version=h.db.rows.get('instantRequests/p').version;
+ assert.equal((await h.post({action:'offer',requestId:'p',version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,403);
+ h.driver();
+ const list=await (await h.get()).json();assert.equal(list.requests[0].guest,undefined);assert.equal(JSON.stringify(list).includes('555-555'),false);
+ assert.equal((await h.post({action:'offer',requestId:'p',version,price:0,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,400);
+ assert.equal((await h.post({action:'offer',requestId:'p',version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,200);
+ h.passenger();
+ assert.equal((await h.post({action:'accept',version,offerExpiresAt:'stale'})).status,409);
+ const {expiresAt:offerExpiresAt,id:offerId}=h.db.rows.get('instantRequests/p').offer;
+ const accepted=await h.post({action:'accept',version,offerId,offerExpiresAt,price:0.01,passengerId:'victim'});
+ assert.equal(accepted.status,200);const {bookingId}=await accepted.json();
+ assert.equal((await h.post({action:'accept',version,offerId,offerExpiresAt})).status,200);
+ const b=h.db.rows.get('bookings/'+bookingId);
+ assert.equal(b.passengerId,'p');assert.equal(b.price,10);assert.equal(b.paymentStatus,'unpaid');assert.equal(b.guest.name,'Invitada');
+ assert.equal(h.db.rows.get('rides/'+b.rideId).seats,0);
+ assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('bookings/')).length,1);
+ assert.equal((await h.call('cancel',{bookingId})).status,200);
+ assert.equal(h.db.rows.get('rides/'+b.rideId).status,'cancelled');
+ assert.equal(h.db.rows.get('instantDriverLocks/XmpCtSTIS6cf7r8UMc2UxLFj6qH3').rideId,'');
+ }finally{if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
+});
+test('instant requests fail closed outside pilot and reject expired quotes, changed versions and occupied drivers',async()=>{
+ const saved=process.env.NEXT_PUBLIC_ROADLINK_ENV;
+ try{
+ process.env.NEXT_PUBLIC_ROADLINK_ENV='production';const h=instantHarness();
+ assert.equal((await h.get()).status,503);assert.equal((await h.post({action:'request',from:'Origen',to:'Destino'})).status,503);
+ process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ assert.equal((await h.post({action:'request',from:'Origen',to:'Destino'})).status,200);
+ const request=h.db.rows.get('instantRequests/p');
+ h.driver();
+ assert.equal((await h.post({action:'offer',requestId:'p',version:'wrong',price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,409);
+ h.db.rows.set('instantDriverLocks/XmpCtSTIS6cf7r8UMc2UxLFj6qH3',{rideId:'occupied',until:'2000-01-01'});
+ assert.equal((await h.post({action:'offer',requestId:'p',version:request.version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20})).status,409);
+ h.db.rows.delete('instantDriverLocks/XmpCtSTIS6cf7r8UMc2UxLFj6qH3');
+ await h.post({action:'offer',requestId:'p',version:request.version,price:10,vehicle:'Test',pickupMinutes:10,durationMinutes:20});
+ const row=h.db.rows.get('instantRequests/p');row.offer.expiresAt='2000-01-01';h.db.rows.set('instantRequests/p',row);h.passenger();
+ assert.equal((await h.post({action:'accept',version:request.version,offerExpiresAt:'2000-01-01'})).status,409);
+ assert.equal([...h.db.rows.keys()].filter(k=>k.startsWith('bookings/')).length,0);
+ }finally{if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
+});
 const paidSession={id:'cs_test_1',metadata:{bookingId:'b',passengerId:'p',reservationVersion:'1',environment:'test'},payment_status:'paid',amount_total:1000,currency:'usd',payment_intent:'pi_1'};
 test('reservation/cancellation preserves seats and blocks duplicate and foreign changes',async()=>{const h=harness({'rides/r':ride});assert.equal((await h.call('reserve',{rideId:'r'})).status,200);assert.equal(h.db.rows.get('rides/r').seats,1);assert.equal((await h.call('reserve',{rideId:'r'})).status,409);assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);assert.equal((await h.call('cancel',{bookingId:'r_p'})).status,200);assert.equal(h.db.rows.get('rides/r').seats,2);const other=harness({'bookings/b':{...booking,passengerId:'other'}});assert.equal((await other.call('cancel',{bookingId:'b'})).status,403);});
 test('self-reservations and unauthenticated checkout are rejected',async()=>{const h=harness({'rides/r':{...ride,driverId:'p'}});assert.equal((await h.call('reserve',{rideId:'r'})).status,403);assert.equal((await h.call('checkout',{bookingId:'b'},'invalid')).status,401);});

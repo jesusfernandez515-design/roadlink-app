@@ -1,4 +1,5 @@
 "use client";
+import { GuestPassengerSummary } from "../components/GuestPassenger";
 
 import { useAppExperience } from "../components/AppExperience";
 import Link from "../components/AppLink";
@@ -17,6 +18,8 @@ import {
 import { auth, db } from "../../lib/firebase";
 
 type Booking = {
+  guest?: { name: string; phone: string; notes: string } | null;
+  travelFor?: string;
   id: string;
   rideId?: string;
   passengerId?: string;
@@ -336,6 +339,7 @@ function MyBookingsContent() {
                       </span>
                     </div>
 
+                    <GuestPassengerSummary guest={booking.guest} />
                     <div className="routeBox">
                       <div>
                         <span>Origen</span>

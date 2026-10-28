@@ -1,4 +1,5 @@
 "use client";
+import { GuestPassengerSummary } from "../components/GuestPassenger";
 
 import { estimateInSpanish } from "../../lib/spanish";
 
@@ -32,6 +33,8 @@ type Ride = {
 };
 
 type Booking = {
+  guest?: { name: string; phone: string; notes: string } | null;
+  travelFor?: string;
   id: string;
   rideId?: string;
   passengerId?: string;
@@ -239,7 +242,7 @@ function MyRidesPageContent() {
         </div>
         {passengers.map((booking) => (
           <div key={booking.id} className="compactInfo">
-            <div><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" /><p>{estado(booking.status)} · {estado(booking.paymentStatus || "unpaid")}</p></div>
+            <div><ProfileIdentity uid={booking.passengerId} name={booking.passengerEmail} role="Pasajero" /><GuestPassengerSummary guest={booking.guest} /><p>{estado(booking.status)} · {estado(booking.paymentStatus || "unpaid")}</p></div>
             {booking.paymentStatus === "paid" && booking.status === "paid" && (
               <button className="miniButton" disabled={busy} onClick={() => driverAction(booking.id, "confirm")}>Confirmar reserva</button>
             )}

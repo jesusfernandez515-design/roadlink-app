@@ -333,6 +333,9 @@ export default function DashboardPage() {
           <h2>Accesos rápidos</h2>
 
           <div className="actions">
+            <ActionLink href="/guests" icon="👥" label="Viajes para invitados" />
+            <ActionLink href="/ride-now" icon="🚕" label="Viajar ahora" />
+            <ActionLink href="/security" icon="🔐" label="Seguridad · 2 pasos" />
             <ActionLink href="/wallet" icon="💰" label="Cartera" />
             <ActionLink href="/notifications" icon="🔔" label="Notificaciones" alert={unreadNotifications > 0} />
             <ActionLink href="/messages" icon="💬" label="Mensajes" />

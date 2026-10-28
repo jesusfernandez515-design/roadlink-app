@@ -31,7 +31,10 @@ export async function POST(request: Request) {
         }
       }
       const now = new Date().toISOString();
+      const lockRef = ride.rideType === "now" ? db.collection("instantDriverLocks").doc(user.uid) : null;
+      const lock = lockRef ? (await tx.get(lockRef)).data() : null;
       tx.update(ref, { status: "cancelled", cancelledAt: now, cancelledBy: user.uid, updatedAt: now });
+      if (lockRef && lock?.rideId === ref.id) tx.set(lockRef, { rideId: "", until: now });
       for (const booking of pending) {
         const b = booking.data();
         tx.update(booking.ref, { status: "cancelled", cancellationReason: "driver_cancelled_ride", updatedAt: now });

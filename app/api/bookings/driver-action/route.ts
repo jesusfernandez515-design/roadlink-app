@@ -38,9 +38,12 @@ export async function POST(request: Request) {
         }
         const siblings = await tx.get(db.collection("bookings").where("rideId", "==", booking.rideId));
         const allDone = siblings.docs.every((item) => item.id === snap.id || ["completed", "cancelled", "rejected"].includes(item.data().status));
+        const lockRef = allDone && ride.rideType === "now" ? db.collection("instantDriverLocks").doc(user.uid) : null;
+        const lock = lockRef ? (await tx.get(lockRef)).data() : null;
         tx.update(ref, { status: "completed", completedAt: now, updatedAt: now });
         tx.update(walletRef, { status: "available", availableAt: now, updatedAt: now });
         if (allDone) tx.update(rideRef, { status: "completed", completedAt: now, updatedAt: now });
+        if (lockRef && lock?.rideId === rideRef.id) tx.set(lockRef, { rideId: "", until: now });
       }
       tx.set(db.collection("notifications").doc(), { userId: booking.passengerId, email: booking.passengerEmail || "", type: "booking", title: action === "confirm" ? "Reserva confirmada" : "Viaje terminado", message: action === "confirm" ? "El conductor confirmó tu reserva." : "El conductor marcó tu viaje como terminado.", read: false, bookingId: snap.id, rideId: booking.rideId, createdAt: now });
     });

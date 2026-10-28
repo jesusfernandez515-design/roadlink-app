@@ -24,8 +24,11 @@ export async function POST(request: Request) {
         throw new ApiError(409, "La disponibilidad de asientos requiere revisión.");
       }
       const now = new Date().toISOString();
+      const lockRef = ride.rideType === "now" ? db.collection("instantDriverLocks").doc(ride.driverId) : null;
+      const lock = lockRef ? (await tx.get(lockRef)).data() : null;
       tx.update(bookingRef, { status: "cancelled", updatedAt: now });
-      tx.update(rideRef, { seats: ride.seats + seats, ...(ride.status === "full" ? { status: "active" } : {}), updatedAt: now });
+      tx.update(rideRef, { seats: ride.seats + seats, ...(ride.rideType === "now" ? { status: "cancelled" } : ride.status === "full" ? { status: "active" } : {}), updatedAt: now });
+      if (lockRef && lock?.rideId === rideRef.id) tx.set(lockRef, { rideId: "", until: now });
       tx.set(db.collection("notifications").doc(), { userId: booking.driverId, email: booking.driverEmail || "", type: "booking", title: "Reserva cancelada", message: "Un pasajero canceló una reserva.", read: false, bookingId: snap.id, rideId: booking.rideId, createdAt: now });
     });
     return Response.json({ cancelled: true });

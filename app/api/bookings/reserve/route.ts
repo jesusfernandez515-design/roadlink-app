@@ -1,9 +1,12 @@
 import { ApiError, apiFailure, documentId, requirePassenger } from "../../../../lib/server/firebase-admin";
+import { guestPassenger } from "../../../../lib/server/guest";
 
 export async function POST(request: Request) {
   try {
     const { user, db } = await requirePassenger(request);
-    const { rideId: input } = await request.json();
+    const body = await request.json();
+    const { rideId: input } = body;
+    const guest = guestPassenger(body);
     const rideId = documentId(input);
     const rideRef = db.collection("rides").doc(rideId);
     // One deterministic reservation per passenger and ride prevents concurrent duplicates.
@@ -33,6 +36,7 @@ export async function POST(request: Request) {
         price: amount, amount, platformFee: fee, driverAmount: amount - fee, seatsBooked: 1, currency: "USD",
         status: "reserved", paymentStatus: "unpaid", paymentId: "", stripeCheckoutSessionId: "", createdAt: now, updatedAt: now,
         reservationVersion: Number(prior.data()?.reservationVersion || 0) + 1,
+        travelFor: guest ? "guest" : "self", guest,
       });
       tx.update(rideRef, { seats: ride.seats - 1, status: ride.seats === 1 ? "full" : "active", updatedAt: now });
       tx.set(db.collection("notifications").doc(), { userId: ride.driverId, email: ride.driverEmail || "", type: "booking", title: "Nueva reserva de viaje", message: "Un pasajero reservó un asiento.", bookingId: bookingRef.id, rideId, read: false, createdAt: now });

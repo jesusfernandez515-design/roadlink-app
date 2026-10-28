@@ -1,4 +1,5 @@
 "use client";
+import { GuestPassengerSummary } from "../components/GuestPassenger";
 
 import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
 
@@ -39,6 +40,8 @@ type Ride = {
 };
 
 type Booking = {
+  guest?: { name: string; phone: string; notes: string } | null;
+  travelFor?: string;
   id: string;
   rideId?: string;
   passengerId?: string;
@@ -415,6 +418,7 @@ function RidePassengersContent() {
                   </div>
                 </div>
 
+                <GuestPassengerSummary guest={booking.guest} />
                 <div className="passengerInfo">
                   <span>💺 {booking.seatsBooked || 1} {Number(booking.seatsBooked || 1) === 1 ? "asiento" : "asientos"}</span>
                   <span>💵 {formatMoney(bookingTotal(booking))}</span>

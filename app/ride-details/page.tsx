@@ -1,4 +1,5 @@
 "use client";
+import { GuestPassengerForm, emptyGuestChoice, type GuestChoice } from "../components/GuestPassenger";
 
 import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
 
@@ -94,6 +95,7 @@ function RideDetailsContent() {
   const searchParams = useSearchParams();
   const rideId = searchParams.get("rideId") || "";
 
+  const [guestChoice, setGuestChoice] = useState<GuestChoice>(emptyGuestChoice);
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [ride, setRide] = useState<Ride | null>(null);
@@ -230,68 +232,15 @@ function RideDetailsContent() {
     try {
       setLoading(true);
 
-      const now = new Date().toISOString();
-
-      await addDoc(collection(db, "bookings"), {
-        rideId: ride.id,
-
-        passengerId: userId,
-        passengerEmail: userEmail,
-
-        driverId: ride.driverId || "",
-        driverEmail: ride.driverEmail || "",
-
-        from: ride.from || "",
-        to: ride.to || "",
-        date: ride.date || "",
-        time: ride.time || "",
-
-        price: Number(ride.price || 0),
-        suggestedPrice: Number(ride.suggestedPrice || 0),
-
-        distanceText: ride.distanceText || "",
-        durationText: ride.durationText || "",
-        distanceMiles: Number(ride.distanceMiles || 0),
-        durationMinutes: Number(ride.durationMinutes || 0),
-        mapUrl: routeMapUrl(ride),
-
-        seatsBooked: 1,
-        status: "reserved",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      if (ride.driverId) {
-        await addDoc(collection(db, "notifications"), {
-          userId: ride.driverId,
-          type: "booking",
-          title: "Nueva reserva de viaje",
-          message: `${userEmail} reservó un asiento de ${ride.from} a ${ride.to}.`,
-          rideId: ride.id,
-          passengerId: userId,
-          passengerEmail: userEmail,
-          read: false,
-          createdAt: now,
-          actionUrl: `/ride-passengers?rideId=${ride.id}`,
-        });
-      }
-
-      const newSeats = Number(ride.seats || 0) - 1;
-
-      await updateDoc(doc(db, "rides", ride.id), {
-        seats: newSeats,
-        status: newSeats <= 0 ? "full" : "active",
-        updatedAt: now,
-      });
-
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Inicia sesión para continuar.");
+      const response = await fetch("/api/bookings/reserve", { method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ rideId: ride.id, ...guestChoice }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo reservar.");
       setAlreadyReserved(true);
-      setRide({
-        ...ride,
-        seats: newSeats,
-        status: newSeats <= 0 ? "full" : "active",
-      });
-
-      setMessage("Asiento reservado. Se ha avisado al conductor.");
+      router.push("/my-bookings");
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "No se pudo completar la operación. Inténtalo de nuevo.");
     } finally {
@@ -490,6 +439,7 @@ function RideDetailsContent() {
             {isOwnRide && <p className="warning">Este es tu viaje.</p>}
             {alreadyReserved && <p className="success">Ya reservaste este viaje.</p>}
 
+            {!isOwnRide && !alreadyReserved && <GuestPassengerForm value={guestChoice} onChange={setGuestChoice} />}
             <div className="actions">
               {isOwnRide ? (
                 <>

@@ -1,4 +1,5 @@
 "use client";
+import { GuestPassengerForm, emptyGuestChoice, type GuestChoice } from "../components/GuestPassenger";
 
 import { statusInSpanish, estimateInSpanish } from "../../lib/spanish";
 
@@ -40,6 +41,7 @@ type Ride = {
 export default function FindRidePage() {
   const router = useRouter();
 
+  const [guestChoice, setGuestChoice] = useState<GuestChoice>(emptyGuestChoice);
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [rides, setRides] = useState<Ride[]>([]);
@@ -47,6 +49,10 @@ export default function FindRidePage() {
   const [message, setMessage] = useState("Comprobando tu cuenta…");
   const [loadingRideId, setLoadingRideId] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (new URL(window.location.href).searchParams.get("guest") === "1") setGuestChoice({ ...emptyGuestChoice, travelFor: "guest" });
+  }, []);
 
   async function loadRides() {
     try {
@@ -181,7 +187,7 @@ export default function FindRidePage() {
       const response = await fetch("/api/bookings/reserve", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ rideId: ride.id }),
+        body: JSON.stringify({ rideId: ride.id, ...guestChoice }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "No se pudo reservar este viaje.");
@@ -261,6 +267,8 @@ export default function FindRidePage() {
       </section>
 
       <section className="results">
+        <Link href="/ride-now" className="primaryButton">¿Sales ahora? Solicitar recogida</Link>
+        <GuestPassengerForm value={guestChoice} onChange={setGuestChoice} />
         {message && <p className="message">{message}</p>}
 
         {rides.map((ride) => {
