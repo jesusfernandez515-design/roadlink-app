@@ -2,6 +2,7 @@
 
 import { useAppExperience } from "../components/AppExperience";
 import Link from "../components/AppLink";
+import RequireSession from "../components/RequireSession";
 import { canPayBooking } from "../../lib/booking-payment";
 import ProfileIdentity from "../components/ProfileIdentity";
 import { useEffect, useMemo, useState } from "react";
@@ -37,11 +38,15 @@ type Booking = {
 };
 
 export default function MyBookingsPage() {
+  return <RequireSession purpose="Entra en tu cuenta para consultar y gestionar tus reservas."><MyBookingsContent /></RequireSession>;
+}
+
+function MyBookingsContent() {
   const appExperience = useAppExperience();
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [message, setMessage] = useState("Loading your bookings...");
+  const [message, setMessage] = useState("Cargando tus reservas…");
   const [payingId, setPayingId] = useState("");
   const [paymentFeedback, setPaymentFeedback] = useState<{ bookingId: string; text: string } | null>(null);
 
@@ -58,7 +63,7 @@ export default function MyBookingsPage() {
       setUserId(user?.uid || "");
       setUserEmail(user?.email || "");
       if (!user) {
-        setMessage("Please sign in to view your bookings.");
+        setMessage("Inicia sesión para ver tus reservas.");
         setBookings([]);
         return;
       }
@@ -161,7 +166,7 @@ export default function MyBookingsPage() {
 
   async function startPayment(booking: Booking) {
     if (!userId) {
-      setMessage("Please sign in first.");
+      setMessage("Inicia sesión primero.");
       return;
     }
 
@@ -173,11 +178,11 @@ export default function MyBookingsPage() {
 
     try {
       setPayingId(booking.id);
-      setMessage("Opening secure Stripe Checkout...");
+      setMessage("Abriendo el pago seguro…");
       setPaymentFeedback({ bookingId: booking.id, text: "Abriendo el pago seguro de Stripe…" });
 
       const token = await auth.currentUser?.getIdToken();
-      if (!token) throw new Error("Please sign in first.");
+      if (!token) throw new Error("Inicia sesión primero.");
       const response = await fetch("/api/stripe/create-checkout-session", {
         method: "POST",
         headers: {
@@ -192,12 +197,12 @@ export default function MyBookingsPage() {
       const data = await response.json();
 
       if (!response.ok || !data.url) {
-        throw new Error(data.error || "Could not create Stripe Checkout session.");
+        throw new Error(data.error || "No se pudo preparar el pago seguro.");
       }
 
       window.location.href = data.url;
     } catch (error: unknown) {
-      const text = error instanceof Error ? error.message : "Could not open Stripe Checkout.";
+      const text = error instanceof Error ? error.message : "No se pudo abrir el pago seguro.";
       setMessage(text);
       setPaymentFeedback({ bookingId: booking.id, text });
       setPayingId("");
@@ -209,17 +214,17 @@ export default function MyBookingsPage() {
 
     try {
       const token = await auth.currentUser?.getIdToken();
-      if (!token) throw new Error("Please sign in first.");
+      if (!token) throw new Error("Inicia sesión primero.");
       const response = await fetch("/api/bookings/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ bookingId: booking.id }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not cancel booking.");
-      setMessage("Booking cancelled.");
+      if (!response.ok) throw new Error(result.error || "No se pudo cancelar la reserva.");
+      setMessage("Reserva cancelada.");
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Could not cancel booking.");
+      setMessage(error instanceof Error ? error.message : "No se pudo cancelar la reserva.");
     }
   }
 
@@ -228,22 +233,22 @@ export default function MyBookingsPage() {
   }
 
   function money(value: number) {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+    return new Intl.NumberFormat("es-PR", { style: "currency", currency: "USD" }).format(value);
   }
 
   function statusLabel(status?: string, paymentStatus?: string) {
     if (paymentStatus === "refunded") return "Reembolsado";
     if (paymentStatus === "partially_refunded") return "Reembolso parcial";
-    if (status === "completed") return "Completed";
-    if (paymentStatus === "paid") return "Paid";
-    if (paymentStatus === "pending") return "Payment Pending";
-    if (status === "payment_pending") return "Payment Pending";
-    if (status === "confirmed") return "Confirmed";
-    if (status === "completed") return "Completed";
-    if (status === "cancelled") return "Cancelled";
-    if (status === "rejected") return "Rejected";
-    if (status === "paid") return "Paid";
-    return status || "Reserved";
+    if (status === "completed") return "Completado";
+    if (paymentStatus === "paid") return "Pagado";
+    if (paymentStatus === "pending") return "Pago pendiente";
+    if (status === "payment_pending") return "Pago pendiente";
+    if (status === "confirmed") return "Confirmado";
+    if (status === "completed") return "Completado";
+    if (status === "cancelled") return "Cancelado";
+    if (status === "rejected") return "Rechazado";
+    if (status === "paid") return "Pagado";
+    return status || "Reservado";
   }
 
   function statusClass(status?: string, paymentStatus?: string) {
@@ -259,53 +264,53 @@ export default function MyBookingsPage() {
     <main className="page">
       <section className="container">
         <div className="topNav">
-          <Link href="/dashboard" className="miniButton">Dashboard</Link>
-          <Link href="/find-ride" className="miniButton">Find Ride</Link>
-          <Link href="/wallet" className="miniButton">Wallet</Link>
-          <Link href="/profile" className="miniButton">Profile</Link>
+          <Link href="/dashboard" className="miniButton">Mi panel</Link>
+          <Link href="/find-ride" className="miniButton">Buscar viaje</Link>
+          <Link href="/wallet" className="miniButton">Cartera</Link>
+          <Link href="/profile" className="miniButton">Perfil</Link>
         </div>
 
         <section className="hero">
           <div>
-            <p className="eyebrow">RoadLink Passenger</p>
-            <h1>My <span>Bookings</span></h1>
+            <p className="eyebrow">RoadLink Pasajero</p>
+            <h1>Mis <span>reservas</span></h1>
             <p className="subtitle">
-              Manage reservations, Stripe payments, booking history, driver messages and trip progress.
+              Consulta tus reservas, pagos, historial de viajes y mensajes del conductor.
             </p>
           </div>
 
           <div className="scoreOrb">
             <strong translate="no">{bookings.length}</strong>
-            <span>Total Bookings</span>
+            <span>Total de reservas</span>
           </div>
         </section>
 
         {message && <p className="message">{message}</p>}
 
         <section className="stats">
-          <Metric icon="🎟️" label="Bookings" value={String(bookings.length)} />
-          <Metric icon="✅" label="Active" value={String(metrics.active.length)} />
-          <Metric icon="💳" label="Pending Payment" value={String(metrics.pendingPayment.length)} />
-          <Metric icon="💰" label="Paid" value={String(metrics.paid.length)} />
-          <Metric icon="🏁" label="Completed" value={String(metrics.completed.length)} />
-          <Metric icon="❌" label="Cancelled" value={String(metrics.cancelled.length)} />
-          <Metric icon="📊" label="Total Value" value={money(metrics.totalValue)} />
-          <Metric icon="👤" label="Passenger" value={userEmail || "Signed out"} />
+          <Metric icon="🎟️" label="Reservas" value={String(bookings.length)} />
+          <Metric icon="✅" label="Activas" value={String(metrics.active.length)} />
+          <Metric icon="💳" label="Pago pendiente" value={String(metrics.pendingPayment.length)} />
+          <Metric icon="💰" label="Pagado" value={String(metrics.paid.length)} />
+          <Metric icon="🏁" label="Completado" value={String(metrics.completed.length)} />
+          <Metric icon="❌" label="Cancelado" value={String(metrics.cancelled.length)} />
+          <Metric icon="📊" label="Valor total" value={money(metrics.totalValue)} />
+          <Metric icon="👤" label="Pasajero" value={userEmail || "Sin sesión"} />
         </section>
 
         <section className="bookingsPanel">
           <div className="sectionTop">
             <div>
-              <p className="eyebrow">Reservations</p>
-              <h2>Booking Center</h2>
+              <p className="eyebrow">Reservas</p>
+              <h2>Centro de reservas</h2>
             </div>
           </div>
 
           {bookings.length === 0 ? (
             <section className="empty">
-              <h3>No bookings yet</h3>
-              <p>Find a ride and reserve your seat to start traveling with RoadLink.</p>
-              <Link href="/find-ride" className="emptyButton">Find a Ride</Link>
+              <h3>Aún no tienes reservas</h3>
+              <p>Busca un viaje y reserva tu asiento para comenzar a viajar con RoadLink.</p>
+              <Link href="/find-ride" className="emptyButton">Buscar un viaje</Link>
             </section>
           ) : (
             <div className="bookingGrid">
@@ -320,8 +325,8 @@ export default function MyBookingsPage() {
                   <section key={booking.id} className="bookingCard">
                     <div className="cardTop">
                       <div>
-                        <h3>{booking.from || "Origin"} → {booking.to || "Destination"}</h3>
-                        <p>{booking.date || "Date pending"} • {booking.time || "Time pending"}</p>
+                        <h3>{booking.from || "Origen"} → {booking.to || "Destino"}</h3>
+                        <p>{booking.date || "Fecha pendiente"} • {booking.time || "Hora pendiente"}</p>
                       </div>
 
                       <span className={`pill ${statusClass(booking.status, booking.paymentStatus)}`}>
@@ -331,22 +336,22 @@ export default function MyBookingsPage() {
 
                     <div className="routeBox">
                       <div>
-                        <span>From</span>
-                        <strong>{booking.from || "Not available"}</strong>
+                        <span>Origen</span>
+                        <strong>{booking.from || "No disponible"}</strong>
                       </div>
                       <div>
-                        <span>To</span>
-                        <strong>{booking.to || "Not available"}</strong>
+                        <span>Destino</span>
+                        <strong>{booking.to || "No disponible"}</strong>
                       </div>
                     </div>
 
                     <div className="infoGrid">
-                      <Info label="Seats" value={String(booking.seatsBooked || 1)} />
-                      <Info label="Trip Total" value={money(total)} />
-                      <Info label="Platform Fee" value={money(platformFee)} />
-                      <Info label="Driver Amount" value={money(driverAmount)} />
+                      <Info label="Asientos" value={String(booking.seatsBooked || 1)} />
+                      <Info label="Total del viaje" value={money(total)} />
+                      <Info label="Comisión de la plataforma" value={money(platformFee)} />
+                      <Info label="Importe del conductor" value={money(driverAmount)} />
                       <ProfileIdentity uid={booking.driverId} name={booking.driverEmail} role="Conductor" />
-                      <Info label="Payment ID" value={booking.paymentId || "Not created"} />
+                      <Info label="Referencia del pago" value={booking.paymentId || "Sin crear"} />
                     </div>
 
                     {paymentFeedback?.bookingId === booking.id && <p role="status" aria-live="polite">{paymentFeedback.text}</p>}
@@ -357,7 +362,7 @@ export default function MyBookingsPage() {
                           onClick={() => startPayment(booking)}
                           disabled={payingId === booking.id}
                         >
-                          {payingId === booking.id ? "Opening Stripe..." : "Pay Now"}
+                          {payingId === booking.id ? "Abriendo pago…" : "Pagar ahora"}
                         </button>
                       )}
 
@@ -367,13 +372,13 @@ export default function MyBookingsPage() {
                           onClick={() => cancelBooking(booking)}
                           disabled={payingId === booking.id}
                         >
-                          Cancel
+                          Cancelar
                         </button>
                       )}
 
                       {booking.rideId && (
                         <Link href={`/chat?rideId=${booking.rideId}`} className="linkButton">
-                          Message Driver
+                          Escribir al conductor
                         </Link>
                       )}
                     </div>
@@ -395,9 +400,9 @@ export default function MyBookingsPage() {
           padding-bottom: 130px;
           font-family: Arial, sans-serif;
           background:
-            radial-gradient(circle at top right, rgba(34,197,94,0.22), transparent 34%),
+            radial-gradient(circle at top right, rgba(217,195,157,0.22), transparent 34%),
             radial-gradient(circle at bottom left, rgba(59,130,246,0.12), transparent 35%),
-            linear-gradient(135deg, #020617, #030712, #0f172a);
+            linear-gradient(135deg, #070d11, #0b1217, #10191e);
         }
 
         .container { max-width: 1180px; margin: auto; }
@@ -445,7 +450,7 @@ export default function MyBookingsPage() {
 
         .eyebrow {
           margin: 0 0 8px;
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 12px;
           font-weight: 900;
           letter-spacing: 0.08em;
@@ -453,7 +458,7 @@ export default function MyBookingsPage() {
         }
 
         h1 { font-size: 52px; line-height: 1; margin: 0 0 12px; }
-        h1 span, h2, .metricValue { color: #22c55e; }
+        h1 span, h2, .metricValue { color: #d9c39d; }
         h2 { margin: 0; font-size: 30px; }
 
         .subtitle,
@@ -467,8 +472,8 @@ export default function MyBookingsPage() {
           min-width: 104px;
           height: 104px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
+          background: rgba(217,195,157,0.12);
+          border: 1px solid rgba(217,195,157,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -476,7 +481,7 @@ export default function MyBookingsPage() {
         }
 
         .scoreOrb strong {
-          color: #22c55e;
+          color: #d9c39d;
           font-size: 34px;
           font-weight: 900;
         }
@@ -488,7 +493,7 @@ export default function MyBookingsPage() {
         }
 
         .message {
-          color: #22c55e;
+          color: #d9c39d;
           font-weight: 900;
           margin: 14px 0;
         }
@@ -509,7 +514,7 @@ export default function MyBookingsPage() {
           width: 40px;
           height: 40px;
           border-radius: 50%;
-          background: rgba(34,197,94,0.13);
+          background: rgba(217,195,157,0.13);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -571,9 +576,9 @@ export default function MyBookingsPage() {
         }
 
         .pill.active {
-          color: #22c55e;
-          background: rgba(34,197,94,0.12);
-          border: 1px solid rgba(34,197,94,0.35);
+          color: #d9c39d;
+          background: rgba(217,195,157,0.12);
+          border: 1px solid rgba(217,195,157,0.35);
         }
 
         .pill.pending {
@@ -653,7 +658,7 @@ export default function MyBookingsPage() {
         }
 
         .payButton {
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
         }
 
         .dangerButton {
@@ -681,7 +686,7 @@ export default function MyBookingsPage() {
         .emptyButton {
           display: inline-block;
           margin-top: 12px;
-          background: linear-gradient(135deg, #22c55e, #16a34a);
+          background: linear-gradient(135deg, #d9c39d, #b89b69);
         }
 
         button:disabled {
@@ -738,7 +743,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="infoBox">
       <span>{label}</span>
-      <strong>{value || "Not available"}</strong>
+      <strong>{value || "No disponible"}</strong>
     </div>
   );
 }
