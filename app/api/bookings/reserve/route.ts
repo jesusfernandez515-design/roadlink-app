@@ -1,7 +1,9 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../../lib/server/notification-push";
 import { ApiError, apiFailure, documentId, requirePassenger } from "../../../../lib/server/firebase-admin";
 import { guestPassenger } from "../../../../lib/server/guest";
 
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     const { user, db } = await requirePassenger(request);
     const body = await request.json();
@@ -39,8 +41,9 @@ export async function POST(request: Request) {
         travelFor: guest ? "guest" : "self", guest,
       });
       tx.update(rideRef, { seats: ride.seats - 1, status: ride.seats === 1 ? "full" : "active", updatedAt: now });
-      tx.set(db.collection("notifications").doc(), { userId: ride.driverId, email: ride.driverEmail || "", type: "booking", title: "Nueva reserva de viaje", message: "Un pasajero reservó un asiento.", bookingId: bookingRef.id, rideId, read: false, createdAt: now });
+      tx.set(notificationRef(db, pushAlerts, "driver"), { userId: ride.driverId, email: ride.driverEmail || "", type: "booking", title: "Nueva reserva de viaje", message: "Un pasajero reservó un asiento.", bookingId: bookingRef.id, rideId, read: false, createdAt: now });
     });
+    await deliverNotificationPush(pushAlerts);
     return Response.json({ bookingId: bookingRef.id });
   } catch (error) { return apiFailure(error); }
 }

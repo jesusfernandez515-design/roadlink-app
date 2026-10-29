@@ -1,8 +1,10 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../../lib/server/notification-push";
 import Stripe from "stripe";
 import { ApiError, apiFailure, serverFirebase } from "../../../../lib/server/firebase-admin";
 import { bookingAmount, paymentConfig } from "../../../../lib/server/payments";
 
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     const { stripe, webhook, test } = paymentConfig();
     if (!webhook) throw new ApiError(503, "Payment webhook is not configured.");
@@ -51,7 +53,7 @@ export async function POST(request: Request) {
         tx.update(ref, { status: "paid", paymentStatus: "paid", paymentId, stripeCheckoutSessionId: session.id, stripePaymentIntentId: intent, ...amounts, paidAt: now, updatedAt: now });
         tx.set(db.collection("walletTransactions").doc(`wallet-${paymentId}`), { ...identity, paymentId, amount: amounts.driverAmount, grossAmount: amounts.amount, platformFee: amounts.platformFee, type: "ride_payment", status: "pending_payout", createdAt: now, updatedAt: now });
         for (const [role, uid] of [["driver", booking.driverId], ["passenger", booking.passengerId]]) {
-          tx.set(db.collection("notifications").doc(`payment-${role}-${paymentId}`), { userId: uid, type: "payment", title: "Booking paid", message: "Payment confirmed by Stripe.", bookingId, rideId: booking.rideId, read: false, createdAt: now });
+          tx.set(notificationRef(db, pushAlerts, role === "driver" ? "driver" : "passenger", `payment-${role}-${paymentId}`), { userId: uid, type: "payment", title: "Booking paid", message: "Payment confirmed by Stripe.", bookingId, rideId: booking.rideId, read: false, createdAt: now });
         }
         tx.set(eventRef, { type: event.type, processedAt: now });
       });
@@ -80,6 +82,7 @@ export async function POST(request: Request) {
         tx.set(eventRef, { type: event.type, processedAt: now });
       });
     }
+    await deliverNotificationPush(pushAlerts);
     return Response.json({ received: true });
   } catch (error) { return apiFailure(error); }
 }

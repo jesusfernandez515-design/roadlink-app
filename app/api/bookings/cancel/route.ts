@@ -1,8 +1,10 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../../lib/server/notification-push";
 import { ApiError, apiFailure, documentId, requirePassenger } from "../../../../lib/server/firebase-admin";
 
 import { paymentConfig } from "../../../../lib/server/payments";
 
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     const { user, db } = await requirePassenger(request);
     const { bookingId: input } = await request.json();
@@ -68,8 +70,9 @@ export async function POST(request: Request) {
       if (paymentRef && payment) tx.update(paymentRef, { status: "cancelled", updatedAt: now });
       tx.update(rideRef, { seats: ride.seats + seats, ...(ride.rideType === "now" ? { status: "cancelled" } : ride.status === "full" ? { status: "active" } : {}), updatedAt: now });
       if (lockRef && lock?.rideId === rideRef.id) tx.set(lockRef, { rideId: "", until: now });
-      tx.set(db.collection("notifications").doc(), { userId: booking.driverId, email: booking.driverEmail || "", type: "booking", title: "Reserva cancelada", message: "Un pasajero canceló una reserva.", read: false, bookingId: snap.id, rideId: booking.rideId, createdAt: now });
+      tx.set(notificationRef(db, pushAlerts, "driver"), { userId: booking.driverId, email: booking.driverEmail || "", type: "booking", title: "Reserva cancelada", message: "Un pasajero canceló una reserva.", read: false, bookingId: snap.id, rideId: booking.rideId, createdAt: now });
     });
+    await deliverNotificationPush(pushAlerts);
     return Response.json({ cancelled: true });
   } catch (error) { return apiFailure(error); }
 }

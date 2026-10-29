@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import firebaseApp, { auth } from "../../lib/firebase";
+import { usePathname } from "next/navigation";
 import { useAppExperience } from "./AppExperience";
 
 const ownerKey = "roadlink-push-owner";
@@ -23,6 +24,7 @@ async function call(user: User, body?: object) {
 }
 export default function DriverPushControl() {
   const mode = useAppExperience();
+  const pathname = usePathname();
   const [config, setConfig] = useState<{ uid: string; key: string } | null>(null);
   const [busy, setBusy] = useState(false), [registered, setRegistered] = useState(false), [message, setMessage] = useState("");
   useEffect(() => {
@@ -35,8 +37,8 @@ export default function DriverPushControl() {
         if (!live || auth.currentUser?.uid !== user.uid) return;
         const value = await call(user);
         if (!live || auth.currentUser?.uid !== user.uid) return;
-        if (!value.driver) { await clearDeviceToken(); return; }
         setConfig({ uid: user.uid, key: value.vapidKey });
+        setRegistered(storedOwner() === user.uid && typeof Notification !== "undefined" && Notification.permission === "granted");
       } catch { /* Existing in-app alerts remain available when push configuration is unavailable. */ }
     });
     return () => { live = false; stop(); };
@@ -51,7 +53,7 @@ export default function DriverPushControl() {
       if (permission !== "granted") throw new Error("No se concedió el permiso. Puedes cambiarlo en los ajustes del navegador.");
       const messaging = await import("firebase/messaging");
       if (!await messaging.isSupported()) throw new Error("Este dispositivo no admite notificaciones push.");
-      const registration = await navigator.serviceWorker.register("/conductor/firebase-messaging-sw.js", { scope: "/conductor/" });
+      const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
       await new Promise<void>((resolve, reject) => {
         if (registration.active) { resolve(); return; }
         const worker = registration.installing || registration.waiting;
@@ -61,24 +63,46 @@ export default function DriverPushControl() {
         worker.addEventListener("statechange", changed); changed();
       });
       const token = await messaging.getToken(messaging.getMessaging(firebaseApp), { vapidKey: config.key, serviceWorkerRegistration: registration });
-      if (auth.currentUser?.uid !== user.uid) { await clearDeviceToken(); throw new Error("La cuenta cambió. Activa las alertas desde tu cuenta de conductor."); }
+      if (auth.currentUser?.uid !== user.uid) { await clearDeviceToken(); throw new Error("La cuenta cambió. Vuelve a activar las alertas desde tu cuenta."); }
       await call(user, { action: "enable", token });
-      if (auth.currentUser?.uid === user.uid) { try { localStorage.setItem(ownerKey, user.uid); } catch { /* Registration remains usable without local persistence. */ } setRegistered(true); setMessage("Dispositivo registrado para recibir alertas de último minuto. Mantén las notificaciones permitidas en los ajustes del teléfono."); }
+      if (auth.currentUser?.uid === user.uid) { try { localStorage.setItem(ownerKey, user.uid); } catch { /* Registration remains usable without local persistence. */ } setRegistered(true); setMessage("Dispositivo registrado para recibir notificaciones de Pasajero y Conductor. Mantén los permisos activados en el teléfono."); }
     } catch { setMessage("No se pudieron activar las alertas push. Revisa el permiso del navegador y vuelve a intentarlo. Las alertas dentro de la app siguen disponibles."); }
     finally { setBusy(false); }
   }
   async function disable() {
     if (busy) return;
     setBusy(true);
-    try { await clearDeviceToken(); setRegistered(false); setMessage("Alertas push desactivadas en este navegador. Las alertas dentro de la app siguen disponibles."); }
+    try {
+      const user = auth.currentUser;
+      const registration = await navigator.serviceWorker?.getRegistration("/");
+      if (user && config?.uid === user.uid && config.key && registration && storedOwner() === user.uid) {
+        const messaging = await import("firebase/messaging");
+        const token = await messaging.getToken(messaging.getMessaging(firebaseApp), { vapidKey: config.key, serviceWorkerRegistration: registration });
+        await call(user, { action: "disable", token });
+      }
+      await clearDeviceToken(); setRegistered(false); setMessage("Notificaciones push desactivadas para ambas apps en este navegador. Las alertas dentro de la app siguen disponibles."); }
     catch { setMessage("No se pudieron desactivar. Revisa los permisos de notificaciones del navegador."); }
     finally { setBusy(false); }
   }
-  if (mode !== "driver" || !config) return null;
+  async function testPush() {
+    const user = auth.currentUser;
+    if (busy || !user || config?.uid !== user.uid) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/push/test", { method: "POST", headers: { Authorization: `Bearer ${await user.getIdToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ appExperience: mode }) });
+      const result = await response.json();
+      if (!response.ok || !result.accepted) throw new Error();
+      setMessage("Prueba enviada al dispositivo registrado. Pon la app en segundo plano y comprueba la notificación del teléfono.");
+    } catch { setMessage("No se pudo enviar la prueba. Activa o vuelve a registrar las notificaciones en este dispositivo."); }
+    finally { setBusy(false); }
+  }
+  const showSettings = mode && (/^\/(conductor|pasajero)\/?$/.test(pathname) || /\/(profile|security)$/.test(pathname));
+  if (!showSettings || !config) return null;
   return <section className="driverPush" aria-label="Alertas con la app cerrada">
-    <h2>Alertas de último minuto</h2>
-    <p>{config.key ? "Activa las notificaciones en cada dispositivo para recibir avisos cuando RoadLink esté en segundo plano." : "Las alertas dentro de la app están disponibles. Las notificaciones con la app cerrada están pendientes de configuración."}</p>
+    <h2>Notificaciones push</h2>
+    <p>{config.key ? "Recibe mensajes, propuestas y actualizaciones de reservas en Pasajero y Conductor, incluso con la app en segundo plano." : "Las alertas dentro de la app están disponibles. Las notificaciones con la app cerrada están pendientes de configuración."}</p>
     <button type="button" onClick={() => void enable()} disabled={busy || !config.key}>{busy ? "Actualizando…" : registered ? "Volver a registrar este dispositivo" : "Activar notificaciones en este dispositivo"}</button>
+    {registered && <button type="button" onClick={() => void testPush()} disabled={busy}>Enviar notificación de prueba</button>}
     {config.key && <button type="button" onClick={() => void disable()} disabled={busy}>Desactivar en este navegador</button>}
     {message && <p role="status" aria-live="polite">{message}</p>}
     <style>{`.driverPush{box-sizing:border-box;margin:16px auto;padding:20px;max-width:1080px;border:1px solid #364940;border-radius:18px;background:#101e20;color:#f7f5ef}.driverPush h2{font-size:20px}.driverPush p{line-height:1.6}.driverPush button{padding:13px 18px;margin:6px 8px 6px 0;min-height:48px;border:1px solid #789b82;border-radius:10px;background:#193b2b;color:#fff;font:inherit;cursor:pointer}.driverPush button:disabled{opacity:.55;cursor:default}.driverPush button:focus-visible{outline:3px solid #22c55e;outline-offset:4px}@media(max-width:540px){.driverPush{margin:12px}.driverPush button{width:100%;margin-right:0}}`}</style>

@@ -1,6 +1,8 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../../lib/server/notification-push";
 import { ApiError, apiFailure, documentId, requirePassenger } from "../../../../lib/server/firebase-admin";
 
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     const { user, db } = await requirePassenger(request);
     const { rideId } = await request.json();
@@ -38,9 +40,10 @@ export async function POST(request: Request) {
       for (const booking of pending) {
         const b = booking.data();
         tx.update(booking.ref, { status: "cancelled", cancellationReason: "driver_cancelled_ride", updatedAt: now });
-        tx.set(db.collection("notifications").doc(), { userId: b.passengerId, email: b.passengerEmail || "", type: "booking", title: "Viaje cancelado", message: "El conductor canceló el viaje. Tu reserva también fue cancelada.", rideId: ref.id, bookingId: booking.id, read: false, createdAt: now });
+        tx.set(notificationRef(db, pushAlerts, "passenger"), { userId: b.passengerId, email: b.passengerEmail || "", type: "booking", title: "Viaje cancelado", message: "El conductor canceló el viaje. Tu reserva también fue cancelada.", rideId: ref.id, bookingId: booking.id, read: false, createdAt: now });
       }
     });
+    await deliverNotificationPush(pushAlerts);
     return Response.json({ cancelled: true });
   } catch (error) { return apiFailure(error); }
 }

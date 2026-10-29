@@ -1,6 +1,8 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../../lib/server/notification-push";
 import { ApiError, apiFailure, documentId, requirePassenger } from "../../../../lib/server/firebase-admin";
 
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     const { user, db } = await requirePassenger(request);
     const { bookingId, action } = await request.json();
@@ -45,8 +47,9 @@ export async function POST(request: Request) {
         if (allDone) tx.update(rideRef, { status: "completed", completedAt: now, updatedAt: now });
         if (lockRef && lock?.rideId === rideRef.id) tx.set(lockRef, { rideId: "", until: now });
       }
-      tx.set(db.collection("notifications").doc(), { userId: booking.passengerId, email: booking.passengerEmail || "", type: "booking", title: action === "confirm" ? "Reserva confirmada" : "Viaje terminado", message: action === "confirm" ? "El conductor confirmó tu reserva." : "El conductor marcó tu viaje como terminado.", read: false, bookingId: snap.id, rideId: booking.rideId, createdAt: now });
+      tx.set(notificationRef(db, pushAlerts, "passenger"), { userId: booking.passengerId, email: booking.passengerEmail || "", type: "booking", title: action === "confirm" ? "Reserva confirmada" : "Viaje terminado", message: action === "confirm" ? "El conductor confirmó tu reserva." : "El conductor marcó tu viaje como terminado.", read: false, bookingId: snap.id, rideId: booking.rideId, createdAt: now });
     });
+    await deliverNotificationPush(pushAlerts);
     return Response.json({ updated: true });
   } catch (error) { return apiFailure(error); }
 }

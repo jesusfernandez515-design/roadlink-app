@@ -1,3 +1,4 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../lib/server/notification-push";
 import { ApiError, apiFailure, requirePassenger } from "../../../lib/server/firebase-admin";
 import { instantDrivers } from "../../../lib/server/instant-drivers";
 import { deliverInstantPush } from "../../../lib/server/instant-push";
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
   } catch (error) { return apiFailure(error); }
 }
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     enabled();
     const { user, db } = await requirePassenger(request);
@@ -109,7 +111,7 @@ export async function POST(request: Request) {
         const offers = Object.fromEntries(proposals(current).map(value => [value.driverId, value]));
         offers[user.uid] = quote;
         tx.update(ref, { offers, offer: null, updatedAt: stamp });
-        tx.set(db.collection("notifications").doc(), { userId: current.passengerId, type: "instant_offer",
+        tx.set(notificationRef(db, pushAlerts, "passenger"), { userId: current.passengerId, type: "instant_offer",
           title: "Un conductor respondió a tu solicitud", message: "Revisa su propuesta de viaje de último minuto y elige si deseas reservar.",
           actionUrl: "/ride-now", read: false, createdAt: stamp });
         return { offered: true };
@@ -137,12 +139,13 @@ export async function POST(request: Request) {
       tx.set(lockRef, { rideId, until: new Date(departure + selected.durationMinutes * 60000).toISOString() });
       tx.update(ref, { status: "accepted", bookingId, rideId, assignedDriverId: selected.driverId, acceptedOfferId: selected.id, updatedAt: stamp });
       for (const driverId of directory) tx.set(db.collection("notifications").doc(`instant_${current.version}_${driverId}`), { read: true, closed: true }, { merge: true });
-      tx.set(db.collection("notifications").doc(), { userId: selected.driverId, email: selected.driverEmail, type: "booking",
+      tx.set(notificationRef(db, pushAlerts, "driver"), { userId: selected.driverId, email: selected.driverEmail, type: "booking",
         title: "Viaje inmediato reservado", message: "El pasajero aceptó tu propuesta. Revisa la reserva y el pago de prueba.",
         bookingId, rideId, read: false, createdAt: stamp });
       return { bookingId };
     });
     if (result.requested && result.requestVersion) await deliverInstantPush(id, result.requestVersion, directory);
+    await deliverNotificationPush(pushAlerts);
     return Response.json(result, { headers });
   } catch (error) { return apiFailure(error); }
 }

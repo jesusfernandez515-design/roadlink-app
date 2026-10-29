@@ -10,7 +10,7 @@ async function session(request: Request) {
   return { ...context, driver };
 }
 export async function GET(request: Request) {
-  try { const { driver } = await session(request); return Response.json({ driver, configured: Boolean(pushKey()), vapidKey: driver ? pushKey() : "" }, { headers }); }
+  try { const { driver } = await session(request); return Response.json({ driver, configured: Boolean(pushKey()), vapidKey: pushKey() }, { headers }); }
   catch (error) { return apiFailure(error); }
 }
 export async function POST(request: Request) {
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     const body = await request.json(), id = pushDeviceId(body.token);
     const ref = db.collection("pushDevices").doc(id);
     if (!["enable", "disable"].includes(body.action)) throw new ApiError(400, "Acción no válida.");
-    if (body.action === "enable" && (!driver || !pushKey())) throw new ApiError(403, "Las alertas push todavía no están disponibles para esta cuenta.");
+    if (body.action === "enable" && (!pushKey())) throw new ApiError(403, "Las alertas push todavía no están disponibles para esta cuenta.");
     await db.runTransaction(async tx => {
       const current = (await tx.get(ref)).data();
       if (body.action === "disable") {

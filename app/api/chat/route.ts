@@ -1,3 +1,4 @@
+import { notificationRef, deliverNotificationPush, type PushAlert } from "../../../lib/server/notification-push";
 import type { Firestore, DocumentReference } from "firebase-admin/firestore";
 import { apiFailure, ApiError, documentId, requirePassenger } from "../../../lib/server/firebase-admin";
 
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
   } catch (error) { return apiFailure(error); }
 }
 export async function POST(request: Request) {
+  const pushAlerts: PushAlert[] = [];
   try {
     const { user, db } = await requirePassenger(request);
     const body = await request.json();
@@ -105,8 +107,9 @@ export async function POST(request: Request) {
       const receiverId = user.uid === booking.driverId ? booking.passengerId : booking.driverId;
       tx.set(messageRef!, { chatId: ref.id, rideId: booking.rideId, driverId: booking.driverId, passengerId: booking.passengerId, senderId: user.uid, senderEmail: user.email || "", receiverId, text, type: "text", createdAt: now, read: false });
       tx.update(ref, { lastMessage: text, lastMessageTime: now, lastSenderId: user.uid, lastSenderEmail: user.email || "", unread: { ...(chat.unread || {}), [user.uid]: 0, [receiverId]: Math.max(0, Number(chat.unread?.[receiverId] || 0)) + 1 }, updatedAt: now });
-      tx.set(db.collection("notifications").doc(`chat_${messageRef!.id}`), { userId: receiverId, email: user.uid === booking.driverId ? booking.passengerEmail || "" : booking.driverEmail || "", type: "message", title: "Nuevo mensaje de RoadLink", message: text.slice(0, 120), chatId: ref.id, rideId: booking.rideId, senderId: user.uid, read: false, createdAt: now, actionUrl: `/chat?chatId=${ref.id}` });
+      tx.set(notificationRef(db, pushAlerts, user.uid === booking.driverId ? "passenger" : "driver", `chat_${messageRef!.id}`), { userId: receiverId, email: user.uid === booking.driverId ? booking.passengerEmail || "" : booking.driverEmail || "", type: "message", title: "Nuevo mensaje de RoadLink", message: text.slice(0, 120), chatId: ref.id, rideId: booking.rideId, senderId: user.uid, read: false, createdAt: now, actionUrl: `/chat?chatId=${ref.id}` });
     });
+    await deliverNotificationPush(pushAlerts);
     return Response.json({ ok: true }, { headers });
   } catch (error) { return apiFailure(error); }
 }
