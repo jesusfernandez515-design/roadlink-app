@@ -132,7 +132,7 @@ export default function DriverPushControl() {
     <h2>Notificaciones push</h2>
     <p>{config.key ? "Recibe mensajes, propuestas y actualizaciones de reservas en Pasajero y Conductor, incluso con la app en segundo plano." : "Las alertas dentro de la app están disponibles. Las notificaciones con la app cerrada están pendientes de configuración."}</p>
     <button type="button" onClick={() => void enable()} disabled={busy || !config.key}>{busy ? "Actualizando…" : registered ? "Volver a registrar este dispositivo" : "Activar notificaciones en este dispositivo"}</button>
-    {registered && <button type="button" onClick={() => void testPush()} disabled={busy}>Enviar notificación de prueba</button>}
+    {config.key && <button type="button" onClick={() => void testPush()} disabled={busy}>Enviar notificación de prueba</button>}
     {config.key && <button type="button" onClick={() => void disable()} disabled={busy}>Desactivar en este navegador</button>}
     {message && <p role="status" aria-live="polite">{message}</p>}
     </div>}
