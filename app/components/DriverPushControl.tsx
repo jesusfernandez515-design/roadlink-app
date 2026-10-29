@@ -26,12 +26,13 @@ async function call(user: User, body?: object) {
 export default function DriverPushControl() {
   const mode = useAppExperience();
   const pathname = usePathname();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [config, setConfig] = useState<{ uid: string; key: string } | null>(null);
   const [busy, setBusy] = useState(false), [registered, setRegistered] = useState(false), [message, setMessage] = useState("");
   useEffect(() => {
     let live = true;
     const stop = onAuthStateChanged(auth, async user => {
-      setConfig(null); setRegistered(false); setMessage("");
+      setConfig(null); setRegistered(false); setSettingsOpen(false); setMessage("");
       if (!user) { try { await clearDeviceToken(); } catch { /* A stale token is pruned after rejection by FCM. */ } return; }
       try {
         if (storedOwner() !== user.uid) await clearDeviceToken();
@@ -85,7 +86,7 @@ export default function DriverPushControl() {
       const token = await messaging.getToken(messaging.getMessaging(firebaseApp), { vapidKey: config.key, serviceWorkerRegistration: registration });
       if (auth.currentUser?.uid !== user.uid) { await clearDeviceToken(); throw new Error("La cuenta cambió. Vuelve a activar las alertas desde tu cuenta."); }
       await call(user, { action: "enable", token });
-      if (auth.currentUser?.uid === user.uid) { try { localStorage.setItem(ownerKey, user.uid); } catch { /* Registration remains usable without local persistence. */ } setRegistered(true); setMessage("Dispositivo registrado para recibir notificaciones de Pasajero y Conductor. Mantén los permisos activados en el teléfono."); }
+      if (auth.currentUser?.uid === user.uid) { try { localStorage.setItem(ownerKey, user.uid); } catch { /* Registration remains usable without local persistence. */ } setRegistered(true); setSettingsOpen(false); setMessage("Dispositivo registrado para recibir notificaciones de Pasajero y Conductor. Mantén los permisos activados en el teléfono."); }
     } catch { setMessage("No se pudieron activar las alertas push. Revisa el permiso del navegador y vuelve a intentarlo. Las alertas dentro de la app siguen disponibles."); }
     finally { setBusy(false); }
   }
@@ -120,14 +121,21 @@ export default function DriverPushControl() {
     finally { setBusy(false); }
   }
   const showSettings = mode && (/^\/(conductor|pasajero)\/?$/.test(pathname) || /\/(profile|security)$/.test(pathname));
-  if (!showSettings || !config) return null;
-  return <section className="driverPush" aria-label="Alertas con la app cerrada">
+  const managementPage = /\/(profile|security)$/.test(pathname);
+  useEffect(() => { setSettingsOpen(false); }, [pathname]);
+  if (!showSettings || !config || (registered && !managementPage)) return null;
+  return <section className={`driverPush ${registered && !settingsOpen ? "driverPushCompact" : ""}`} aria-label="Notificaciones push">
+    {registered && <button type="button" className="pushSettingsToggle" aria-expanded={settingsOpen} aria-controls="push-settings-content" onClick={() => setSettingsOpen(open => !open)}>
+      Notificaciones activadas · {settingsOpen ? "Cerrar ajustes" : "Administrar"}
+    </button>}
+    {(!registered || settingsOpen) && <div id="push-settings-content">
     <h2>Notificaciones push</h2>
     <p>{config.key ? "Recibe mensajes, propuestas y actualizaciones de reservas en Pasajero y Conductor, incluso con la app en segundo plano." : "Las alertas dentro de la app están disponibles. Las notificaciones con la app cerrada están pendientes de configuración."}</p>
     <button type="button" onClick={() => void enable()} disabled={busy || !config.key}>{busy ? "Actualizando…" : registered ? "Volver a registrar este dispositivo" : "Activar notificaciones en este dispositivo"}</button>
     {registered && <button type="button" onClick={() => void testPush()} disabled={busy}>Enviar notificación de prueba</button>}
     {config.key && <button type="button" onClick={() => void disable()} disabled={busy}>Desactivar en este navegador</button>}
     {message && <p role="status" aria-live="polite">{message}</p>}
-    <style>{`.driverPush{box-sizing:border-box;margin:16px auto;padding:20px;max-width:1080px;border:1px solid #364940;border-radius:18px;background:#101e20;color:#f7f5ef}.driverPush h2{font-size:20px}.driverPush p{line-height:1.6}.driverPush button{padding:13px 18px;margin:6px 8px 6px 0;min-height:48px;border:1px solid #789b82;border-radius:10px;background:#193b2b;color:#fff;font:inherit;cursor:pointer}.driverPush button:disabled{opacity:.55;cursor:default}.driverPush button:focus-visible{outline:3px solid #22c55e;outline-offset:4px}@media(max-width:540px){.driverPush{margin:12px}.driverPush button{width:100%;margin-right:0}}`}</style>
+    </div>}
+    <style>{`.driverPushCompact{padding:8px 16px!important;margin:12px auto!important}.driverPushCompact .pushSettingsToggle{width:100%;margin:0!important;min-height:44px;background:transparent;border:0;text-align:left;font-size:14px}.driverPush{box-sizing:border-box;margin:16px auto;padding:20px;max-width:1080px;border:1px solid #364940;border-radius:18px;background:#101e20;color:#f7f5ef}.driverPush h2{font-size:20px}.driverPush p{line-height:1.6}.driverPush button{padding:13px 18px;margin:6px 8px 6px 0;min-height:48px;border:1px solid #789b82;border-radius:10px;background:#193b2b;color:#fff;font:inherit;cursor:pointer}.driverPush button:disabled{opacity:.55;cursor:default}.driverPush button:focus-visible{outline:3px solid #22c55e;outline-offset:4px}@media(max-width:540px){.driverPush{margin:12px}.driverPush button{width:100%;margin-right:0}}`}</style>
   </section>;
 }
