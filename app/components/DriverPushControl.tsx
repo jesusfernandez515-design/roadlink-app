@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import firebaseApp, { auth } from "../../lib/firebase";
+import { foregroundNotice } from "../../lib/push-notification";
 import { usePathname } from "next/navigation";
 import { useAppExperience } from "./AppExperience";
 
@@ -43,6 +44,25 @@ export default function DriverPushControl() {
     });
     return () => { live = false; stop(); };
   }, []);
+  useEffect(() => {
+    if (!config || !registered) return;
+    let live = true;
+    let stop: (() => void) | undefined;
+    void import("firebase/messaging").then(async messaging => {
+      if (!await messaging.isSupported() || !live) return;
+      stop = messaging.onMessage(messaging.getMessaging(firebaseApp), async payload => {
+        if (!live || auth.currentUser?.uid !== config.uid || storedOwner() !== config.uid || Notification.permission !== "granted") return;
+        const notice = foregroundNotice(payload);
+        if (!notice) return;
+        setMessage("Notificación recibida en este dispositivo.");
+        try {
+          const registration = await navigator.serviceWorker.getRegistration("/");
+          if (live && auth.currentUser?.uid === config.uid) await registration?.showNotification(notice.title, notice.options);
+        } catch { setMessage("Llegó la notificación, pero el teléfono no permitió mostrarla. Revisa los permisos del sistema."); }
+      });
+    }).catch(() => { /* In-app notifications remain available. */ });
+    return () => { live = false; stop?.(); };
+  }, [config, registered]);
   async function enable() {
     const user = auth.currentUser;
     if (busy || !user || !config?.key || config.uid !== user.uid) return;
@@ -88,11 +108,14 @@ export default function DriverPushControl() {
     const user = auth.currentUser;
     if (busy || !user || config?.uid !== user.uid) return;
     setBusy(true);
+    setMessage("Enviando la notificación de prueba…");
     try {
       const response = await fetch("/api/push/test", { method: "POST", headers: { Authorization: `Bearer ${await user.getIdToken()}`, "Content-Type": "application/json" }, body: JSON.stringify({ appExperience: mode }) });
       const result = await response.json();
-      if (!response.ok || !result.accepted) throw new Error();
-      setMessage("Prueba enviada al dispositivo registrado. Pon la app en segundo plano y comprueba la notificación del teléfono.");
+      if (!response.ok) throw new Error();
+      if (result.repeated) { setMessage("Esta prueba ya se envió durante este minuto. Espera un minuto para enviar otra."); return; }
+      if (!result.accepted) { setMessage(result.status === "no_devices" ? "No hay un dispositivo activo para esta cuenta. Pulsa Volver a registrar este dispositivo y repite la prueba." : "El servicio push no aceptó el envío. Vuelve a registrar este dispositivo y prueba de nuevo."); return; }
+      setMessage("El servicio push aceptó la prueba. Comprueba la barra de notificaciones del teléfono; esto todavía no confirma que la hayas recibido.");
     } catch { setMessage("No se pudo enviar la prueba. Activa o vuelve a registrar las notificaciones en este dispositivo."); }
     finally { setBusy(false); }
   }

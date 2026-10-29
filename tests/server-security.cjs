@@ -548,7 +548,17 @@ test('self push test ignores forged recipients and limits duplicate notification
  try {
  const h=harness({'pushDevices/p':{userId:'p',enabled:true,token:'passenger-device'}}),route=h.load('app/api/push/test/route.ts');
  const call=body=>route.POST(new Request('https://preview.example/api/push/test',{method:'POST',headers:{authorization:'Bearer valid','content-type':'application/json'},body:JSON.stringify(body)}));
- assert.equal((await call({appExperience:'passenger',userId:'victim'})).status,200);assert.equal((await call({appExperience:'passenger'})).status,200);assert.equal(h.pushMessages.length,1);assert.deepEqual(h.pushMessages[0].tokens,['passenger-device']);assert.equal((await call({appExperience:'outside'})).status,400);
+ const first=await call({appExperience:'passenger',userId:'victim'});assert.equal(first.status,200);assert.equal((await first.json()).repeated,false);const second=await call({appExperience:'passenger'});assert.equal(second.status,200);assert.equal((await second.json()).repeated,true);assert.equal(h.pushMessages.length,1);assert.deepEqual(h.pushMessages[0].tokens,['passenger-device']);assert.equal((await call({appExperience:'outside'})).status,400);
  const worker=await h.load('app/firebase-messaging-sw.js/route.ts').GET();assert.equal(worker.headers.get('Service-Worker-Allowed'),'/');assert(!(await worker.text()).includes('roadlink-7646d'));
  } finally {process.env=saved;}
+});
+
+
+test('foreground push validates links, hides private payloads and produces a valid worker click handler',async()=>{
+ const policy=harness().load('lib/push-notification.ts');
+ const notice=policy.foregroundNotice({messageId:'test-message',notification:{body:'PRIVATE PHONE'},fcmOptions:{link:'https://www.getroadlink.com/pasajero/messages'}});
+ assert.equal(notice.options.data.roadlinkUrl,'https://www.getroadlink.com/pasajero/messages');assert.equal(notice.options.tag,'roadlink-test-message');assert(!JSON.stringify(notice).includes('PRIVATE PHONE'));
+ for(const link of ['https://evil.example/pasajero/messages','https://www.getroadlink.com/admin','https://www.getroadlink.com/pasajero/messages?token=private','javascript:alert(1)'])assert.equal(policy.foregroundNotice({fcmOptions:{link}}),null);
+ const saved=process.env.NEXT_PUBLIC_ROADLINK_ENV;process.env.NEXT_PUBLIC_ROADLINK_ENV='test';
+ try {const script=await (await harness().load('app/firebase-messaging-sw.js/route.ts').GET()).text();assert.doesNotThrow(()=>new (require('node:vm').Script)(script));assert(script.includes('notificationclick'));assert(script.includes('stopImmediatePropagation'));}finally{if(saved===undefined)delete process.env.NEXT_PUBLIC_ROADLINK_ENV;else process.env.NEXT_PUBLIC_ROADLINK_ENV=saved;}
 });

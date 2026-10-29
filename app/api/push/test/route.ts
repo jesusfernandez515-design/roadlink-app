@@ -11,12 +11,13 @@ export async function POST(request: Request) {
     // One self-addressed test per app and minute; no arbitrary recipients or payloads.
     const id = `push_test_${user.uid}_${appExperience}_${Math.floor(Date.now() / 60000)}`;
     const ref = db.collection("notifications").doc(id);
-    await db.runTransaction(async tx => {
-      if ((await tx.get(ref)).exists) return;
+    const repeated = await db.runTransaction(async tx => {
+      if ((await tx.get(ref)).exists) return true;
       tx.set(ref, { userId: user.uid, type: "push_test", title: "Prueba de notificaciones", message: "Prueba de notificaciones push de RoadLink.", read: false, createdAt: new Date().toISOString() });
+      return false;
     });
     await deliverNotificationPush([{ id, mode: appExperience }]);
     const alert = (await ref.get()).data();
-    return Response.json({ accepted: Number(alert?.pushAccepted || 0), status: alert?.pushStatus || "unavailable" }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ repeated, accepted: Number(alert?.pushAccepted || 0), status: alert?.pushStatus || "unavailable" }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return apiFailure(error); }
 }
