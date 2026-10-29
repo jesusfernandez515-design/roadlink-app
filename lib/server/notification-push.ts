@@ -1,3 +1,4 @@
+import { pushPresentation } from "../push-notification";
 import type { Firestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { serverFirebase } from "./firebase-admin";
@@ -30,11 +31,12 @@ export async function deliverNotificationPush(alerts: PushAlert[]) {
       const prefix = mode === "driver" ? "/conductor" : "/pasajero";
       const screen = alert.type === "message" ? "/messages" : alert.type === "instant_offer" ? "/ride-now" : mode === "driver" ? "/my-rides" : "/my-bookings";
       // Lock-screen text never includes message contents, guest contacts, routes or payment details.
-      const title = alert.type === "push_test" ? "Prueba de notificaciones" : alert.type === "message" ? "Nuevo mensaje" : alert.type === "instant_offer" ? "Nueva propuesta de viaje" : alert.type === "payment" ? "Actualización de pago" : "Actualización de reserva";
+      const presentation = pushPresentation(mode, alert.type);
       const response = await getMessaging(app).sendEachForMulticast({
         tokens: rows.docs.map(row => row.data().token),
-        notification: { title: `RoadLink · ${title}`, body: "Abre RoadLink para consultar la actualización de tu viaje." },
-        webpush: { headers: { TTL: "3600", Urgency: "high" }, notification: { tag: `roadlink-${id}`, icon: mode === "driver" ? "/icons/roadlink-luxury-192.png" : "/icons/roadlink-passenger-v1-192.png" },
+        notification: { title: presentation.title, body: presentation.body },
+        data: { kind: String(alert.type || "booking") },
+        webpush: { headers: { TTL: "3600", Urgency: "high" }, notification: { tag: `roadlink-${id}`, icon: presentation.icon },
           fcmOptions: { link: `https://www.getroadlink.com${prefix}${screen}` } },
       });
       await Promise.all(response.responses.map(async (result, i) => {

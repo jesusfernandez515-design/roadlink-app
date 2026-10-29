@@ -1,3 +1,4 @@
+import { pushPresentation } from "../push-notification";
 import { createHash } from "node:crypto";
 import { getMessaging } from "firebase-admin/messaging";
 import { ApiError, serverFirebase } from "./firebase-admin";
@@ -39,11 +40,13 @@ export async function deliverInstantPush(requestId: string, version: string, dri
         }
         const ttl = Math.max(0, Math.min(900, Math.floor((Date.parse(leased) - Date.now()) / 1000)));
         if (!ttl) { await notificationRef.set({ pushStatus: "expired" }, { merge: true }); continue; }
+        const presentation = pushPresentation("driver", "instant_request");
         const response = await getMessaging(app).sendEachForMulticast({
           tokens: devices.map(row => row.data().token),
-          notification: { title: "RoadLink · Viaje de último minuto", body: "Alguien necesita viajar de inmediato. Abre la app para revisar la solicitud." },
+          notification: { title: presentation.title, body: presentation.body },
+          data: { kind: "instant_request" },
           webpush: { headers: { TTL: String(ttl), Urgency: "high" },
-            notification: { tag: `roadlink-instant-${version}`, icon: "/icons/roadlink-luxury-192.png" },
+            notification: { tag: `roadlink-instant-${version}`, icon: presentation.icon },
             fcmOptions: { link: "https://www.getroadlink.com/conductor/ride-now" } },
         });
         await Promise.all(response.responses.map(async (result, i) => {
