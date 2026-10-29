@@ -60,6 +60,7 @@ function MyBookingsContent() {
   const listUrl = `/my-bookings?vista=${filter}&pagina=${page}`;
   const visibleBookings = selectedId ? bookings.filter(booking => booking.id === selectedId) : filtered.slice((page - 1) * 3, page * 3);
   const [message, setMessage] = useState("Cargando tus reservas…");
+  const [cancellingId, setCancellingId] = useState("");
   const [payingId, setPayingId] = useState("");
   const [paymentFeedback, setPaymentFeedback] = useState<{ bookingId: string; text: string } | null>(null);
 
@@ -197,8 +198,9 @@ function MyBookingsContent() {
   }
 
   async function cancelBooking(booking: Booking) {
-    if (!booking.id) return;
-
+    if (!booking.id || cancellingId) return;
+    setCancellingId(booking.id);
+    setPaymentFeedback({ bookingId: booking.id, text: "Revisando el pago y cancelando la reserva…" });
     try {
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error("Inicia sesión primero.");
@@ -209,9 +211,12 @@ function MyBookingsContent() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "No se pudo cancelar la reserva.");
-      setMessage("Reserva cancelada.");
+      setMessage("");
+      setPaymentFeedback({ bookingId: booking.id, text: "Reserva cancelada. El asiento quedó liberado." });
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "No se pudo cancelar la reserva.");
+      setPaymentFeedback({ bookingId: booking.id, text: error instanceof Error ? error.message : "No se pudo cancelar la reserva." });
+    } finally {
+      setCancellingId("");
     }
   }
 
@@ -325,7 +330,7 @@ function MyBookingsContent() {
                         <button
                           className="payButton"
                           onClick={() => startPayment(booking)}
-                          disabled={payingId === booking.id}
+                          disabled={payingId === booking.id || cancellingId === booking.id}
                         >
                           {payingId === booking.id ? "Abriendo pago…" : "Pagar ahora"}
                         </button>
@@ -335,9 +340,9 @@ function MyBookingsContent() {
                         <button
                           className="dangerButton"
                           onClick={() => cancelBooking(booking)}
-                          disabled={payingId === booking.id}
+                          disabled={payingId === booking.id || cancellingId === booking.id}
                         >
-                          Cancelar
+                          {cancellingId === booking.id ? "Cancelando…" : "Cancelar"}
                         </button>
                       )}
 
