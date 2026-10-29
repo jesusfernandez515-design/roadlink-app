@@ -6,7 +6,8 @@ import Link from "../components/AppLink";
 import RequireSession from "../components/RequireSession";
 import { canPayBooking } from "../../lib/booking-payment";
 import ProfileIdentity from "../components/ProfileIdentity";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -41,14 +42,23 @@ type Booking = {
 };
 
 export default function MyBookingsPage() {
-  return <RequireSession purpose="Entra en tu cuenta para consultar y gestionar tus reservas."><MyBookingsContent /></RequireSession>;
+  return <RequireSession purpose="Entra en tu cuenta para consultar y gestionar tus reservas."><Suspense fallback={<p role="status">Cargando reservas…</p>}><MyBookingsContent /></Suspense></RequireSession>;
 }
 
 function MyBookingsContent() {
   const appExperience = useAppExperience();
   const [userId, setUserId] = useState("");
-  const [userEmail, setUserEmail] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const searchParams = useSearchParams();
+  const selectedId = searchParams.get("reserva");
+  const filter = ["activas", "historial", "todas"].includes(searchParams.get("vista") || "") ? searchParams.get("vista")! : "activas";
+  const requestedPage = Math.max(1, Number(searchParams.get("pagina")) || 1);
+  const isHistory = (booking: Booking) => ["completed", "cancelled", "rejected"].includes(booking.status || "") || ["refunded", "partially_refunded"].includes(booking.paymentStatus || "");
+  const filtered = bookings.filter(booking => filter === "todas" || (filter === "historial" ? isHistory(booking) : !isHistory(booking)));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 3));
+  const page = Math.min(pageCount, Math.floor(Number.isFinite(requestedPage) ? requestedPage : 1));
+  const listUrl = `/my-bookings?vista=${filter}&pagina=${page}`;
+  const visibleBookings = selectedId ? bookings.filter(booking => booking.id === selectedId) : filtered.slice((page - 1) * 3, page * 3);
   const [message, setMessage] = useState("Cargando tus reservas…");
   const [payingId, setPayingId] = useState("");
   const [paymentFeedback, setPaymentFeedback] = useState<{ bookingId: string; text: string } | null>(null);
@@ -64,7 +74,6 @@ function MyBookingsContent() {
       unsubscribeByEmail = undefined;
       setBookings([]);
       setUserId(user?.uid || "");
-      setUserEmail(user?.email || "");
       if (!user) {
         setMessage("Inicia sesión para ver tus reservas.");
         setBookings([]);
@@ -74,7 +83,6 @@ function MyBookingsContent() {
       const email = user.email || "";
 
       setUserId(user.uid);
-      setUserEmail(email);
 
       const mergeBookings = (uidBookings: Booking[], emailBookings: Booking[]) => {
         if (auth.currentUser?.uid !== user.uid) return;
@@ -142,30 +150,6 @@ function MyBookingsContent() {
       if (unsubscribeByEmail) unsubscribeByEmail();
     };
   }, []);
-
-  const metrics = useMemo(() => {
-    const active = bookings.filter((item) =>
-      ["reserved", "confirmed", "payment_pending", "paid"].includes(item.status || "")
-    );
-
-    const completed = bookings.filter((item) => item.status === "completed");
-
-    const cancelled = bookings.filter((item) =>
-      ["cancelled", "rejected"].includes(item.status || "")
-    );
-
-    const pendingPayment = bookings.filter(
-      (item) => item.status === "payment_pending" || item.paymentStatus === "pending"
-    );
-
-    const paid = bookings.filter(
-      (item) => item.paymentStatus === "paid" || item.status === "paid"
-    );
-
-    const totalValue = bookings.reduce((total, item) => total + bookingTotal(item), 0);
-
-    return { active, completed, cancelled, pendingPayment, paid, totalValue };
-  }, [bookings]);
 
   async function startPayment(booking: Booking) {
     if (!userId) {
@@ -268,58 +252,27 @@ function MyBookingsContent() {
   return (
     <main className="page">
       <section className="container">
-        <div className="topNav">
-          <Link href="/dashboard" className="miniButton">Mi panel</Link>
-          <Link href="/find-ride" className="miniButton">Buscar viaje</Link>
-          <Link href="/wallet" className="miniButton">Cartera</Link>
-          <Link href="/profile" className="miniButton">Perfil</Link>
-        </div>
-
-        <section className="hero">
-          <div>
-            <p className="eyebrow">RoadLink Pasajero</p>
-            <h1>Mis <span>reservas</span></h1>
-            <p className="subtitle">
-              Consulta tus reservas, pagos, historial de viajes y mensajes del conductor.
-            </p>
-          </div>
-
-          <div className="scoreOrb">
-            <strong translate="no">{bookings.length}</strong>
-            <span>Total de reservas</span>
-          </div>
-        </section>
-
-        {message && <p className="message">{message}</p>}
-
-        <section className="stats">
-          <Metric icon="🎟️" label="Reservas" value={String(bookings.length)} />
-          <Metric icon="✅" label="Activas" value={String(metrics.active.length)} />
-          <Metric icon="💳" label="Pago pendiente" value={String(metrics.pendingPayment.length)} />
-          <Metric icon="💰" label="Pagado" value={String(metrics.paid.length)} />
-          <Metric icon="🏁" label="Completado" value={String(metrics.completed.length)} />
-          <Metric icon="❌" label="Cancelado" value={String(metrics.cancelled.length)} />
-          <Metric icon="📊" label="Valor total" value={money(metrics.totalValue)} />
-          <Metric icon="👤" label="Pasajero" value={userEmail || "Sin sesión"} />
-        </section>
-
-        <section className="bookingsPanel">
-          <div className="sectionTop">
-            <div>
-              <p className="eyebrow">Reservas</p>
-              <h2>Centro de reservas</h2>
-            </div>
-          </div>
-
-          {bookings.length === 0 ? (
+        <header className="bookingHeader">
+          {selectedId && <Link href={listUrl} className="backLink">← Mis reservas</Link>}
+          <h1>{selectedId ? "Detalle de reserva" : "Mis reservas"}</h1>
+          {!selectedId && <p>{bookings.length} reservas · Consulta un viaje para ver sus detalles.</p>}
+        </header>
+        {message && <p className="message" role="status">{message}</p>}
+        {!selectedId && <nav className="bookingTabs" aria-label="Filtrar reservas">
+          {([['activas', 'Activas'], ['historial', 'Historial'], ['todas', 'Todas']] as const).map(([value, label]) =>
+            <Link key={value} href={`/my-bookings?vista=${value}`} aria-current={filter === value ? "page" : undefined}>{label}</Link>
+          )}
+        </nav>}
+        <section className="bookingsPanel" aria-label={selectedId ? "Detalle de reserva" : "Lista de reservas"}>
+          {visibleBookings.length === 0 ? (
             <section className="empty">
-              <h3>Aún no tienes reservas</h3>
-              <p>Busca un viaje y reserva tu asiento para comenzar a viajar con RoadLink.</p>
+              <h2>{selectedId ? "Reserva no disponible" : "No hay reservas en esta página"}</h2>
+              <p>{selectedId ? "Vuelve a la lista para consultar tus reservas." : "Prueba otra sección o busca tu próximo viaje."}</p>
               <Link href="/find-ride" className="emptyButton">Buscar un viaje</Link>
             </section>
           ) : (
             <div className="bookingGrid">
-              {bookings.map((booking) => {
+              {visibleBookings.map((booking) => {
                 const total = bookingTotal(booking);
                 const platformFee = Math.round(total * 0.12 * 100) / 100;
                 const driverAmount = Math.max(total - platformFee, 0);
@@ -327,7 +280,7 @@ function MyBookingsContent() {
                 const isCancelled = booking.status === "cancelled" || booking.status === "rejected";
 
                 return (
-                  <section key={booking.id} className="bookingCard">
+                  <section key={booking.id} className={`bookingCard ${selectedId ? "bookingDetail" : "bookingPreview"}`}>
                     <div className="cardTop">
                       <div>
                         <h3>{booking.from || "Origen"} → {booking.to || "Destino"}</h3>
@@ -339,6 +292,10 @@ function MyBookingsContent() {
                       </span>
                     </div>
 
+                    {!selectedId ? <div className="compactFooter">
+                      <strong>{money(total)}</strong>
+                      <Link className="linkButton" href={`${listUrl}&reserva=${encodeURIComponent(booking.id)}`}>Ver detalle →</Link>
+                    </div> : <>
                     <GuestPassengerSummary guest={booking.guest} />
                     <div className="routeBox">
                       <div>
@@ -356,8 +313,10 @@ function MyBookingsContent() {
                       <Info label="Total del viaje" value={money(total)} />
                       <Info label="Comisión de la plataforma" value={money(platformFee)} />
                       <Info label="Importe del conductor" value={money(driverAmount)} />
-                      <ProfileIdentity uid={booking.driverId} name={booking.driverEmail} role="Conductor" />
-                      <Info label="Referencia del pago" value={booking.paymentId || "Sin crear"} />
+                    </div>
+                    <div className="driverIdentity"><ProfileIdentity uid={booking.driverId} name={booking.driverEmail} role="Conductor" /></div>
+                    <details className="paymentReference"><summary>Referencia del pago</summary><p>{booking.paymentId || "Sin crear"}</p></details>
+                    <div>
                     </div>
 
                     {paymentFeedback?.bookingId === booking.id && <p role="status" aria-live="polite">{paymentFeedback.text}</p>}
@@ -388,360 +347,62 @@ function MyBookingsContent() {
                         </Link>
                       )}
                     </div>
+                    </>}
                   </section>
                 );
               })}
             </div>
           )}
         </section>
+        {!selectedId && filtered.length > 0 && <nav className="pagination" aria-label="Páginas de reservas">
+          {page > 1 ? <Link href={`/my-bookings?vista=${filter}&pagina=${page - 1}`} className="linkButton">← Anterior</Link> : <span />}
+          <span aria-live="polite">Página {page} de {pageCount}</span>
+          {page < pageCount ? <Link href={`/my-bookings?vista=${filter}&pagina=${page + 1}`} className="linkButton">Siguiente →</Link> : <span />}
+        </nav>}
       </section>
 
       <style>{`
-        * { box-sizing: border-box; }
-
-        .page {
-          min-height: 100vh;
-          color: white;
-          padding: 20px;
-          padding-bottom: 130px;
-          font-family: Arial, sans-serif;
-          background:
-            radial-gradient(circle at top right, rgba(217,195,157,0.22), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(59,130,246,0.12), transparent 35%),
-            linear-gradient(135deg, #070d11, #0b1217, #10191e);
-        }
-
-        .container { max-width: 1180px; margin: auto; }
-
-        .topNav {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-
-        .miniButton,
-        .linkButton,
-        .emptyButton {
-          color: white;
-          text-decoration: none;
-          font-weight: 900;
-          border-radius: 999px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.05);
-        }
-
-        .miniButton { padding: 10px 15px; }
-
-        .hero,
-        .metric,
-        .bookingsPanel,
-        .bookingCard,
-        .empty {
-          background: rgba(8,13,25,0.92);
-          border: 1px solid rgba(255,255,255,0.12);
-          box-shadow: 0 22px 70px rgba(0,0,0,0.5);
-          backdrop-filter: blur(16px);
-        }
-
-        .hero {
-          border-radius: 32px;
-          padding: 28px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 20px;
-          margin-bottom: 18px;
-        }
-
-        .eyebrow {
-          margin: 0 0 8px;
-          color: #d9c39d;
-          font-size: 12px;
-          font-weight: 900;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        h1 { font-size: 52px; line-height: 1; margin: 0 0 12px; }
-        h1 span, h2, .metricValue { color: #d9c39d; }
-        h2 { margin: 0; font-size: 30px; }
-
-        .subtitle,
-        .bookingCard p,
-        .empty p {
-          color: #a1a1aa;
-          line-height: 1.5;
-        }
-
-        .scoreOrb {
-          min-width: 104px;
-          height: 104px;
-          border-radius: 50%;
-          background: rgba(217,195,157,0.12);
-          border: 1px solid rgba(217,195,157,0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-direction: column;
-        }
-
-        .scoreOrb strong {
-          color: #d9c39d;
-          font-size: 34px;
-          font-weight: 900;
-        }
-
-        .scoreOrb span {
-          color: #a1a1aa;
-          font-size: 10px;
-          font-weight: 900;
-        }
-
-        .message {
-          color: #d9c39d;
-          font-weight: 900;
-          margin: 14px 0;
-        }
-
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-
-        .metric {
-          border-radius: 22px;
-          padding: 16px;
-        }
-
-        .metricIcon {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: rgba(217,195,157,0.13);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 10px;
-          font-size: 21px;
-        }
-
-        .metricLabel {
-          display: block;
-          color: #a1a1aa;
-          font-size: 12px;
-          font-weight: 900;
-          margin-bottom: 6px;
-        }
-
-        .metricValue {
-          display: block;
-          font-size: 20px;
-          font-weight: 900;
-          overflow-wrap: anywhere;
-        }
-
-        .bookingsPanel {
-          border-radius: 30px;
-          padding: 24px;
-        }
-
-        .sectionTop { margin-bottom: 18px; }
-        .bookingGrid { display: grid; gap: 14px; }
-
-        .bookingCard {
-          border-radius: 24px;
-          padding: 20px;
-          box-shadow: none;
-        }
-
-        .cardTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-          margin-bottom: 16px;
-        }
-
-        .bookingCard h3 {
-          margin: 0 0 6px;
-          font-size: 22px;
-          overflow-wrap: anywhere;
-        }
-
-        .bookingCard p { margin: 0; }
-
-        .pill {
-          padding: 8px 11px;
-          border-radius: 999px;
-          font-size: 12px;
-          font-weight: 900;
-          white-space: nowrap;
-        }
-
-        .pill.active {
-          color: #d9c39d;
-          background: rgba(217,195,157,0.12);
-          border: 1px solid rgba(217,195,157,0.35);
-        }
-
-        .pill.pending {
-          color: #facc15;
-          background: rgba(250,204,21,0.12);
-          border: 1px solid rgba(250,204,21,0.35);
-        }
-
-        .pill.paid,
-        .pill.done {
-          color: #60a5fa;
-          background: rgba(59,130,246,0.12);
-          border: 1px solid rgba(59,130,246,0.35);
-        }
-
-        .pill.bad {
-          color: #fca5a5;
-          background: rgba(239,68,68,0.12);
-          border: 1px solid rgba(239,68,68,0.35);
-        }
-
-        .routeBox {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
-          margin-bottom: 14px;
-        }
-
-        .routeBox div,
-        .infoBox {
-          padding: 14px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .routeBox span,
-        .infoBox span {
-          display: block;
-          color: #a1a1aa;
-          font-size: 12px;
-          font-weight: 900;
-          margin-bottom: 6px;
-        }
-
-        .routeBox strong,
-        .infoBox strong {
-          display: block;
-          overflow-wrap: anywhere;
-        }
-
-        .infoGrid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin-bottom: 16px;
-        }
-
-        .actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-
-        .actions button,
-        .linkButton,
-        .emptyButton {
-          padding: 12px 16px;
-          cursor: pointer;
-          border-radius: 999px;
-          font-weight: 900;
-        }
-
-        .actions button {
-          border: none;
-          color: white;
-        }
-
-        .payButton {
-          background: linear-gradient(135deg, #d9c39d, #b89b69);
-        }
-
-        .dangerButton {
-          color: #fca5a5 !important;
-          background: rgba(239,68,68,0.14);
-          border: 1px solid rgba(239,68,68,0.35) !important;
-        }
-
-        .linkButton {
-          display: inline-flex;
-          align-items: center;
-          background: rgba(255,255,255,0.05);
-        }
-
-        .empty {
-          padding: 24px;
-          border-radius: 24px;
-        }
-
-        .empty h3 {
-          margin: 0 0 8px;
-          font-size: 24px;
-        }
-
-        .emptyButton {
-          display: inline-block;
-          margin-top: 12px;
-          background: linear-gradient(135deg, #d9c39d, #b89b69);
-        }
-
-        button:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        @media (max-width: 980px) {
-          .stats,
-          .infoGrid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        @media (max-width: 680px) {
-          .page {
-            padding: 16px;
-            padding-bottom: 130px;
-          }
-
-          .hero {
-            flex-direction: column;
-            align-items: flex-start;
-            padding: 24px;
-          }
-
-          h1 { font-size: 42px; }
-
-          .stats,
-          .routeBox,
-          .infoGrid {
-            grid-template-columns: 1fr;
-          }
-
-          .bookingsPanel { padding: 18px; }
-          .cardTop { flex-direction: column; }
-        }
+        .page { min-height:100vh; padding:20px 16px 130px; color:#f3f0e8; background:#070d11; }
+        .page .container { max-width:760px; margin:auto; }
+        .page .bookingHeader { margin-bottom:18px; }
+        .page h1 { font-size:30px; margin:8px 0; }
+        .page .bookingHeader p { color:#a9b0ad; font-size:14px; margin:0; }
+        .page .backLink { color:#d9c39d; font-size:14px; }
+        .page .bookingTabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
+        .page .bookingTabs a { text-align:center; padding:12px 8px; border:1px solid #cdb68c44; border-radius:8px; color:#b3bab5; text-decoration:none; }
+        .page .bookingTabs a[aria-current] { background:#cdb68c22; color:#d9c39d; border-color:#d9c39d; }
+        .page .bookingGrid { display:grid; gap:12px; }
+        .page .bookingCard { padding:16px; min-width:0; }
+        .page .cardTop { display:flex; flex-direction:column-reverse; align-items:flex-start; gap:10px; }
+        .page .cardTop > div { min-width:0; width:100%; }
+        .page .bookingCard h3 { font-size:19px; margin:0 0 8px; overflow-wrap:anywhere; }
+        .page .bookingPreview h3 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+        .page .bookingCard p { color:#a9b0ad; font-size:14px; margin:0; line-height:1.5; }
+        .page .pill { font-size:12px; padding:5px 9px; border-radius:6px; background:#d9c39d1a; color:#d9c39d; }
+        .page .pill.pending { color:#facc15; background:#facc151a; }
+        .page .pill.bad { color:#fca5a5; background:#ef44441a; }
+        .page .pill.paid,.page .pill.done { color:#86efac; background:#22c55e1a; }
+        .page .compactFooter { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px; }
+        .page .compactFooter strong { font-size:20px; color:#d9c39d; }
+        .page .linkButton,.page .emptyButton,.page .actions button { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 14px; border:1px solid #cdb68c44; border-radius:6px; color:#f3f0e8; background:#111e25; text-decoration:none; font-size:14px; cursor:pointer; }
+        .page .routeBox,.page .infoGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0; }
+        .page .routeBox div,.page .infoBox { padding:10px; border:1px solid #ffffff18; border-radius:8px; min-width:0; }
+        .page .routeBox span,.page .infoBox span { display:block; color:#a9b0ad; font-size:12px; margin-bottom:6px; }
+        .page .routeBox strong,.page .infoBox strong { font-size:14px; overflow-wrap:anywhere; }
+        .page .driverIdentity { margin:16px 0; }
+        .page .paymentReference { margin:16px 0; font-size:14px; overflow-wrap:anywhere; }
+        .page summary { min-height:44px; cursor:pointer; }
+        .page .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }
+        .page .dangerButton { color:#fca5a5; background:#ef44441a; }
+        .page button:disabled { opacity:.6; cursor:not-allowed; }
+        .page .pagination { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:10px; margin-top:16px; font-size:13px; }
+        .page .pagination > :last-child { justify-self:end; }
+        .page .message { color:#d9c39d; font-size:14px; }
+        .page .empty { padding:20px; border:1px solid #cdb68c44; border-radius:12px; }
+        .page .empty h2 { font-size:22px; }
+        @media(max-width:380px) { .page .pagination { gap:6px; } .page .pagination .linkButton { padding:10px 8px; font-size:12px; } }
       `}</style>
     </main>
-  );
-}
-
-function Metric({ icon, label, value }: { icon: string; label: string; value: string }) {
-  return (
-    <div className="metric">
-      <div className="metricIcon">{icon}</div>
-      <span className="metricLabel">{label}</span>
-      <div className="metricValue" translate="no"><span key={value}>{value}</span></div>
-    </div>
   );
 }
 
